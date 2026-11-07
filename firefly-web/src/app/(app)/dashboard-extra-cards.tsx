@@ -624,7 +624,7 @@ export function ExtraCard({ card, ctx }: { card: DashboardCardConfig; ctx: Extra
                 className="card-hover-spring flex flex-col justify-between gap-2 rounded-xl border border-border bg-surface-2/40 p-3 hover:border-primary/50 hover:bg-surface-2 hover:shadow-xs"
               >
                 <div className="flex items-start justify-between gap-2">
-                  <div className="flex min-w-0 items-center gap-2">
+                  <div className="flex min-w-0 flex-1 items-center gap-2">
                     <ResourceIconBadge
                       entityType="account"
                       entityId={item.acc.id}
@@ -632,7 +632,7 @@ export function ExtraCard({ card, ctx }: { card: DashboardCardConfig; ctx: Extra
                       defaultColor="#f97316"
                       size="sm"
                     />
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <p className="truncate text-xs font-bold text-fg">{item.name}</p>
                       <p className="truncate text-xs text-muted">
                         {item.role}
@@ -640,7 +640,12 @@ export function ExtraCard({ card, ctx }: { card: DashboardCardConfig; ctx: Extra
                       </p>
                     </div>
                   </div>
-                  <Badge tone={item.paidPct >= 50 ? "success" : "warning"}>{item.paidPct}% paid</Badge>
+                  <Badge
+                    tone={item.paidPct >= 50 ? "success" : "warning"}
+                    className="shrink-0 min-w-[3rem] justify-center whitespace-nowrap text-center font-mono text-[11px]"
+                  >
+                    {item.paidPct}%
+                  </Badge>
                 </div>
 
                 <Progress value={item.paidPct} tone="success" />

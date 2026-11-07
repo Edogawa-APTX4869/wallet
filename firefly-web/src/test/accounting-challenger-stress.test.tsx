@@ -471,8 +471,8 @@ describe("Adversarial Empirical Stress Suite: Accounting & Debt Payoff Logic", (
       expect(html).toContain("Auto Loan");
       expect(html).toContain("1,000.000"); // Paid so far
       expect(html).toContain("4,000.000"); // Remaining
-      // Total principal = 1000 + 4000 = 5000 -> 1000 / 5000 = 20% paid
-      expect(html).toContain("20% paid");
+      // Total principal = 1000 + 4000 = 5000 -> 1000 / 5000 = 20%
+      expect(html).toContain("20%");
     });
   });
 
