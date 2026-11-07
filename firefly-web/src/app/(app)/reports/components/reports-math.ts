@@ -55,7 +55,7 @@ export function computeCashFlowKpis(
 
   for (const tx of transactions) {
     const amt = new Decimal(tx.amount || 0).abs();
-    if (tx.type === "deposit" || tx.type === "opening balance") {
+    if (tx.type === "deposit") {
       inflow = inflow.plus(amt);
     } else if (tx.type === "withdrawal") {
       outflow = outflow.plus(amt);
@@ -258,12 +258,25 @@ export function computeCreditDebtGauge(
   let totalCreditLimit = new Decimal(0);
 
   for (const acc of accounts) {
+    const typeLower = (acc.type || "").toLowerCase().trim();
+    if (
+      typeLower === "initial-balance" ||
+      typeLower === "reconciliation" ||
+      typeLower === "import" ||
+      typeLower.includes("initial")
+    ) {
+      continue;
+    }
+
     const bal = new Decimal(acc.current_balance || 0).abs();
     const limit = new Decimal(acc.credit_limit || 0).abs();
 
     const isLiability =
       acc.type === "liability" ||
       acc.type === "liabilities" ||
+      acc.type === "loan" ||
+      acc.type === "debt" ||
+      acc.type === "mortgage" ||
       acc.account_role === "ccAsset" ||
       Boolean(acc.liability_type);
 

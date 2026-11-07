@@ -181,16 +181,16 @@ describe("Milestone 4 Adversarial Stress Testing & Edge Cases", () => {
       expect(kpis.savingsRatePercent).toBe(-150);
     });
 
-    it("2.6: counts 'opening balance' transactions as inflow", () => {
+    it("2.6: excludes 'opening balance' transactions from operating cash flow inflow", () => {
       const txs = [
         { type: "opening balance", amount: "10000.00" },
         { type: "withdrawal", amount: "2000.00" },
       ];
       const kpis = computeCashFlowKpis(txs);
-      expect(kpis.inflow.toString()).toBe("10000");
+      expect(kpis.inflow.toString()).toBe("0");
       expect(kpis.outflow.toString()).toBe("2000");
-      expect(kpis.netSaved.toString()).toBe("8000");
-      expect(kpis.savingsRatePercent).toBe(80);
+      expect(kpis.netSaved.toString()).toBe("-2000");
+      expect(kpis.savingsRatePercent).toBe(0);
     });
 
     it("2.7: ignores transfers and non-flow transaction types", () => {

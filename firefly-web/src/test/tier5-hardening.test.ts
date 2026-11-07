@@ -558,11 +558,11 @@ describe("Tier 5 White-Box Adversarial Coverage Hardening Suite", () => {
         { type: "withdrawal", amount: "3500" },
       ];
       const kpis = computeCashFlowKpis(txs);
-      expect(kpis.inflow.toString()).toBe("6000");
+      expect(kpis.inflow.toString()).toBe("5000");
       expect(kpis.outflow.toString()).toBe("3500");
-      expect(kpis.netSaved.toString()).toBe("2500");
-      // (2500 / 6000) * 100 = 41.67%
-      expect(kpis.savingsRatePercent).toBe(41.67);
+      expect(kpis.netSaved.toString()).toBe("1500");
+      // (1500 / 5000) * 100 = 30%
+      expect(kpis.savingsRatePercent).toBe(30);
 
       // Deficit cash flow (outflow > inflow)
       const deficitTxs = [

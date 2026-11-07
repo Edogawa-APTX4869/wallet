@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, useId } from "react";
+import { forwardRef, useEffect, useId, useState } from "react";
 import { Loader2, X } from "lucide-react";
 import { cn, formatMoney } from "@/lib/utils";
 import { useEscapeDismiss } from "@/lib/use-escape-dismiss";
@@ -291,11 +291,29 @@ export function ModalSheet({
 }) {
   useEscapeDismiss(open, onClose);
 
-  if (!open) return null;
+  const [rendered, setRendered] = useState(open);
+
+  if (open && !rendered) {
+    setRendered(true);
+  }
+
+  useEffect(() => {
+    if (!open && rendered) {
+      const timer = window.setTimeout(() => setRendered(false), 220);
+      return () => window.clearTimeout(timer);
+    }
+  }, [open, rendered]);
+
+  if (!open && !rendered) return null;
+
+  const isClosing = !open && rendered;
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 backdrop-blur-xs sm:items-center sm:p-4"
+      className={cn(
+        "fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 backdrop-blur-xs sm:items-center sm:p-4",
+        isClosing ? "drawer-backdrop-out pointer-events-none" : "drawer-backdrop-in",
+      )}
       onClick={onClose}
       role="dialog"
       aria-modal="true"
@@ -303,8 +321,9 @@ export function ModalSheet({
       <div
         onClick={(e) => e.stopPropagation()}
         className={cn(
-          "sheet-up flex max-h-[90dvh] w-full flex-col overflow-hidden rounded-t-3xl border border-border bg-surface shadow-2xl sm:rounded-3xl",
+          "flex max-h-[90dvh] w-full flex-col overflow-hidden rounded-t-3xl border border-border bg-surface shadow-2xl sm:rounded-3xl",
           maxWidth,
+          isClosing ? "sheet-down pointer-events-none" : "sheet-up",
         )}
       >
         {/* Mobile grab pill */}

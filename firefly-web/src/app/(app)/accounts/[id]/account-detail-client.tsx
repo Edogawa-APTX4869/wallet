@@ -93,7 +93,13 @@ export function computeAccount30dKpi(
           count++;
         }
       } else if (split.type === "opening balance" || split.type === "reconciliation") {
-        if (
+        if (split.destination_id === accountId && split.source_id !== accountId) {
+          inflow = inflow.plus(amt);
+          count++;
+        } else if (split.source_id === accountId && split.destination_id !== accountId) {
+          outflow = outflow.plus(amt);
+          count++;
+        } else if (
           split.destination_id === accountId ||
           split.source_id === accountId ||
           (!split.destination_id && !split.source_id)
@@ -503,9 +509,10 @@ export function AccountDetailClient({ id }: { id: string }) {
         )}
       </Card>
 
-      {/* Edit Account Modal */}
-      {editing && a && (
+      {/* Edit Account Modal with smooth exit */}
+      {a && (
         <EditAccountModal
+          open={editing}
           account={a}
           onClose={() => setEditing(false)}
           onSave={(payload) => updateMut.mutate(payload)}
@@ -517,11 +524,52 @@ export function AccountDetailClient({ id }: { id: string }) {
 }
 
 function EditAccountModal({
+  open,
   account,
   onClose,
   onSave,
   isSaving,
 }: {
+  open: boolean;
+  account: Account;
+  onClose: () => void;
+  onSave: (payload: Partial<Account>) => void;
+  isSaving: boolean;
+}) {
+  const [rendered, setRendered] = useState(open);
+
+  if (open && !rendered) {
+    setRendered(true);
+  }
+
+  useEffect(() => {
+    if (!open && rendered) {
+      const timer = window.setTimeout(() => setRendered(false), 240);
+      return () => window.clearTimeout(timer);
+    }
+  }, [open, rendered]);
+
+  if (!open && !rendered) return null;
+
+  return (
+    <EditAccountModalContent
+      open={open}
+      account={account}
+      onClose={onClose}
+      onSave={onSave}
+      isSaving={isSaving}
+    />
+  );
+}
+
+function EditAccountModalContent({
+  open,
+  account,
+  onClose,
+  onSave,
+  isSaving,
+}: {
+  open: boolean;
   account: Account;
   onClose: () => void;
   onSave: (payload: Partial<Account>) => void;
@@ -551,7 +599,7 @@ function EditAccountModal({
 
   return (
     <ModalSheet
-      open
+      open={open}
       onClose={onClose}
       title="Edit Account"
       subtitle={`Update settings for ${account.name}`}

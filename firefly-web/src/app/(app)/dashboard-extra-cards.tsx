@@ -35,7 +35,30 @@ export interface ExtraCardContext {
   trendData: Array<{ date: string; Balance: number }>;
 }
 
-const LIABILITY_TYPES = new Set(["liability", "liabilities", "loan", "debt", "mortgage"]);
+export const LIABILITY_TYPES = new Set(["liability", "liabilities", "loan", "debt", "mortgage"]);
+
+export const SYSTEM_ACCOUNT_TYPES = new Set([
+  "initial-balance",
+  "reconciliation",
+  "import",
+  "system",
+  "initial_balance",
+]);
+
+/** Identifies Firefly III double-entry system contra-accounts that must never be treated as user debts/assets. */
+export function isSystemContraAccount(a: Resource<Account>): boolean {
+  const type = String(a.attributes.type || "").toLowerCase().trim();
+  const name = String(a.attributes.name || "").toLowerCase().trim();
+  const role = String(a.attributes.account_role || "").toLowerCase().trim();
+  return (
+    SYSTEM_ACCOUNT_TYPES.has(type) ||
+    type.includes("initial") ||
+    role === "initialbalance" ||
+    role === "initial-balance" ||
+    role === "reconciliation" ||
+    name.startsWith("initial balance for")
+  );
+}
 
 /** Transactions within the card's period (by split date). */
 export function inPeriod(txs: Array<Resource<TransactionGroup>>, days: number) {
@@ -442,14 +465,16 @@ export function ExtraCard({ card, ctx }: { card: DashboardCardConfig; ctx: Extra
       const sourceAccounts = ctx.allAccounts ?? ctx.accounts;
       const sourceTxs = ctx.allTransactions ?? ctx.transactions;
       const liabilityAccounts = sourceAccounts
-        .filter(
-          (a) =>
-            a.attributes.active !== false &&
-            (LIABILITY_TYPES.has(String(a.attributes.type).toLowerCase()) ||
-              Boolean(a.attributes.liability_type) ||
-              a.attributes.account_role === "ccAsset" ||
-              Number(a.attributes.current_balance ?? 0) < 0),
-        )
+        .filter((a) => {
+          if (a.attributes.active === false) return false;
+          if (isSystemContraAccount(a)) return false;
+          const type = String(a.attributes.type || "").toLowerCase().trim();
+          const role = a.attributes.account_role;
+          const bal = Number(a.attributes.current_balance ?? 0);
+          const isLiabilityType = LIABILITY_TYPES.has(type) || Boolean(a.attributes.liability_type);
+          const isCcAssetDebt = role === "ccAsset" && bal < 0;
+          return isLiabilityType || isCcAssetDebt;
+        })
         .slice(0, limit);
 
       if (liabilityAccounts.length === 0) {
@@ -470,6 +495,11 @@ export function ExtraCard({ card, ctx }: { card: DashboardCardConfig; ctx: Extra
 
         for (const g of sourceTxs) {
           for (const s of g.attributes.transactions) {
+            // Exclude non-payment events (initial balances and reconciliations)
+            if (s.type === "opening balance" || s.type === "reconciliation") {
+              continue;
+            }
+
             const isDest = String(s.destination_id) === String(acc.id);
             const isSource = String(s.source_id) === String(acc.id);
             const nameMatch =

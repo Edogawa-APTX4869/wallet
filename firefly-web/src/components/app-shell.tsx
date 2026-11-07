@@ -29,6 +29,7 @@ import { SpeedDialFab } from "@/components/speed-dial-fab";
 import { MagicChatbar } from "@/components/magic-chatbar";
 import { useTheme } from "@/components/theme-provider";
 import { useEscapeDismiss } from "@/lib/use-escape-dismiss";
+import { PageTransition } from "@/components/page-transition";
 
 interface NavChild {
   href: string;
@@ -459,6 +460,116 @@ function getServerDesktopSidebarSnapshot(): boolean {
   return true;
 }
 
+function NotificationsSheet({
+  isOpen,
+  onClose,
+  serverUrl,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  serverUrl: string;
+}) {
+  const [rendered, setRendered] = useState(isOpen);
+
+  if (isOpen && !rendered) {
+    setRendered(true);
+  }
+
+  useEffect(() => {
+    if (!isOpen && rendered) {
+      const timer = window.setTimeout(() => setRendered(false), 220);
+      return () => window.clearTimeout(timer);
+    }
+  }, [isOpen, rendered]);
+
+  if (!isOpen && !rendered) return null;
+
+  const isClosing = !isOpen && rendered;
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="notifications-dialog-title"
+      className={cn(
+        "fixed inset-0 z-[70] flex items-end justify-center bg-black/50 p-0 backdrop-blur-xs sm:items-center sm:p-4",
+        isClosing ? "drawer-backdrop-out pointer-events-none" : "drawer-backdrop-in",
+      )}
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className={cn(
+          "flex max-h-[85dvh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl border border-border bg-surface shadow-2xl sm:rounded-3xl",
+          isClosing ? "sheet-down pointer-events-none" : "sheet-up",
+        )}
+      >
+        {/* Mobile grab pill */}
+        <div className="flex justify-center pt-2.5 sm:hidden" aria-hidden="true">
+          <span className="h-1.5 w-10 rounded-full bg-border" />
+        </div>
+
+        <div className="flex items-center justify-between border-b border-border px-4 py-3">
+          <div className="flex items-center gap-2">
+            <span className="flex size-8 items-center justify-center rounded-lg bg-primary-soft text-primary">
+              <Bell className="size-4" aria-hidden="true" />
+            </span>
+            <div>
+              <h2 id="notifications-dialog-title" className="text-base font-bold text-fg">
+                Notifications
+              </h2>
+              <p className="text-xs text-muted">Alerts and activity updates</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close notifications"
+            className="flex min-h-[48px] min-w-[48px] size-12 items-center justify-center rounded-xl text-muted hover:bg-surface-2 hover:text-fg active:scale-95 transition-all"
+          >
+            <X className="size-5" />
+          </button>
+        </div>
+
+        <div className="flex flex-col items-center justify-center gap-3 p-6 text-center">
+          <div className="flex size-14 items-center justify-center rounded-2xl bg-surface-2 text-muted">
+            <Bell className="size-7 stroke-[1.5] text-primary/80" aria-hidden="true" />
+          </div>
+          <div>
+            <h3 className="text-base font-semibold text-fg">All caught up!</h3>
+            <p className="mt-1 max-w-xs text-xs text-muted leading-relaxed">
+              No unread notifications at this time. Upcoming recurring bills, budget alerts, and account activity will appear here.
+            </p>
+          </div>
+
+          <div className="mt-2 flex w-full flex-col gap-2 rounded-xl border border-border/70 bg-surface-2/40 p-3 text-left">
+            <div className="flex items-center justify-between text-xs font-medium text-fg">
+              <span className="flex items-center gap-1.5">
+                <span className="size-2 rounded-full bg-success animate-pulse" />
+                System Status
+              </span>
+              <span className="text-[11px] font-semibold text-success">
+                All caught up
+              </span>
+            </div>
+            <p className="text-[11px] text-muted truncate" title={serverUrl}>
+              Server: {(serverUrl ?? "").replace(/^https?:\/\//, "")}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="mt-2 flex min-h-[48px] h-12 w-full items-center justify-center rounded-xl bg-primary text-sm font-semibold text-primary-fg hover:opacity-90 active:scale-[0.98] transition-all"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function AppShellInner({ children, serverUrl }: { children: React.ReactNode; serverUrl: string }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -641,87 +752,18 @@ export function AppShellInner({ children, serverUrl }: { children: React.ReactNo
               </span>
             )}
           </div>
-          {children}
+          <PageTransition>
+            {children}
+          </PageTransition>
         </div>
       </main>
 
-      {/* Notifications Modal Sheet / Dialog */}
-      {notificationsOpen && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="notifications-dialog-title"
-          className="fixed inset-0 z-[70] flex items-end justify-center bg-black/50 p-0 backdrop-blur-xs sm:items-center sm:p-4"
-          onClick={() => setNotificationsOpen(false)}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="sheet-up flex max-h-[85dvh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl border border-border bg-surface shadow-2xl sm:rounded-3xl"
-          >
-            {/* Mobile grab pill */}
-            <div className="flex justify-center pt-2.5 sm:hidden" aria-hidden="true">
-              <span className="h-1.5 w-10 rounded-full bg-border" />
-            </div>
-
-            <div className="flex items-center justify-between border-b border-border px-4 py-3">
-              <div className="flex items-center gap-2">
-                <span className="flex size-8 items-center justify-center rounded-lg bg-primary-soft text-primary">
-                  <Bell className="size-4" aria-hidden="true" />
-                </span>
-                <div>
-                  <h2 id="notifications-dialog-title" className="text-base font-bold text-fg">
-                    Notifications
-                  </h2>
-                  <p className="text-xs text-muted">Alerts and activity updates</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setNotificationsOpen(false)}
-                aria-label="Close notifications"
-                className="flex min-h-[48px] min-w-[48px] size-12 items-center justify-center rounded-xl text-muted hover:bg-surface-2 hover:text-fg active:scale-95 transition-all"
-              >
-                <X className="size-5" />
-              </button>
-            </div>
-
-            <div className="flex flex-col items-center justify-center gap-3 p-6 text-center">
-              <div className="flex size-14 items-center justify-center rounded-2xl bg-surface-2 text-muted">
-                <Bell className="size-7 stroke-[1.5] text-primary/80" aria-hidden="true" />
-              </div>
-              <div>
-                <h3 className="text-base font-semibold text-fg">All caught up!</h3>
-                <p className="mt-1 max-w-xs text-xs text-muted leading-relaxed">
-                  No unread notifications at this time. Upcoming recurring bills, budget alerts, and account activity will appear here.
-                </p>
-              </div>
-
-              <div className="mt-2 flex w-full flex-col gap-2 rounded-xl border border-border/70 bg-surface-2/40 p-3 text-left">
-                <div className="flex items-center justify-between text-xs font-medium text-fg">
-                  <span className="flex items-center gap-1.5">
-                    <span className="size-2 rounded-full bg-success animate-pulse" />
-                    System Status
-                  </span>
-                  <span className="text-[11px] font-semibold text-success">
-                    All caught up
-                  </span>
-                </div>
-                <p className="text-[11px] text-muted truncate" title={serverUrl}>
-                  Server: {(serverUrl ?? "").replace(/^https?:\/\//, "")}
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setNotificationsOpen(false)}
-                className="mt-2 flex min-h-[48px] h-12 w-full items-center justify-center rounded-xl bg-primary text-sm font-semibold text-primary-fg hover:opacity-90 active:scale-[0.98] transition-all"
-              >
-                Done
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Notifications Modal Sheet / Dialog with smooth enter/exit animation */}
+      <NotificationsSheet
+        isOpen={notificationsOpen}
+        onClose={() => setNotificationsOpen(false)}
+        serverUrl={serverUrl}
+      />
 
       {/* Fast-Access Bottom AI Magic Chatbar ("Ramble" voice & text dock) */}
       <div

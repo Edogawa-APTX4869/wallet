@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Copy, Landmark, Plus, Wand2 } from "lucide-react";
 import type { TransactionTemplateRow } from "@/lib/server/db";
@@ -28,11 +28,28 @@ export function SpeedDialFab({
   const open = controlledOpen !== undefined ? controlledOpen : internalOpen;
   const setOpen = (val: boolean | ((prev: boolean) => boolean)) => {
     if (controlledOnToggle) {
-      controlledOnToggle();
+      const nextVal = typeof val === "function" ? val(open) : val;
+      if (nextVal !== open) {
+        controlledOnToggle();
+      }
     } else {
       setInternalOpen(val);
     }
   };
+
+  const [rendered, setRendered] = useState(open);
+
+  if (open && !rendered) {
+    setRendered(true);
+  }
+
+  useEffect(() => {
+    if (!open && rendered) {
+      const timer = window.setTimeout(() => setRendered(false), 200);
+      return () => window.clearTimeout(timer);
+    }
+  }, [open, rendered]);
+
   const aiConfigQ = useAiAssistantConfig();
   const aiReady = Boolean(aiConfigQ.data?.enabled && aiConfigQ.data?.verified);
 
@@ -51,13 +68,18 @@ export function SpeedDialFab({
 
   if (pathname === "/new") return null;
 
+  const isClosing = !open && rendered;
+  const showSpeedDial = open || isClosing;
   const templates = (templatesQ.data ?? []).slice(0, 6);
 
   return (
     <>
-      {open && (
+      {showSpeedDial && (
         <div
-          className="fixed inset-0 z-40 bg-bg/70 backdrop-blur-xs"
+          className={cn(
+            "fixed inset-0 z-40 bg-bg/75 backdrop-blur-xs",
+            isClosing ? "drawer-backdrop-out pointer-events-none" : "drawer-backdrop-in",
+          )}
           onClick={() => {
             if (controlledOnToggle) controlledOnToggle();
             else setOpen(false);
@@ -67,16 +89,23 @@ export function SpeedDialFab({
       )}
 
       <div className="fixed right-4 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-40 flex flex-col items-end gap-2 md:right-8 md:bottom-8">
-        {open && (
-          <div className="flex flex-col items-end gap-2 fade-in">
-            {templates.map((t) => {
+        {showSpeedDial && (
+          <div className="flex flex-col items-end gap-2">
+            {templates.map((t, tIdx) => {
               const IconComp = ICON_CATALOG[t.icon] ?? Copy;
+              // Stagger delay starts from bottom-most template upward
+              const bottomUpDist = (aiReady ? 5 : 4) + (templates.length - 1 - tIdx);
+              const delay = isClosing ? 0 : bottomUpDist * 35;
               return (
                 <Link
                   key={t.id}
                   href={`/new?type=${t.type}&template=${encodeURIComponent(t.id)}`}
                   onClick={() => setOpen(false)}
-                  className="interactive-tap flex min-h-[48px] items-center gap-2.5 rounded-full border border-border bg-surface px-4 py-2.5 text-sm font-medium text-fg shadow-md transition-colors hover:bg-surface-2 active:scale-[0.97]"
+                  style={{ animationDelay: `${delay}ms` }}
+                  className={cn(
+                    "interactive-tap flex min-h-[48px] items-center gap-2.5 rounded-full border border-border bg-surface px-4 py-2.5 text-sm font-medium text-fg shadow-md transition-colors hover:bg-surface-2 active:scale-[0.97]",
+                    isClosing ? "fab-pill-out pointer-events-none" : "fab-pill-in",
+                  )}
                 >
                   <span
                     className="flex size-6 items-center justify-center rounded-full text-white"
@@ -96,7 +125,11 @@ export function SpeedDialFab({
                   setOpen(false);
                   window.dispatchEvent(new CustomEvent("ff:open-magic-chat"));
                 }}
-                className="interactive-tap flex min-h-[48px] items-center gap-2.5 rounded-full border border-border bg-surface px-4 py-2.5 text-sm font-medium text-fg shadow-md transition-colors hover:bg-surface-2 active:scale-[0.97]"
+                style={{ animationDelay: isClosing ? "0ms" : "140ms" }}
+                className={cn(
+                  "interactive-tap flex min-h-[48px] items-center gap-2.5 rounded-full border border-border bg-surface px-4 py-2.5 text-sm font-medium text-fg shadow-md transition-colors hover:bg-surface-2 active:scale-[0.97]",
+                  isClosing ? "fab-pill-out pointer-events-none" : "fab-pill-in",
+                )}
               >
                 <span className="flex size-6 items-center justify-center rounded-full bg-primary-soft text-primary">
                   <Wand2 className="size-3.5" aria-hidden />
@@ -114,7 +147,11 @@ export function SpeedDialFab({
                   window.dispatchEvent(new CustomEvent("ff:open-create-account"));
                 }
               }}
-              className="interactive-tap flex min-h-[48px] items-center gap-2.5 rounded-full border border-border bg-surface px-4 py-2.5 text-sm font-medium text-fg shadow-md transition-colors hover:bg-surface-2 active:scale-[0.97]"
+              style={{ animationDelay: isClosing ? "0ms" : "105ms" }}
+              className={cn(
+                "interactive-tap flex min-h-[48px] items-center gap-2.5 rounded-full border border-border bg-surface px-4 py-2.5 text-sm font-medium text-fg shadow-md transition-colors hover:bg-surface-2 active:scale-[0.97]",
+                isClosing ? "fab-pill-out pointer-events-none" : "fab-pill-in",
+              )}
             >
               <span className="flex size-6 items-center justify-center rounded-full bg-primary-soft text-primary">
                 <Landmark className="size-3.5" aria-hidden />
@@ -125,7 +162,11 @@ export function SpeedDialFab({
             <Link
               href="/new?type=transfer"
               onClick={() => setOpen(false)}
-              className="interactive-tap flex min-h-[48px] items-center gap-2.5 rounded-full border border-border bg-surface px-4 py-2.5 text-sm font-medium text-fg shadow-md transition-colors hover:bg-surface-2 active:scale-[0.97]"
+              style={{ animationDelay: isClosing ? "0ms" : "70ms" }}
+              className={cn(
+                "interactive-tap flex min-h-[48px] items-center gap-2.5 rounded-full border border-border bg-surface px-4 py-2.5 text-sm font-medium text-fg shadow-md transition-colors hover:bg-surface-2 active:scale-[0.97]",
+                isClosing ? "fab-pill-out pointer-events-none" : "fab-pill-in",
+              )}
             >
               <span className="flex size-6 items-center justify-center rounded-full bg-primary-soft text-primary">
                 <ArrowLeftRight className="size-3.5" aria-hidden />
@@ -136,7 +177,11 @@ export function SpeedDialFab({
             <Link
               href="/new?type=deposit"
               onClick={() => setOpen(false)}
-              className="interactive-tap flex min-h-[48px] items-center gap-2.5 rounded-full border border-border bg-surface px-4 py-2.5 text-sm font-medium text-fg shadow-md transition-colors hover:bg-surface-2 active:scale-[0.97]"
+              style={{ animationDelay: isClosing ? "0ms" : "35ms" }}
+              className={cn(
+                "interactive-tap flex min-h-[48px] items-center gap-2.5 rounded-full border border-border bg-surface px-4 py-2.5 text-sm font-medium text-fg shadow-md transition-colors hover:bg-surface-2 active:scale-[0.97]",
+                isClosing ? "fab-pill-out pointer-events-none" : "fab-pill-in",
+              )}
             >
               <span className="flex size-6 items-center justify-center rounded-full bg-success-soft text-success">
                 <ArrowDownLeft className="size-3.5" aria-hidden />
@@ -147,7 +192,11 @@ export function SpeedDialFab({
             <Link
               href="/new?type=withdrawal"
               onClick={() => setOpen(false)}
-              className="interactive-tap flex min-h-[48px] items-center gap-2.5 rounded-full border border-border bg-surface px-4 py-2.5 text-sm font-medium text-fg shadow-md transition-colors hover:bg-surface-2 active:scale-[0.97]"
+              style={{ animationDelay: isClosing ? "0ms" : "0ms" }}
+              className={cn(
+                "interactive-tap flex min-h-[48px] items-center gap-2.5 rounded-full border border-border bg-surface px-4 py-2.5 text-sm font-medium text-fg shadow-md transition-colors hover:bg-surface-2 active:scale-[0.97]",
+                isClosing ? "fab-pill-out pointer-events-none" : "fab-pill-in",
+              )}
             >
               <span className="flex size-6 items-center justify-center rounded-full bg-danger-soft text-danger">
                 <ArrowUpRight className="size-3.5" aria-hidden />
@@ -163,13 +212,13 @@ export function SpeedDialFab({
           aria-label={open ? "Close quick actions" : "Add transaction"}
           aria-expanded={open}
           className={cn(
-            "flex size-14 items-center justify-center rounded-full bg-primary text-primary-fg shadow-lg transition-all duration-200 hover:scale-105 active:scale-95",
-            open && "bg-fg text-bg",
+            "flex size-14 items-center justify-center rounded-full bg-primary text-primary-fg shadow-lg transition-all duration-300 hover:scale-105 active:scale-95",
+            open && "bg-fg text-bg shadow-xl",
           )}
         >
           <Plus
             className={cn(
-              "size-7 transition-transform duration-250 ease-out",
+              "size-7 transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]",
               open && "rotate-45",
             )}
             style={{ transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)" }}

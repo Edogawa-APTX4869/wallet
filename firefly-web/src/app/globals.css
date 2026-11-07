@@ -240,16 +240,57 @@ dialog.sheet::backdrop {
     opacity: 1;
   }
 }
+@keyframes pop-out {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.92);
+    opacity: 0;
+  }
+}
 .animate-pop-in {
   animation: pop-in 260ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }
+.animate-pop-out {
+  animation: pop-out 180ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  will-change: transform, opacity;
+}
 
 @media (prefers-reduced-motion: no-preference) {
+  @view-transition {
+    navigation: auto;
+  }
+  ::view-transition-old(root) {
+    animation: 160ms cubic-bezier(0.4, 0, 1, 1) both view-fade-out;
+  }
+  ::view-transition-new(root) {
+    animation: 200ms cubic-bezier(0.16, 1, 0.3, 1) both page-enter;
+  }
+  ::view-transition-old(page-content) {
+    animation: 160ms cubic-bezier(0.4, 0, 1, 1) both view-fade-out;
+  }
+  ::view-transition-new(page-content) {
+    animation: 200ms cubic-bezier(0.16, 1, 0.3, 1) both page-enter;
+  }
+  @keyframes view-fade-out {
+    from {
+      opacity: 1;
+    }
+    to {
+      opacity: 0;
+    }
+  }
+
   .fade-in {
     animation: fade-in 180ms cubic-bezier(0.16, 1, 0.3, 1);
   }
   .sheet-up {
     animation: sheet-up 240ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .sheet-down {
+    animation: sheet-down 200ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
   }
   .drawer-slide-in {
     animation: drawer-slide-in 260ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
@@ -263,6 +304,29 @@ dialog.sheet::backdrop {
   .drawer-backdrop-out {
     animation: drawer-backdrop-out 200ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
   }
+
+  /* Speed Dial FAB Staggered Pill Pop Animations */
+  .fab-pill-in {
+    animation: fab-pill-in 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    will-change: transform, opacity;
+  }
+  .fab-pill-out {
+    animation: fab-pill-out 180ms cubic-bezier(0.4, 0, 0.2, 1) both;
+    will-change: transform, opacity;
+  }
+
+  /* Popover / Dropdown Menu Fluid Enter */
+  .popover-in {
+    animation: popover-in 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    will-change: transform, opacity;
+  }
+
+  /* Page / Route Change Smooth Screen Transitions */
+  .page-enter {
+    animation: page-enter 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    will-change: transform, opacity;
+  }
+
   @keyframes fade-in {
     from {
       opacity: 0;
@@ -271,6 +335,16 @@ dialog.sheet::backdrop {
   }
   @keyframes sheet-up {
     from {
+      opacity: 0;
+      transform: translateY(16px);
+    }
+  }
+  @keyframes sheet-down {
+    from {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    to {
       opacity: 0;
       transform: translateY(16px);
     }
@@ -307,6 +381,49 @@ dialog.sheet::backdrop {
       opacity: 0;
     }
   }
+  @keyframes fab-pill-in {
+    0% {
+      opacity: 0;
+      transform: translate3d(0, 16px, 0) scale(0.88);
+    }
+    65% {
+      transform: translate3d(0, -2px, 0) scale(1.02);
+    }
+    100% {
+      opacity: 1;
+      transform: translate3d(0, 0, 0) scale(1);
+    }
+  }
+  @keyframes fab-pill-out {
+    0% {
+      opacity: 1;
+      transform: translate3d(0, 0, 0) scale(1);
+    }
+    100% {
+      opacity: 0;
+      transform: translate3d(0, 10px, 0) scale(0.92);
+    }
+  }
+  @keyframes popover-in {
+    0% {
+      opacity: 0;
+      transform: translate3d(0, -6px, 0) scale(0.97);
+    }
+    100% {
+      opacity: 1;
+      transform: translate3d(0, 0, 0) scale(1);
+    }
+  }
+  @keyframes page-enter {
+    0% {
+      opacity: 0;
+      transform: translate3d(0, 8px, 0);
+    }
+    100% {
+      opacity: 1;
+      transform: translate3d(0, 0, 0);
+    }
+  }
 }
 
 /* Accessibility: Safe graceful degradation for reduced motion */
@@ -318,6 +435,11 @@ dialog.sheet::backdrop {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
   }
   button:active:not(:disabled),
   [role="button"]:active:not([aria-disabled="true"]),
@@ -356,11 +478,24 @@ dialog.sheet::backdrop {
   .fade-in,
   .sheet-up,
   .drawer-slide-in,
-  .drawer-slide-out,
   .drawer-backdrop-in,
-  .drawer-backdrop-out,
-  .animate-placeholder-enter {
+  .animate-placeholder-enter,
+  .fab-pill-in,
+  .popover-in,
+  .page-enter {
     animation: none !important;
+    transform: none !important;
+    opacity: 1 !important;
+  }
+  .sheet-down,
+  .drawer-slide-out,
+  .drawer-backdrop-out,
+  .fab-pill-out,
+  .animate-pop-out {
+    animation: none !important;
+    transform: none !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
   }
   .widget-card-dragging,
   .widget-card-recessed,

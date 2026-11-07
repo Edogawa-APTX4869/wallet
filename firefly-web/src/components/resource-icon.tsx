@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEscapeDismiss } from "@/lib/use-escape-dismiss";
@@ -274,6 +274,21 @@ export function ResourceIconBadge({
   const meta = useResourceMeta();
   const updateMut = useUpdateResourceMeta();
   const [open, setOpen] = useState(false);
+  const [rendered, setRendered] = useState(open);
+
+  if (open && !rendered) {
+    setRendered(true);
+  }
+
+  useEffect(() => {
+    if (!open && rendered) {
+      const timer = window.setTimeout(() => setRendered(false), 200);
+      return () => window.clearTimeout(timer);
+    }
+  }, [open, rendered]);
+
+  const isClosing = !open && rendered;
+  const showPicker = open || isClosing;
 
   useEscapeDismiss(open, () => setOpen(false), "resource-icon-picker");
 
@@ -321,9 +336,12 @@ export function ResourceIconBadge({
         />
       </button>
 
-      {open && typeof document !== "undefined" && createPortal(
+      {showPicker && typeof document !== "undefined" && createPortal(
         <div
-          className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs animate-fade-in"
+          className={cn(
+            "fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs",
+            isClosing ? "drawer-backdrop-out pointer-events-none" : "drawer-backdrop-in",
+          )}
           onMouseDown={(e) => {
             if (e.target === e.currentTarget) {
               setOpen(false);
@@ -345,7 +363,10 @@ export function ResourceIconBadge({
             onClick={(e) => {
               e.stopPropagation();
             }}
-            className="w-full max-w-xs animate-pop-in rounded-2xl border border-border bg-surface p-4 shadow-2xl sm:max-w-sm relative z-10 opacity-100"
+            className={cn(
+              "w-full max-w-xs rounded-2xl border border-border bg-surface p-4 shadow-2xl sm:max-w-sm relative z-10",
+              isClosing ? "animate-pop-out pointer-events-none" : "animate-pop-in",
+            )}
           >
             <div className="mb-3 flex items-center justify-between border-b border-border pb-2.5">
               <span className="text-sm font-semibold text-fg">Choose Icon &amp; Color</span>

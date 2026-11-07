@@ -7,14 +7,20 @@ import { cn, formatDate } from "@/lib/utils";
 import { ICON_CATALOG, inferCategoryDefaultStyle, useResourceMeta } from "@/components/resource-icon";
 import { Badge, Money } from "@/components/ui";
 
-function signFor(split: TransactionSplit, perspectiveAccountId?: string): 1 | -1 | 0 {
+export function signFor(split: TransactionSplit, perspectiveAccountId?: string): 1 | -1 | 0 {
   if (split.type === "withdrawal") return -1;
   if (split.type === "deposit") return 1;
   if (split.type === "transfer" && perspectiveAccountId) {
     if (split.source_id === perspectiveAccountId) return -1;
     if (split.destination_id === perspectiveAccountId) return 1;
   }
-  if (split.type === "opening balance") return Number(split.amount) >= 0 ? 1 : -1;
+  if (split.type === "opening balance" || split.type === "reconciliation") {
+    if (perspectiveAccountId) {
+      if (split.destination_id === perspectiveAccountId && split.source_id !== perspectiveAccountId) return 1;
+      if (split.source_id === perspectiveAccountId && split.destination_id !== perspectiveAccountId) return -1;
+    }
+    return Number(split.amount) >= 0 ? 1 : -1;
+  }
   return 0;
 }
 
@@ -74,7 +80,11 @@ export function TransactionRow({
     (first.category_name ? meta.get("category", first.category_name) : undefined);
   const inferredCat = first.category_name ? inferCategoryDefaultStyle(first.category_name) : undefined;
   const DefaultIcon =
-    first.type === "transfer" ? ArrowLeftRight : first.type === "deposit" ? ArrowDownLeft : ArrowUpRight;
+    first.type === "transfer"
+      ? ArrowLeftRight
+      : first.type === "deposit" || sign > 0
+        ? ArrowDownLeft
+        : ArrowUpRight;
   const iconName = catMeta?.icon || inferredCat?.icon;
   const iconColor = catMeta?.color || inferredCat?.color;
   const Icon = (iconName && ICON_CATALOG[iconName]) || DefaultIcon;
@@ -85,9 +95,9 @@ export function TransactionRow({
         style={iconColor ? { backgroundColor: `${iconColor}22`, color: iconColor } : undefined}
         className={cn(
           "flex size-8 sm:size-9 shrink-0 items-center justify-center rounded-xl",
-          !iconColor && first.type === "withdrawal" && "bg-danger-soft text-danger",
-          !iconColor && first.type === "deposit" && "bg-success-soft text-success",
-          !iconColor && first.type !== "withdrawal" && first.type !== "deposit" && "bg-primary-soft text-primary",
+          !iconColor && (first.type === "withdrawal" || sign < 0) && "bg-danger-soft text-danger",
+          !iconColor && (first.type === "deposit" || sign > 0) && "bg-success-soft text-success",
+          !iconColor && first.type !== "withdrawal" && first.type !== "deposit" && sign === 0 && "bg-primary-soft text-primary",
         )}
       >
         <Icon className="size-3.5 sm:size-4" aria-hidden />
@@ -96,6 +106,12 @@ export function TransactionRow({
         <p className="truncate text-xs sm:text-sm font-medium">
           {isSplit ? group.attributes.group_title || first.description : first.description}
           {isSplit && <Badge className="ml-1.5 text-[10px] sm:text-xs">{splits.length} splits</Badge>}
+          {first.type === "reconciliation" && (
+            <Badge tone="neutral" className="ml-1.5 text-[10px] sm:text-xs">Reconciliation</Badge>
+          )}
+          {first.type === "opening balance" && (
+            <Badge tone="neutral" className="ml-1.5 text-[10px] sm:text-xs">Opening balance</Badge>
+          )}
         </p>
         <p className="truncate text-[11px] sm:text-xs text-muted">
           <Link href={`/accounts/${first.source_id}`} className="hover:underline">

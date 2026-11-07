@@ -1202,6 +1202,11 @@ function QuickPayModal({
   const qc = useQueryClient();
   const toast = useToast();
   const router = useRouter();
+  const [open, setOpen] = useState(true);
+  const handleClose = () => {
+    setOpen(false);
+    setTimeout(onClose, 240);
+  };
 
   const a = bill.attributes;
   const initialAmount = a.amount_min || a.amount_max || "";
@@ -1238,7 +1243,7 @@ function QuickPayModal({
       qc.invalidateQueries({ queryKey: ["accounts"] });
       qc.invalidateQueries({ queryKey: ["summary"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
-      onClose();
+      handleClose();
     },
     onError: (e) => toast((e as Error).message, "error"),
   });
@@ -1263,13 +1268,13 @@ function QuickPayModal({
       category: category || undefined,
     });
     router.push(url);
-    onClose();
+    handleClose();
   };
 
   return (
     <ModalSheet
-      open
-      onClose={onClose}
+      open={open}
+      onClose={handleClose}
       title={
         <div className="flex items-center gap-2">
           <CreditCard className="size-5 text-primary" />
@@ -1409,7 +1414,7 @@ function QuickPayModal({
             <ExternalLink className="size-3.5" /> Open in full transaction form
           </button>
           <div className="flex w-full sm:w-auto items-center justify-end gap-2">
-            <Button type="button" variant="secondary" onClick={onClose}>
+            <Button type="button" variant="secondary" onClick={handleClose}>
               Cancel
             </Button>
             <Button type="submit" loading={payMut.isPending} className="gap-1.5">
@@ -1439,6 +1444,11 @@ function CreateBillRuleModal({
 }) {
   const qc = useQueryClient();
   const toast = useToast();
+  const [open, setOpen] = useState(true);
+  const handleClose = () => {
+    setOpen(false);
+    setTimeout(onClose, 240);
+  };
 
   const b = bill.attributes;
   const [title, setTitle] = useState(existingRule?.attributes.title || `Auto-match bill: ${b.name}`);
@@ -1499,15 +1509,15 @@ function CreateBillRuleModal({
       toast(existingRule ? `Automated rule for ${bill.attributes.name} updated!` : `Automated rule for ${bill.attributes.name} created!`);
       qc.invalidateQueries({ queryKey: ["rules"] });
       qc.invalidateQueries({ queryKey: ["rule-groups"] });
-      onClose();
+      handleClose();
     },
     onError: (e) => toast((e as Error).message, "error"),
   });
 
   return (
     <ModalSheet
-      open
-      onClose={onClose}
+      open={open}
+      onClose={handleClose}
       title={
         <div className="flex items-center gap-2">
           <Wand2 className="size-5 text-primary" />
@@ -1630,7 +1640,7 @@ function CreateBillRuleModal({
         </div>
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button type="button" variant="secondary" onClick={onClose}>
+          <Button type="button" variant="secondary" onClick={handleClose}>
             Cancel
           </Button>
           <Button type="submit" loading={saveMut.isPending} className="gap-1.5">

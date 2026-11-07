@@ -471,6 +471,11 @@ function EditTransactionModal({
 }) {
   const qc = useQueryClient();
   const toast = useToast();
+  const [open, setOpen] = useState(true);
+  const handleClose = () => {
+    setOpen(false);
+    setTimeout(onClose, 240);
+  };
   const first = group.attributes.transactions[0];
 
   const [description, setDescription] = useState(first?.description ?? "");
@@ -511,7 +516,7 @@ function EditTransactionModal({
       qc.invalidateQueries({ queryKey: ["accounts"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
       qc.invalidateQueries({ queryKey: ["budgets"] });
-      onClose();
+      handleClose();
     },
     onError: (e) => toast((e as Error).message, "error"),
   });
@@ -520,8 +525,8 @@ function EditTransactionModal({
 
   return (
     <ModalSheet
-      open
-      onClose={onClose}
+      open={open}
+      onClose={handleClose}
       title="Edit Transaction"
       subtitle={`${first.source_name ?? ""} → ${first.destination_name ?? ""} (${first.currency_code ?? ""})`}
     >
@@ -577,7 +582,7 @@ function EditTransactionModal({
         </Field>
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="ghost" onClick={handleClose}>
             Cancel
           </Button>
           <Button onClick={() => updateMut.mutate()} loading={updateMut.isPending}>

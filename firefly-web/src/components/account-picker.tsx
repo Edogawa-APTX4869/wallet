@@ -128,7 +128,7 @@ export function AccountPicker({
       </button>
 
       {open && (
-        <div className="fade-in absolute top-full right-0 left-0 z-30 mt-1 overflow-hidden rounded-xl border border-border bg-surface shadow-xl">
+        <div className="popover-in absolute top-full right-0 left-0 z-30 mt-1 overflow-hidden rounded-xl border border-border bg-surface shadow-xl">
           <div className="flex items-center gap-2 border-b border-border px-3">
             <Search className="size-4 text-muted" aria-hidden />
             <input

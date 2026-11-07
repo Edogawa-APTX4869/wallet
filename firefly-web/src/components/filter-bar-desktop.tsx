@@ -220,7 +220,7 @@ export function DesktopStickyFilterBar({
               {periodDropdownOpen && (
                 <div
                   role="menu"
-                  className="absolute left-0 top-full mt-1.5 z-50 w-56 rounded-2xl border border-border bg-surface p-1.5 shadow-xl animate-in fade-in zoom-in-95"
+                  className="absolute left-0 top-full mt-1.5 z-50 w-56 rounded-2xl border border-border bg-surface p-1.5 shadow-xl popover-in"
                 >
                   <div className="px-2 py-1 text-[11px] font-semibold text-muted uppercase tracking-wider">
                     Select Period
@@ -318,7 +318,7 @@ export function DesktopStickyFilterBar({
 
             {/* Dual Date Range Popover */}
             {datePopoverOpen && (
-              <div className="absolute left-0 top-full mt-2 z-50 w-72 rounded-2xl border border-border bg-surface p-4 shadow-xl animate-in fade-in zoom-in-95">
+              <div className="absolute left-0 top-full mt-2 z-50 w-72 rounded-2xl border border-border bg-surface p-4 shadow-xl popover-in">
                 <div className="mb-3 flex items-center justify-between border-b border-border pb-2">
                   <h4 className="text-xs font-bold text-fg flex items-center gap-1.5">
                     <Calendar className="size-3.5 text-primary" />
@@ -409,7 +409,7 @@ export function DesktopStickyFilterBar({
               </button>
 
               {accountDropdownOpen && (
-                <div className="absolute right-0 top-full mt-2 z-50 w-80 rounded-2xl border border-border bg-surface p-3 shadow-xl animate-in fade-in zoom-in-95">
+                <div className="absolute right-0 top-full mt-2 z-50 w-80 rounded-2xl border border-border bg-surface p-3 shadow-xl popover-in">
                   <div className="mb-2 flex items-center justify-between border-b border-border pb-2">
                     <div className="text-xs font-bold text-fg flex items-center gap-1.5">
                       <SlidersHorizontal className="size-3.5 text-primary" />

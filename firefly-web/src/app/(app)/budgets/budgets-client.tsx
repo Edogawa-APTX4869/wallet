@@ -84,7 +84,7 @@ export function BudgetsClient() {
       const limitVal = new Decimal(lim?.attributes.amount ?? b.attributes.auto_budget_amount ?? 0);
       const spentEntries = b.attributes.spent ?? [];
       const spentVal = sumDecimal(spentEntries.map((s) => new Decimal(s.sum).abs()));
-      const leftVal = limitVal.gt(0) ? limitVal.minus(spentVal) : new Decimal(0);
+      const leftVal = limitVal.minus(spentVal);
       const code =
         lim?.attributes.currency_code ||
         spentEntries[0]?.currency_code ||

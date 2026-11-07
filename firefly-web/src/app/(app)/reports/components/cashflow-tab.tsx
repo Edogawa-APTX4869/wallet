@@ -136,7 +136,7 @@ export function CashFlowTab({
           const amt = new Decimal(split.amount || 0).abs();
           const amtPrimary = toPrimary(amt, split.currency_code);
 
-          if (split.type === "deposit" || split.type === "opening balance") {
+          if (split.type === "deposit") {
             inflowPrimary = inflowPrimary.plus(amtPrimary);
           } else if (split.type === "withdrawal") {
             outflowPrimary = outflowPrimary.plus(amtPrimary);

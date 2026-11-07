@@ -731,6 +731,15 @@ export function DashboardClient() {
   const [configOpenKey, setConfigOpenKey] = useState<DashboardCardKey | null>(null);
   const [showCardManager, setShowCardManager] = useState(false);
   const [previewCardKey, setPreviewCardKey] = useState<DashboardCardKey | null>(null);
+  const [closingPreview, setClosingPreview] = useState(false);
+
+  const handleClosePreview = useCallback(() => {
+    setClosingPreview(true);
+    window.setTimeout(() => {
+      setPreviewCardKey(null);
+      setClosingPreview(false);
+    }, 220);
+  }, []);
 
   const primaryQ = usePrimaryCurrency();
   const accountsQ = useAccounts("all");
@@ -1576,8 +1585,8 @@ export function DashboardClient() {
 
       {/* Enlarged Card Mockup Preview Sheet */}
       <ModalSheet
-        open={previewCardKey !== null}
-        onClose={() => setPreviewCardKey(null)}
+        open={previewCardKey !== null && !closingPreview}
+        onClose={handleClosePreview}
         title={previewCardKey ? `Preview: ${CATALOG_BY_KEY.get(previewCardKey)?.title ?? ""}` : "Card Preview"}
         subtitle={previewCardKey ? CATALOG_BY_KEY.get(previewCardKey)?.description : ""}
         maxWidth="max-w-md"
@@ -1606,7 +1615,7 @@ export function DashboardClient() {
             </div>
 
             <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
-              <Button variant="secondary" size="sm" onClick={() => setPreviewCardKey(null)}>
+              <Button variant="secondary" size="sm" onClick={handleClosePreview}>
                 Close
               </Button>
               {cards.some((c) => c.key === previewCardKey && c.visible) ? (
@@ -1618,7 +1627,7 @@ export function DashboardClient() {
                   size="sm"
                   onClick={() => {
                     addCard(previewCardKey);
-                    setPreviewCardKey(null);
+                    handleClosePreview();
                   }}
                 >
                   <Plus className="size-4" /> Add to dashboard

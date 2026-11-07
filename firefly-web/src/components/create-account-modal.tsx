@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/firefly/api";
 import type { Account } from "@/lib/firefly/types";
@@ -33,10 +33,24 @@ export function CreateAccountModal({
   initialType?: string;
   onCreated?: (account: Account) => void;
 }) {
-  if (!open) return null;
+  const [rendered, setRendered] = useState(open);
+
+  if (open && !rendered) {
+    setRendered(true);
+  }
+
+  useEffect(() => {
+    if (!open && rendered) {
+      const timer = window.setTimeout(() => setRendered(false), 240);
+      return () => window.clearTimeout(timer);
+    }
+  }, [open, rendered]);
+
+  if (!open && !rendered) return null;
 
   return (
     <CreateAccountModalContent
+      open={open}
       onClose={onClose}
       initialType={initialType}
       onCreated={onCreated}
@@ -45,10 +59,12 @@ export function CreateAccountModal({
 }
 
 function CreateAccountModalContent({
+  open,
   onClose,
   initialType = "asset",
   onCreated,
 }: {
+  open: boolean;
   onClose: () => void;
   initialType?: string;
   onCreated?: (account: Account) => void;
@@ -131,7 +147,7 @@ function CreateAccountModalContent({
 
   return (
     <ModalSheet
-      open
+      open={open}
       onClose={onClose}
       title="Create New Account"
       subtitle="Add an asset, liability, expense, or revenue account"
