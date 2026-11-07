@@ -53,8 +53,12 @@ export interface CategoryTreeGroup {
 
 /**
  * Groups flat Firefly III categories into a two-level `Category → Sub-category` tree.
+ * Optionally sorts parents by a custom ordered list of parent names (falling back to alphabetical).
  */
-export function buildCategoryTree(categories: Array<Resource<Category>> = []): CategoryTreeGroup[] {
+export function buildCategoryTree(
+  categories: Array<Resource<Category>> = [],
+  customOrder?: string[],
+): CategoryTreeGroup[] {
   const map = new Map<string, CategoryTreeGroup>();
 
   for (const r of categories) {
@@ -72,7 +76,18 @@ export function buildCategoryTree(categories: Array<Resource<Category>> = []): C
     }
   }
 
-  return [...map.values()].sort((a, b) => a.parent.localeCompare(b.parent));
+  const list = [...map.values()];
+  if (customOrder && customOrder.length > 0) {
+    const orderIndex = new Map(customOrder.map((name, idx) => [name.toLowerCase(), idx]));
+    return list.sort((a, b) => {
+      const idxA = orderIndex.has(a.parent.toLowerCase()) ? orderIndex.get(a.parent.toLowerCase())! : 999999;
+      const idxB = orderIndex.has(b.parent.toLowerCase()) ? orderIndex.get(b.parent.toLowerCase())! : 999999;
+      if (idxA !== idxB) return idxA - idxB;
+      return a.parent.localeCompare(b.parent);
+    });
+  }
+
+  return list.sort((a, b) => a.parent.localeCompare(b.parent));
 }
 
 /**

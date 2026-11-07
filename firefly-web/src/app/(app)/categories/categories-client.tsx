@@ -3,14 +3,35 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Decimal from "decimal.js";
-import { Check, ChevronRight, Pencil, Plus, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, ChevronRight, GripVertical, Pencil, Plus, Trash2, X } from "lucide-react";
 import { api } from "@/lib/firefly/api";
 import type { Category, SpentEntry } from "@/lib/firefly/types";
-import { buildCategoryTree, formatCategoryName } from "@/components/category-cascade";
+import { buildCategoryTree, formatCategoryName, type CategoryTreeGroup } from "@/components/category-cascade";
 import { inferCategoryDefaultStyle, ResourceIconBadge } from "@/components/resource-icon";
-import { monthRange } from "@/lib/utils";
+import { monthRange, cn } from "@/lib/utils";
 import { Badge, Button, Card, EmptyState, ErrorBox, Field, Input, Money, PageHeader, Skeleton } from "@/components/ui";
 import { useToast } from "@/components/providers";
+
+const CATEGORY_ORDER_STORAGE_KEY = "wallet_categories_order";
+
+function getStoredCategoryOrder(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(CATEGORY_ORDER_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveStoredCategoryOrder(order: string[]) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(CATEGORY_ORDER_STORAGE_KEY, JSON.stringify(order));
+  } catch {
+    /* ignore */
+  }
+}
 
 function mergeTotals(list: Array<SpentEntry[]>): SpentEntry[] {
   const byCur = new Map<string, { code: string; symbol?: string; decimals?: number; sum: Decimal }>();
@@ -52,6 +73,9 @@ export function CategoriesClient() {
 
   const [editId, setEditId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
+  const [parentOrder, setParentOrder] = useState<string[]>(() => getStoredCategoryOrder());
+  const [draggingParent, setDraggingParent] = useState<string | null>(null);
+  const [dragOverParent, setDragOverParent] = useState<string | null>(null);
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["categories"] });
@@ -104,7 +128,34 @@ export function CategoriesClient() {
   });
 
   const items = categoriesQ.data ?? [];
-  const tree = buildCategoryTree(items);
+  const tree = useMemo(() => buildCategoryTree(items, parentOrder), [items, parentOrder]);
+
+  const moveCategory = (fromParent: string, toParent: string) => {
+    if (fromParent === toParent) return;
+    const allParents = tree.map((g) => g.parent);
+    const fromIdx = allParents.indexOf(fromParent);
+    const toIdx = allParents.indexOf(toParent);
+    if (fromIdx === -1 || toIdx === -1) return;
+    const newOrder = [...allParents];
+    const [moved] = newOrder.splice(fromIdx, 1);
+    newOrder.splice(toIdx, 0, moved);
+    setParentOrder(newOrder);
+    saveStoredCategoryOrder(newOrder);
+    toast(`Reordered "${fromParent}"`);
+  };
+
+  const stepCategory = (parent: string, delta: -1 | 1) => {
+    const allParents = tree.map((g) => g.parent);
+    const idx = allParents.indexOf(parent);
+    if (idx === -1) return;
+    const targetIdx = idx + delta;
+    if (targetIdx < 0 || targetIdx >= allParents.length) return;
+    const newOrder = [...allParents];
+    const [moved] = newOrder.splice(idx, 1);
+    newOrder.splice(targetIdx, 0, moved);
+    setParentOrder(newOrder);
+    saveStoredCategoryOrder(newOrder);
+  };
 
   return (
     <div className="flex flex-col gap-5">
@@ -119,7 +170,7 @@ export function CategoriesClient() {
             e.preventDefault();
             createMut.mutate({ parent: newParent, sub: newSub });
           }}
-          className="grid gap-3 sm:grid-cols-3"
+          className="grid items-center gap-3 sm:grid-cols-[1fr_1fr_auto]"
         >
           <Field label="Main Category" hint="Pick an existing category or type a new one">
             {(id) => (
@@ -154,8 +205,12 @@ export function CategoriesClient() {
             )}
           </Field>
 
-          <div className="flex items-end">
-            <Button type="submit" loading={createMut.isPending} className="w-full">
+          <div className="flex sm:self-center sm:pt-0">
+            <Button
+              type="submit"
+              loading={createMut.isPending}
+              className="h-11 min-h-[44px] w-full px-5 text-sm font-semibold sm:w-auto"
+            >
               <Plus className="size-4" aria-hidden />{" "}
               {newSub.trim() ? `Add "${formatCategoryName(newParent || "Category", newSub)}"` : "Add Category"}
             </Button>
@@ -180,7 +235,7 @@ export function CategoriesClient() {
         </Card>
       ) : (
         <div className="flex flex-col gap-4">
-          {tree.map((group) => {
+          {tree.map((group, idx) => {
             const parentRes = group.parentResource;
             const allSpent = mergeTotals([
               parentRes?.attributes.spent ?? [],
@@ -191,9 +246,39 @@ export function CategoriesClient() {
               ...group.subcategories.map((s) => s.resource.attributes.earned ?? []),
             ]);
             const isEditingParent = parentRes && editId === parentRes.id;
+            const isFirst = idx === 0;
+            const isLast = idx === tree.length - 1;
+            const isDropTarget = dragOverParent === group.parent && draggingParent !== group.parent;
 
             return (
-              <Card key={group.parent} className="flex flex-col gap-3">
+              <Card
+                key={group.parent}
+                className={cn(
+                  "flex flex-col gap-3 transition-all duration-150",
+                  isDropTarget && "border-primary bg-primary-soft/10 ring-2 ring-primary/40",
+                  draggingParent === group.parent && "opacity-50",
+                )}
+                onDragOver={(e) => {
+                  if (draggingParent && draggingParent !== group.parent) {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                    setDragOverParent(group.parent);
+                  }
+                }}
+                onDragLeave={() => {
+                  if (dragOverParent === group.parent) {
+                    setDragOverParent(null);
+                  }
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  if (draggingParent && draggingParent !== group.parent) {
+                    moveCategory(draggingParent, group.parent);
+                  }
+                  setDraggingParent(null);
+                  setDragOverParent(null);
+                }}
+              >
                 {/* Parent Category Header */}
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
                   {isEditingParent ? (
@@ -219,6 +304,26 @@ export function CategoriesClient() {
                     </form>
                   ) : (
                     <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                      {/* Drag handle */}
+                      <button
+                        type="button"
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.effectAllowed = "move";
+                          e.dataTransfer.setData("text/plain", group.parent);
+                          setDraggingParent(group.parent);
+                        }}
+                        onDragEnd={() => {
+                          setDraggingParent(null);
+                          setDragOverParent(null);
+                        }}
+                        aria-label={`Drag to reorder ${group.parent}`}
+                        title="Drag to reorder category"
+                        className="flex size-7 shrink-0 cursor-grab items-center justify-center rounded-lg text-muted/70 hover:bg-surface-2 hover:text-fg active:cursor-grabbing"
+                      >
+                        <GripVertical className="size-4" />
+                      </button>
+
                       <ResourceIconBadge
                         entityType="category"
                         entityId={parentRes?.id ?? group.parent}
@@ -239,6 +344,32 @@ export function CategoriesClient() {
 
                   {!isEditingParent && (
                     <div className="flex items-center gap-1.5">
+                      {/* Order Up / Down buttons */}
+                      <div className="flex items-center rounded-lg border border-border/80 bg-surface-2/40 p-0.5">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          disabled={isFirst}
+                          onClick={() => stepCategory(group.parent, -1)}
+                          aria-label={`Move ${group.parent} up`}
+                          title="Move up"
+                          className="size-7 min-h-7 min-w-7 rounded-md p-0"
+                        >
+                          <ArrowUp className="size-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          disabled={isLast}
+                          onClick={() => stepCategory(group.parent, 1)}
+                          aria-label={`Move ${group.parent} down`}
+                          title="Move down"
+                          className="size-7 min-h-7 min-w-7 rounded-md p-0"
+                        >
+                          <ArrowDown className="size-3.5" />
+                        </Button>
+                      </div>
+
                       <Button
                         variant="secondary"
                         size="sm"
