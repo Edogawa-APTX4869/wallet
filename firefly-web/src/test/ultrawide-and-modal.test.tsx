@@ -148,4 +148,28 @@ describe("Ultra-Wide & Multi-Screen Responsive Grid Architecture", () => {
     expect(htmlInline).toContain("Quick suggestions:");
     expect(htmlInline).toContain("Coffee 2.400 BHD Starbucks #food");
   });
+
+  it("Dashboard cards use @container and never truncate financial figures", async () => {
+    // Read dashboard-client source code directly to guarantee no regression on truncate on currency
+    const fs = await import("fs");
+    const content = fs.readFileSync("src/app/(app)/dashboard-client.tsx", "utf-8");
+
+    // Must have container query on cards
+    expect(content).toContain("@container scroll-mt-6 rounded-2xl");
+
+    // Financial Health KPI grid must be container query aware
+    expect(content).toContain("grid grid-cols-1 gap-3 @[560px]:grid-cols-2");
+
+    // Liquid balance and net cash flow must use whitespace-nowrap and never truncate
+    expect(content).toContain("Liquid Balance");
+    expect(content).toContain("Selected accounts total");
+    expect(content).toContain("Net Cash Flow");
+    expect(content).not.toMatch(/Liquid Balance[\s\S]{1,250}truncate/);
+    expect(content).not.toMatch(/Net Cash Flow[\s\S]{1,250}truncate/);
+
+    // Card settings drawer must use at least min-w-[145px] for selects to avoid clipping
+    expect(content).toContain("min-w-[145px]");
+    expect(content).toContain("1 col (Half)");
+    expect(content).toContain("2 cols (Full)");
+  });
 });

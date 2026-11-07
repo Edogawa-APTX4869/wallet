@@ -1825,7 +1825,7 @@ const DashboardCardItem = React.memo(function DashboardCardItem({
       id={`card-${card.key}`}
       data-card-key={card.key}
       className={cn(
-        "scroll-mt-6 rounded-2xl transition-opacity duration-200",
+        "@container scroll-mt-6 rounded-2xl transition-opacity duration-200",
         span === 2 ? "lg:col-span-2 2xl:col-span-2 3xl:col-span-2" : "lg:col-span-1 2xl:col-span-1 3xl:col-span-1",
         isDraggingAny && !isCurrent && "widget-card-recessed widget-card-sibling",
         isDraggingAny && "will-change-transform [backface-visibility:hidden] [transform:translate3d(0,0,0)]",
@@ -2001,7 +2001,7 @@ function DashboardCardShell({
                   <Select
                     value={String(card.periodDays)}
                     onChange={(e) => onUpdate({ periodDays: Number(e.target.value) as 7 | 30 | 90 })}
-                    className="h-8 min-w-[130px] w-auto px-2.5 text-xs font-medium"
+                    className="h-8 min-w-[145px] w-auto pl-2.5 pr-7 text-xs font-medium"
                   >
                     <option value="7">Last 7 days</option>
                     <option value="30">Last 30 days</option>
@@ -2016,7 +2016,7 @@ function DashboardCardShell({
                   <Select
                     value={String(card.recordLimit)}
                     onChange={(e) => onUpdate({ recordLimit: Number(e.target.value) })}
-                    className="h-8 min-w-[70px] w-auto px-2.5 text-xs font-medium"
+                    className="h-8 min-w-[75px] w-auto pl-2.5 pr-6 text-xs font-medium"
                   >
                     <option value="5">5</option>
                     <option value="8">8</option>
@@ -2030,15 +2030,15 @@ function DashboardCardShell({
                 <Select
                   value={String(card.span ?? entry?.defaultSpan ?? 1)}
                   onChange={(e) => onUpdate({ span: Number(e.target.value) as 1 | 2 })}
-                  className="h-8 min-w-[130px] w-auto px-2.5 text-xs font-medium"
+                  className="h-8 min-w-[145px] w-auto pl-2.5 pr-7 text-xs font-medium"
                 >
-                  <option value="1">Half (1 col)</option>
-                  <option value="2">Full (2 cols)</option>
+                  <option value="1">1 col (Half)</option>
+                  <option value="2">2 cols (Full)</option>
                 </Select>
               </div>
             </div>
 
-            <div className="flex items-center gap-1">
+            <div className="flex flex-wrap items-center gap-1">
               <Button variant="ghost" size="sm" disabled={isFirst} onClick={onMoveUp}>
                 <ArrowUp className="size-3.5" /> Up
               </Button>
@@ -2094,7 +2094,7 @@ function RadialArcMeter({
 
   return (
     <div className="flex flex-col items-center justify-center text-center min-w-0">
-      <div className={cn("relative flex items-center justify-center", size === "lg" ? "w-28 h-18 sm:w-32 sm:h-20" : "w-20 h-14 sm:w-24 sm:h-16")}>
+      <div className={cn("relative flex items-center justify-center", size === "lg" ? "w-24 h-16 sm:w-28 sm:h-18" : "w-20 h-14 sm:w-24 sm:h-16")}>
         <svg viewBox="0 0 100 56" className="w-full h-full overflow-visible">
           {/* Background Track */}
           <path
@@ -2120,12 +2120,12 @@ function RadialArcMeter({
         </svg>
         {/* Value Inside Arc */}
         <div className="absolute inset-x-0 bottom-0 flex flex-col items-center justify-end">
-          <span className={cn("tabular font-bold tracking-tight text-fg truncate max-w-full px-1", size === "lg" ? "text-sm sm:text-base" : "text-xs")}>
+          <span className={cn("tabular font-bold tracking-tight text-fg whitespace-nowrap max-w-full px-1", size === "lg" ? "text-sm sm:text-base" : "text-xs")}>
             {value}
           </span>
         </div>
       </div>
-      <span className="mt-1 text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider text-muted truncate max-w-full">
+      <span className="mt-1 text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider text-muted whitespace-nowrap max-w-full">
         {label}
       </span>
     </div>
@@ -2175,14 +2175,14 @@ const WalletGaugesCard = React.memo(function WalletGaugesCard({
   return (
     <div className="flex flex-col gap-4">
       {/* 2 Primary Modern KPI Cards: BALANCE & NET CASH FLOW */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 @[560px]:grid-cols-2">
         {/* Liquid Balance Card */}
         <div className="flex items-center justify-between gap-3 rounded-2xl border border-border/80 bg-surface-2/40 p-3.5 sm:p-4">
           <div className="flex min-w-0 flex-col">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-muted">
               Liquid Balance
             </span>
-            <span className="tabular mt-1 text-xl sm:text-2xl font-bold tracking-tight text-fg truncate">
+            <span className="tabular mt-1 text-xl sm:text-2xl font-bold tracking-tight text-fg whitespace-nowrap">
               <AnimatedMoney
                 amount={balance.toNumber()}
                 code={primaryCode}
@@ -2190,7 +2190,7 @@ const WalletGaugesCard = React.memo(function WalletGaugesCard({
                 symbol={primarySymbol}
               />
             </span>
-            <span className="mt-1 text-[11px] text-muted truncate">
+            <span className="mt-1 text-[11px] text-muted whitespace-nowrap">
               Selected accounts total
             </span>
           </div>
@@ -2212,11 +2212,11 @@ const WalletGaugesCard = React.memo(function WalletGaugesCard({
               <span className="text-[11px] font-semibold uppercase tracking-wider text-muted">
                 Net Cash Flow
               </span>
-              <Badge tone={cashflow.gte(0) ? "success" : "danger"} className="text-[10px]">
+              <Badge tone={cashflow.gte(0) ? "success" : "danger"} className="text-[10px] whitespace-nowrap">
                 {cashflow.gte(0) ? `+${savingsPct}% saved` : `${savingsPct}% deficit`}
               </Badge>
             </div>
-            <span className={cn("tabular mt-1 text-xl sm:text-2xl font-bold tracking-tight truncate", cashflow.gte(0) ? "text-success" : "text-danger")}>
+            <span className={cn("tabular mt-1 text-xl sm:text-2xl font-bold tracking-tight whitespace-nowrap", cashflow.gte(0) ? "text-success" : "text-danger")}>
               <AnimatedMoney
                 amount={cashflow.toNumber()}
                 code={primaryCode}
@@ -2225,7 +2225,7 @@ const WalletGaugesCard = React.memo(function WalletGaugesCard({
                 signed
               />
             </span>
-            <span className="mt-1 text-[11px] text-muted truncate">
+            <span className="mt-1 text-[11px] text-muted whitespace-nowrap">
               Income minus expenses (30d)
             </span>
           </div>
@@ -2267,21 +2267,21 @@ const WalletGaugesCard = React.memo(function WalletGaugesCard({
           <div className="flex items-center gap-1.5">
             <span className="size-2 rounded-full bg-success" />
             <span className="text-muted">Earned:</span>
-            <span className="font-semibold text-fg">
+            <span className="font-semibold text-fg whitespace-nowrap">
               <Money amount={income.toString()} code={primaryCode} decimals={primaryDecimals} symbol={primarySymbol} skipCurrency />
             </span>
           </div>
           <div className="flex items-center gap-1.5">
             <span className="size-2 rounded-full bg-danger" />
             <span className="text-muted">Spent:</span>
-            <span className="font-semibold text-fg">
+            <span className="font-semibold text-fg whitespace-nowrap">
               <Money amount={spendingAmt.toString()} code={primaryCode} decimals={primaryDecimals} symbol={primarySymbol} skipCurrency />
             </span>
           </div>
           <div className="flex items-center gap-1.5">
             <span className="size-2 rounded-full bg-primary" />
             <span className="text-muted">Net:</span>
-            <span className={cn("font-semibold", cashflow.gte(0) ? "text-success" : "text-danger")}>
+            <span className={cn("font-semibold whitespace-nowrap", cashflow.gte(0) ? "text-success" : "text-danger")}>
               <Money amount={cashflow.toString()} code={primaryCode} decimals={primaryDecimals} symbol={primarySymbol} signed skipCurrency />
             </span>
           </div>

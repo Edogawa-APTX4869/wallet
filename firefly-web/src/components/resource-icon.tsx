@@ -323,11 +323,18 @@ export function ResourceIconBadge({
 
       {open && typeof document !== "undefined" && createPortal(
         <div
-          className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fade-in"
+          className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs animate-fade-in"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) {
+              setOpen(false);
+            }
+          }}
           onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            setOpen(false);
+            if (e.target === e.currentTarget) {
+              e.preventDefault();
+              e.stopPropagation();
+              setOpen(false);
+            }
           }}
           aria-hidden="true"
         >
@@ -338,7 +345,7 @@ export function ResourceIconBadge({
             onClick={(e) => {
               e.stopPropagation();
             }}
-            className="w-full max-w-xs animate-pop-in rounded-2xl border border-border bg-surface p-4 shadow-2xl sm:max-w-sm opacity-100"
+            className="w-full max-w-xs animate-pop-in rounded-2xl border border-border bg-surface p-4 shadow-2xl sm:max-w-sm relative z-10 opacity-100"
           >
             <div className="mb-3 flex items-center justify-between border-b border-border pb-2.5">
               <span className="text-sm font-semibold text-fg">Choose Icon &amp; Color</span>
