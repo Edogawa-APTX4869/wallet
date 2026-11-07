@@ -50,7 +50,7 @@ export function Card({
     <div
       className={cn(
         "rounded-2xl border border-border bg-surface",
-        compact ? "p-3 sm:p-3.5" : "p-3.5 sm:p-4 md:p-4.5",
+        compact ? "p-2.5 sm:p-3.5" : "p-3 sm:p-4 md:p-4.5",
         className,
       )}
       {...props}
@@ -233,10 +233,10 @@ export function PageHeader({
   actions?: React.ReactNode;
 }) {
   return (
-    <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+    <div className="mb-3.5 sm:mb-5 flex flex-wrap items-end justify-between gap-3">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
-        {subtitle && <p className="mt-0.5 text-sm text-muted">{subtitle}</p>}
+        <h1 className="text-xl sm:text-2xl font-bold tracking-tight">{title}</h1>
+        {subtitle && <p className="mt-0.5 text-xs sm:text-sm text-muted">{subtitle}</p>}
       </div>
       {actions && <div className="flex items-center gap-2">{actions}</div>}
     </div>

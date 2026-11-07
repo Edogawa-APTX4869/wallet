@@ -80,17 +80,17 @@ export function TransactionRow({
   const Icon = (iconName && ICON_CATALOG[iconName]) || DefaultIcon;
 
   return (
-    <li className="group flex items-center gap-2 sm:gap-3 py-2.5 sm:py-3 min-w-0">
+    <li className="group flex items-center gap-2 sm:gap-3 py-2 sm:py-2.5 min-w-0">
       <span
         style={iconColor ? { backgroundColor: `${iconColor}22`, color: iconColor } : undefined}
         className={cn(
-          "flex size-9 sm:size-10 shrink-0 items-center justify-center rounded-xl",
+          "flex size-8 sm:size-9 shrink-0 items-center justify-center rounded-xl",
           !iconColor && first.type === "withdrawal" && "bg-danger-soft text-danger",
           !iconColor && first.type === "deposit" && "bg-success-soft text-success",
           !iconColor && first.type !== "withdrawal" && first.type !== "deposit" && "bg-primary-soft text-primary",
         )}
       >
-        <Icon className="size-4" aria-hidden />
+        <Icon className="size-3.5 sm:size-4" aria-hidden />
       </span>
       <div className="min-w-0 flex-1">
         <p className="truncate text-xs sm:text-sm font-medium">

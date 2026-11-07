@@ -1157,9 +1157,9 @@ export function MagicChatbar({
           type="button"
           onClick={handleTriggerClick}
           aria-label="Ask AI Assistant"
-          className="flex items-center gap-2 rounded-full border border-primary/30 bg-surface/95 px-3.5 py-2 text-xs font-semibold text-primary shadow-lg backdrop-blur transition-all duration-200 hover:scale-105 active:scale-95 hover:bg-primary-soft hover:shadow-xl"
+          className="flex items-center gap-1.5 sm:gap-2 rounded-full border border-primary/30 bg-surface/95 px-2.5 py-1.5 sm:px-3.5 sm:py-2 text-xs font-semibold text-primary shadow-lg backdrop-blur transition-all duration-200 hover:scale-105 active:scale-95 hover:bg-primary-soft hover:shadow-xl"
         >
-          <Sparkles className="size-3.5" aria-hidden />
+          <Sparkles className="size-3 sm:size-3.5" aria-hidden />
           <span>Ask AI / Ramble</span>
         </button>
       </div>

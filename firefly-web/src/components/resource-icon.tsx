@@ -268,7 +268,7 @@ export function ResourceIconBadge({
   entityId: string;
   defaultIcon?: string;
   defaultColor?: string;
-  size?: "sm" | "md" | "lg";
+  size?: "xs" | "sm" | "md" | "lg";
   editable?: boolean;
 }) {
   const meta = useResourceMeta();
@@ -295,13 +295,30 @@ export function ResourceIconBadge({
         title={editable ? "Click to customize icon & color (saved to database)" : undefined}
         style={color ? { backgroundColor: `${color}22`, color } : undefined}
         className={cn(
-          "flex items-center justify-center rounded-xl transition-transform",
-          size === "sm" ? "size-7" : size === "lg" ? "size-11" : "size-9",
+          "flex items-center justify-center transition-transform",
+          size === "xs"
+            ? "size-5 rounded-md"
+            : size === "sm"
+              ? "size-6 rounded-lg"
+              : size === "lg"
+                ? "size-11 rounded-2xl"
+                : "size-8 sm:size-9 rounded-xl",
           !color && "bg-primary-soft text-primary",
           editable && "hover:scale-105 cursor-pointer",
         )}
       >
-        <IconComp className={size === "sm" ? "size-3.5" : size === "lg" ? "size-5" : "size-4"} aria-hidden />
+        <IconComp
+          className={
+            size === "xs"
+              ? "size-3"
+              : size === "sm"
+                ? "size-3.5"
+                : size === "lg"
+                  ? "size-5"
+                  : "size-4"
+          }
+          aria-hidden
+        />
       </button>
 
       {open && typeof document !== "undefined" && createPortal(

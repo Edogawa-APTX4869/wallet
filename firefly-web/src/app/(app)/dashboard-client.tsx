@@ -126,7 +126,7 @@ export function DashboardSegmentedTabs({
       onChange={(key) => onChange(key as "accounts" | "budgets")}
       size="md"
       className={cn("grid grid-cols-2 sm:w-88 md:w-96 sm:min-w-[340px]", className)}
-      tabClassName="py-2 px-3 text-sm font-semibold"
+      tabClassName="py-1.5 px-3 text-xs sm:text-sm font-semibold"
       ariaLabel="Dashboard views"
     />
   );
@@ -252,7 +252,7 @@ export function TwoColumnAccountGrid({
                   }
             }
             className={cn(
-              "group relative flex cursor-pointer flex-col justify-between gap-1.5 rounded-xl border p-2.5 transition-all duration-200 select-none min-w-0 shadow-2xs active:scale-[0.98]",
+              "group relative flex cursor-pointer flex-col justify-between gap-1 rounded-xl border px-2.5 py-1.5 sm:p-2.5 transition-all duration-200 select-none min-w-0 shadow-2xs active:scale-[0.98]",
               isSelected
                 ? "shadow-xs"
                 : "border-border/80 bg-surface-2/40 opacity-60 grayscale-[25%] hover:opacity-90",
@@ -265,15 +265,15 @@ export function TwoColumnAccountGrid({
                 entityId={id}
                 defaultIcon={inferred.icon}
                 defaultColor={bg}
-                size="sm"
+                size="xs"
               />
-              <p className="truncate text-xs font-semibold text-fg" title={name}>
+              <p className="truncate text-xs font-semibold text-fg leading-tight" title={name}>
                 {name}
               </p>
             </div>
 
             {/* Bottom Row: Fully Responsive Unclipped Balance */}
-            <div className="min-w-0 overflow-hidden">
+            <div className="min-w-0 overflow-hidden leading-tight">
               <p className="tabular font-mono text-xs sm:text-sm font-bold tracking-tight text-fg truncate">
                 {typeof balance === "number" || typeof balance === "string" ? (
                   <Money
@@ -294,7 +294,7 @@ export function TwoColumnAccountGrid({
       {showManageLink && (
         <Link
           href="/accounts"
-          className="flex min-h-[64px] items-center justify-center gap-1.5 rounded-xl border border-dashed border-primary/40 bg-primary-soft/10 p-2.5 text-xs font-semibold text-primary transition-all duration-200 hover:-translate-y-0.5 hover:bg-primary-soft/25 active:translate-y-0 active:scale-[0.98]"
+          className="flex min-h-[44px] sm:min-h-[50px] items-center justify-center gap-1.5 rounded-xl border border-dashed border-primary/40 bg-primary-soft/10 px-2.5 py-1.5 text-xs font-semibold text-primary transition-all duration-200 hover:-translate-y-0.5 hover:bg-primary-soft/25 active:translate-y-0 active:scale-[0.98]"
         >
           <span>Manage accounts</span>
           <Plus className="size-3.5" aria-hidden="true" />
@@ -309,30 +309,30 @@ export function DashboardQuickFilterChips() {
     <div className="flex items-center gap-2 overflow-x-auto py-1 no-scrollbar -mx-3.5 px-3.5 sm:mx-0 sm:px-0">
       <Link
         href="/rules?tab=recurrences"
-        className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-border/80 bg-surface px-3 py-1.5 text-xs font-semibold text-fg shadow-2xs transition-all duration-150 hover:-translate-y-0.5 hover:shadow-xs active:translate-y-0 active:scale-95 hover:bg-surface-2"
+        className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-border/80 bg-surface px-2.5 py-1 sm:px-3 sm:py-1.5 text-xs font-medium sm:font-semibold text-fg shadow-2xs transition-all duration-150 hover:-translate-y-0.5 hover:shadow-xs active:translate-y-0 active:scale-95 hover:bg-surface-2"
       >
-        <Repeat className="size-3.5 text-warning" aria-hidden="true" />
+        <Repeat className="size-3 sm:size-3.5 text-warning" aria-hidden="true" />
         <span>Planned payments</span>
       </Link>
       <Link
         href="/accounts?tab=liabilities"
-        className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-border/80 bg-surface px-3 py-1.5 text-xs font-semibold text-fg shadow-2xs transition-all duration-150 hover:-translate-y-0.5 hover:shadow-xs active:translate-y-0 active:scale-95 hover:bg-surface-2"
+        className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-border/80 bg-surface px-2.5 py-1 sm:px-3 sm:py-1.5 text-xs font-medium sm:font-semibold text-fg shadow-2xs transition-all duration-150 hover:-translate-y-0.5 hover:shadow-xs active:translate-y-0 active:scale-95 hover:bg-surface-2"
       >
-        <CreditCard className="size-3.5 text-danger" aria-hidden="true" />
+        <CreditCard className="size-3 sm:size-3.5 text-danger" aria-hidden="true" />
         <span>Debts</span>
       </Link>
       <Link
         href="/budgets"
-        className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-border/80 bg-surface px-3 py-1.5 text-xs font-semibold text-fg shadow-2xs transition-all duration-150 hover:-translate-y-0.5 hover:shadow-xs active:translate-y-0 active:scale-95 hover:bg-surface-2"
+        className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-border/80 bg-surface px-2.5 py-1 sm:px-3 sm:py-1.5 text-xs font-medium sm:font-semibold text-fg shadow-2xs transition-all duration-150 hover:-translate-y-0.5 hover:shadow-xs active:translate-y-0 active:scale-95 hover:bg-surface-2"
       >
-        <TrendingUp className="size-3.5 text-success" aria-hidden="true" />
+        <TrendingUp className="size-3 sm:size-3.5 text-success" aria-hidden="true" />
         <span>Budgets</span>
       </Link>
       <Link
         href="/piggy-banks"
-        className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-border/80 bg-surface px-3 py-1.5 text-xs font-semibold text-fg shadow-2xs transition-all duration-150 hover:-translate-y-0.5 hover:shadow-xs active:translate-y-0 active:scale-95 hover:bg-surface-2"
+        className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-border/80 bg-surface px-2.5 py-1 sm:px-3 sm:py-1.5 text-xs font-medium sm:font-semibold text-fg shadow-2xs transition-all duration-150 hover:-translate-y-0.5 hover:shadow-xs active:translate-y-0 active:scale-95 hover:bg-surface-2"
       >
-        <PiggyBank className="size-3.5 text-primary" aria-hidden="true" />
+        <PiggyBank className="size-3 sm:size-3.5 text-primary" aria-hidden="true" />
         <span>Savings Goals</span>
       </Link>
     </div>
@@ -1204,7 +1204,7 @@ export function DashboardClient() {
       {/* Top Panel: My Accounts in Wallet (Multi-Select Tiles) OR Budgets & Goals */}
       <div key={`top-${topTab}`} className="animate-tab-enter">
         {topTab === "accounts" ? (
-        <Card className="flex flex-col gap-2.5 p-3 sm:p-4 md:p-5">
+        <Card className="flex flex-col gap-2 p-2 sm:p-4 md:p-5">
           <AccountsSectionHeader
             accountCount={walletAccounts.length}
             selectedCount={selectedIds.length}
@@ -1227,7 +1227,7 @@ export function DashboardClient() {
           )}
         </Card>
       ) : (
-        <Card className="flex flex-col gap-4 p-3 sm:p-4 md:p-5">
+        <Card className="flex flex-col gap-3 p-2.5 sm:p-4 md:p-5">
           <div className="flex items-center justify-between">
             <h2 className="text-base font-bold">Budgets & Savings Goals</h2>
             <div className="flex gap-2">
