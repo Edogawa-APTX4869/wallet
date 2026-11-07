@@ -1,20 +1,17 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Check,
   ChevronDown,
   ChevronUp,
-  ExternalLink,
   FileText,
   Mic,
   MicOff,
   Paperclip,
   Send,
-  Settings2,
   Sparkles,
   Trash2,
   Wand2,
@@ -29,7 +26,7 @@ import type {
 } from "@/app/api/companion/ramble/route";
 import { ASSET_LIKE, useAccounts, usePrimaryCurrency } from "@/lib/hooks";
 import { cn, isoDate, monthRange } from "@/lib/utils";
-import { Badge, Button, Field, Input, ModalSheet, Select } from "@/components/ui";
+import { Badge, Button, Input, ModalSheet, Select } from "@/components/ui";
 import { useToast } from "@/components/providers";
 import { useEscapeDismiss } from "@/lib/use-escape-dismiss";
 
@@ -83,9 +80,9 @@ export function useAiAssistantConfig() {
 }
 
 const QUICK_PROMPTS = [
-  "Spent 2.400 BHD on coffee at Starbucks and 18.750 BHD groceries at Lulu #family",
-  "Paid 12.500 BHD gas today and 4.200 BHD lunch yesterday",
-  "Received 850.000 BHD salary into DailyAccount",
+  "Coffee 2.400 BHD Starbucks #food",
+  "Gas 12.500 BHD & Lunch 4.200 BHD",
+  "Salary 850.000 BHD into DailyAccount",
 ];
 
 /**
@@ -130,12 +127,6 @@ export function MagicChatPanel({
   const [expanded, setExpanded] = useState(mode === "inline");
   useEscapeDismiss(mode === "dock" && expanded, () => setExpanded(false), "magic-chat-dock");
   const [messages, setMessages] = useState<MagicChatMessage[]>([]);
-  const [llmModalOpen, setLlmModalOpen] = useState(false);
-  const [provider, setProvider] = useState<AiProviderType>("gemini");
-  const [llmEndpoint, setLlmEndpoint] = useState("");
-  const [llmModel, setLlmModel] = useState("gemini-2.5-flash");
-  const [llmApiKey, setLlmApiKey] = useState("");
-  const [savingConfig, setSavingConfig] = useState(false);
 
   const inputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -418,218 +409,14 @@ export function MagicChatPanel({
     rec.start();
   }
 
-  function openLlmSettings() {
-    const cur = aiConfigQ.data;
-    if (cur) {
-      setProvider(cur.provider === "disabled" ? "gemini" : cur.provider);
-      setLlmEndpoint(cur.endpoint);
-      setLlmModel(cur.model || "gemini-2.5-flash");
-    }
-    setLlmModalOpen(true);
-  }
-
-  async function saveAndVerifyLlmSettings() {
-    setSavingConfig(true);
-    try {
-      const res = await fetch("/api/companion/ramble", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          enabled: provider !== "disabled",
-          provider,
-          endpoint: llmEndpoint.trim(),
-          model: llmModel.trim(),
-          ...(llmApiKey.trim() ? { apiKey: llmApiKey.trim() } : {}),
-        }),
-      });
-      const json = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) {
-        throw new Error(json.error || "Failed to verify AI configuration");
-      }
-      toast(
-        provider === "disabled"
-          ? "AI Magic Chatbar disabled and hidden."
-          : "AI connection verified! Magic Chatbar is now active.",
-      );
-      setLlmApiKey("");
-      setLlmModalOpen(false);
-      qc.invalidateQueries({ queryKey: ["llm-config"] });
-    } catch (e) {
-      toast((e as Error).message, "error");
-    } finally {
-      setSavingConfig(false);
-    }
-  }
-
   const totalUnsavedDrafts = messages.reduce(
     (acc, m) => acc + (m.drafts?.filter((d) => !d.saved).length ?? 0),
     0,
   );
 
-  // If on `/new?type=ramble` and AI is not configured/verified yet, show a clear setup card
   const isVerifiedAndEnabled = Boolean(aiConfigQ.data?.enabled && aiConfigQ.data?.verified);
-  if (mode === "inline" && !aiConfigQ.isLoading && !isVerifiedAndEnabled) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-border bg-surface p-6 text-center">
-        <span className="flex size-12 items-center justify-center rounded-2xl bg-primary-soft text-primary">
-          <Wand2 className="size-6" aria-hidden />
-        </span>
-        <h2 className="text-base font-bold">AI Magic Assistant is Not Configured Yet</h2>
-        <p className="max-w-md text-xs text-muted">
-          The AI Magic Chatbar stays hidden until your AI provider is configured and verified. Connect your Google
-          Account (via Google AI Studio Gemini key), an OpenAI-compatible server, or enable the verified Local Parser.
-        </p>
-        <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
-          <Button onClick={openLlmSettings}>
-            <Settings2 className="size-4" aria-hidden /> Configure & Verify AI Now
-          </Button>
-          <Link
-            href="/settings#assistant"
-            className="inline-flex h-10 items-center rounded-xl border border-border px-4 text-xs font-semibold hover:bg-surface-2"
-          >
-            Open Settings Page
-          </Link>
-        </div>
-        {llmModalOpen && renderSettingsModal()}
-      </div>
-    );
-  }
-
-  function renderSettingsModal() {
-    return (
-      <ModalSheet
-        open={llmModalOpen}
-        title="Configure & Verify AI Magic Assistant"
-        onClose={() => setLlmModalOpen(false)}
-      >
-        <div className="flex flex-col gap-3.5">
-          <Field label="AI Provider">
-            {(id) => (
-              <Select
-                id={id}
-                value={provider}
-                onChange={(e) => {
-                  const next = e.target.value as AiProviderType;
-                  setProvider(next);
-                  if (next === "gemini") {
-                    setLlmModel("gemini-2.5-flash");
-                  } else if (next === "openai-compatible" && llmModel.startsWith("gemini")) {
-                    setLlmModel("gpt-4o-mini");
-                  }
-                }}
-              >
-                <option value="gemini">Google Gemini (Google Account via AI Studio)</option>
-                <option value="openai-compatible">OpenAI / Ollama / OpenRouter (Custom Endpoint)</option>
-                <option value="local-heuristic">Built-in Smart Offline Parser (No API Key)</option>
-                <option value="disabled">Disabled (Hide AI Chatbar)</option>
-              </Select>
-            )}
-          </Field>
-
-          {provider === "gemini" && (
-            <>
-              <div className="rounded-xl border border-primary/30 bg-primary-soft/40 p-3 text-xs leading-relaxed">
-                <p className="font-semibold text-primary">Using your Google Account (Google One AI Pro / Free Tier):</p>
-                <p className="mt-1 text-muted">
-                  Google blocks third-party self-hosted Docker apps from using consumer Google One subscription cookies
-                  directly, <strong className="text-fg">but your Google Account includes free Gemini 2.5 Flash &amp; Pro access via Google AI Studio</strong>{" "}
-                  with multimodal receipt vision. Sign in with your Google Account below to grab your key in 1 click:
-                </p>
-                <a
-                  href="https://aistudio.google.com/apikey"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-fg hover:opacity-90"
-                >
-                  <span>Get Key with Google Account (AI Studio)</span>
-                  <ExternalLink className="size-3.5" aria-hidden />
-                </a>
-              </div>
-
-              <Field label="Gemini Model">
-                {(id) => (
-                  <Select id={id} value={llmModel} onChange={(e) => setLlmModel(e.target.value)}>
-                    <option value="gemini-2.5-flash">gemini-2.5-flash (Fastest + Receipt Vision)</option>
-                    <option value="gemini-2.5-pro">gemini-2.5-pro (Deep Reasoning + Receipt Vision)</option>
-                    <option value="gemini-2.0-flash">gemini-2.0-flash</option>
-                  </Select>
-                )}
-              </Field>
-
-              <Field
-                label={
-                  aiConfigQ.data?.hasApiKey
-                    ? "Google AI Studio Key (saved · enter to replace)"
-                    : "Google AI Studio Key"
-                }
-              >
-                {(id) => (
-                  <Input
-                    id={id}
-                    type="password"
-                    value={llmApiKey}
-                    onChange={(e) => setLlmApiKey(e.target.value)}
-                    placeholder="AIzaSy..."
-                  />
-                )}
-              </Field>
-            </>
-          )}
-
-          {provider === "openai-compatible" && (
-            <>
-              <Field label="Chat Completions Endpoint URL">
-                {(id) => (
-                  <Input
-                    id={id}
-                    value={llmEndpoint}
-                    onChange={(e) => setLlmEndpoint(e.target.value)}
-                    placeholder="https://api.openai.com/v1/chat/completions"
-                  />
-                )}
-              </Field>
-              <Field label="Model Name">
-                {(id) => (
-                  <Input
-                    id={id}
-                    value={llmModel}
-                    onChange={(e) => setLlmModel(e.target.value)}
-                    placeholder="gpt-4o-mini or llama3.2-vision"
-                  />
-                )}
-              </Field>
-              <Field label="API Key (optional for local Ollama)">
-                {(id) => (
-                  <Input
-                    id={id}
-                    type="password"
-                    value={llmApiKey}
-                    onChange={(e) => setLlmApiKey(e.target.value)}
-                    placeholder="sk-..."
-                  />
-                )}
-              </Field>
-            </>
-          )}
-
-          {provider === "local-heuristic" && (
-            <p className="rounded-xl bg-surface-2 p-3 text-xs text-muted">
-              Uses FireFly&apos;s deterministic local parser for text &amp; voice without calling any external servers.
-              Attachments are still uploaded directly to your Firefly III transaction journal.
-            </p>
-          )}
-
-          <div className="mt-2 flex justify-end gap-2">
-            <Button type="button" variant="ghost" onClick={() => setLlmModalOpen(false)}>
-              Cancel
-            </Button>
-            <Button type="button" onClick={saveAndVerifyLlmSettings} loading={savingConfig}>
-              {provider === "disabled" ? "Disable & Hide Chatbar" : "Verify & Enable Chatbar"}
-            </Button>
-          </div>
-        </div>
-      </ModalSheet>
-    );
+  if (!aiConfigQ.isLoading && !isVerifiedAndEnabled) {
+    return null;
   }
 
   return (
@@ -642,39 +429,30 @@ export function MagicChatPanel({
       {/* Expandable Conversational Thread Drawer */}
       {(expanded || mode === "inline") && (
         <div className="flex flex-col border-b border-border">
-          {/* Drawer Header */}
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-surface-2/60 px-3.5 py-2">
-            <div className="flex items-center gap-2">
-              <span className="flex size-6 items-center justify-center rounded-lg bg-primary text-primary-fg">
-                <Sparkles className="size-3.5" aria-hidden />
-              </span>
-              <span className="text-xs font-bold">AI Magic Assistant</span>
-              <Badge tone="success">
-                ✓ {aiConfigQ.data?.provider === "gemini" ? "Google Gemini" : aiConfigQ.data?.provider === "openai-compatible" ? "AI LLM" : "Verified"}
-              </Badge>
-              {totalUnsavedDrafts > 0 && <Badge tone="warning">{totalUnsavedDrafts} unsaved</Badge>}
-            </div>
+          {/* Desktop Dock Header (only shown in dock mode since ModalSheet provides header in mobile inline mode) */}
+          {mode === "dock" && (
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-surface-2/60 px-3.5 py-2">
+              <div className="flex items-center gap-2">
+                <span className="flex size-6 items-center justify-center rounded-lg bg-primary text-primary-fg">
+                  <Sparkles className="size-3.5" aria-hidden />
+                </span>
+                <span className="text-xs font-bold">AI Magic Assistant</span>
+                <Badge tone="success">
+                  ✓ {aiConfigQ.data?.provider === "gemini" ? "Google Gemini" : aiConfigQ.data?.provider === "openai-compatible" ? "AI LLM" : "Verified"}
+                </Badge>
+                {totalUnsavedDrafts > 0 && <Badge tone="warning">{totalUnsavedDrafts} unsaved</Badge>}
+              </div>
 
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={openLlmSettings}
-                title="Configure AI provider & verification"
-                className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-surface hover:text-fg"
-              >
-                <Settings2 className="size-3.5" aria-hidden />
-                <span className="hidden sm:inline">AI Settings</span>
-              </button>
-              {messages.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setMessages([])}
-                  className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-surface hover:text-fg"
-                >
-                  Clear
-                </button>
-              )}
-              {mode === "dock" && (
+              <div className="flex items-center gap-1">
+                {messages.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setMessages([])}
+                    className="rounded-lg px-2 py-1 text-xs font-medium text-muted hover:bg-surface hover:text-fg"
+                  >
+                    Clear
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => {
@@ -686,9 +464,30 @@ export function MagicChatPanel({
                 >
                   <ChevronDown className="size-4" aria-hidden />
                 </button>
+              </div>
+            </div>
+          )}
+
+          {/* Inline Mobile Mode Status Bar (only shown when thread has active messages or unsaved drafts) */}
+          {mode === "inline" && (messages.length > 0 || totalUnsavedDrafts > 0) && (
+            <div className="flex items-center justify-between gap-2 border-b border-border/60 bg-surface-2/40 px-3 py-1.5 text-xs">
+              <div className="flex items-center gap-1.5">
+                <Badge tone="success" className="text-[10px]">
+                  ✓ {aiConfigQ.data?.provider === "gemini" ? "Google Gemini" : "Verified"}
+                </Badge>
+                {totalUnsavedDrafts > 0 && <Badge tone="warning" className="text-[10px]">{totalUnsavedDrafts} unsaved</Badge>}
+              </div>
+              {messages.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setMessages([])}
+                  className="rounded-lg px-2 py-0.5 text-[11px] font-medium text-muted hover:bg-surface hover:text-fg"
+                >
+                  Clear thread
+                </button>
               )}
             </div>
-          </div>
+          )}
 
           {/* Messages & Interactive Draft Cards */}
           <div
@@ -699,10 +498,9 @@ export function MagicChatPanel({
             )}
           >
             {messages.length === 0 ? (
-              <div className="flex flex-col gap-2.5 py-2">
-                <p className="text-xs text-muted">
-                  Speak, type, or attach a receipt photo/PDF (<Paperclip className="inline size-3" />). Amounts,
-                  currencies, accounts, categories, and attachments are linked and ready for 1-tap approval:
+              <div className="flex flex-col gap-2 py-1.5">
+                <p className="text-[11px] font-medium text-muted">
+                  Quick suggestions:
                 </p>
                 <div className="flex flex-wrap gap-1.5">
                   {QUICK_PROMPTS.map((sample, i) => (
@@ -710,7 +508,7 @@ export function MagicChatPanel({
                       key={i}
                       type="button"
                       onClick={() => handleSend(undefined, sample)}
-                      className="interactive-tap rounded-xl border border-border bg-surface-2/70 px-3 py-1.5 text-left text-xs text-fg transition-all duration-150 hover:border-primary hover:bg-primary-soft/40 active:scale-[0.98]"
+                      className="interactive-tap rounded-xl border border-border bg-surface-2/70 px-2.5 py-1 text-left text-xs text-fg transition-all duration-150 hover:border-primary hover:bg-primary-soft/40 active:scale-[0.98]"
                     >
                       &ldquo;{sample}&rdquo;
                     </button>
@@ -1082,8 +880,6 @@ export function MagicChatPanel({
           </button>
         )}
       </form>
-
-      {llmModalOpen && renderSettingsModal()}
     </div>
   );
 }

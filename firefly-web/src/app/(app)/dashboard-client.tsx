@@ -132,11 +132,14 @@ export function DashboardSegmentedTabs({
   );
 }
 
-export function RecordsQuickActionPill() {
+export function RecordsQuickActionPill({ className }: { className?: string } = {}) {
   return (
     <Link
       href="/transactions"
-      className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-2.5 py-1 text-xs font-semibold text-fg hover:bg-surface-3 transition active:scale-95"
+      className={cn(
+        "inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-2.5 py-1 text-xs font-semibold text-fg hover:bg-surface-3 transition active:scale-95",
+        className,
+      )}
     >
       <List className="size-3 text-primary" aria-hidden="true" />
       <span>Records</span>
@@ -179,7 +182,7 @@ export function AccountsSectionHeader({
             Select all
           </button>
         )}
-        <RecordsQuickActionPill />
+        <RecordsQuickActionPill className="hidden sm:inline-flex" />
       </div>
     </div>
   );

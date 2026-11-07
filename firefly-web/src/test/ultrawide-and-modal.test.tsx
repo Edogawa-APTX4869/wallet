@@ -3,7 +3,8 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ResourceIconBadge } from "@/components/resource-icon";
-import { DashboardSegmentedTabs, TwoColumnAccountGrid } from "@/app/(app)/dashboard-client";
+import { AccountsSectionHeader, DashboardSegmentedTabs, TwoColumnAccountGrid } from "@/app/(app)/dashboard-client";
+import { MagicChatPanel } from "@/components/magic-chatbar";
 
 function createTestQueryClient() {
   return new QueryClient({
@@ -106,5 +107,45 @@ describe("Ultra-Wide & Multi-Screen Responsive Grid Architecture", () => {
     expect(html).toContain("py-1.5 px-3 text-xs sm:text-sm font-semibold");
     expect(html).toContain("Accounts");
     expect(html).toContain("Budgets &amp; Goals");
+  });
+
+  it("AccountsSectionHeader suppresses redundant Records pill on mobile with hidden sm:inline-flex", () => {
+    const qc = createTestQueryClient();
+    const html = renderToStaticMarkup(
+      <QueryClientProvider client={qc}>
+        <AccountsSectionHeader accountCount={6} />
+      </QueryClientProvider>,
+    );
+
+    expect(html).toContain("hidden sm:inline-flex");
+    expect(html).toContain("Records");
+  });
+
+  it("MagicChatPanel does not render AI settings button or duplicate header inside chat", () => {
+    const qc = createTestQueryClient();
+    qc.setQueryData(["llm-config"], {
+      enabled: true,
+      verified: true,
+      provider: "gemini",
+      model: "gemini-2.5-flash",
+      endpoint: "",
+      hasApiKey: true,
+      verifiedAt: "2026-11-07T12:00:00Z",
+    });
+
+    const htmlInline = renderToStaticMarkup(
+      <QueryClientProvider client={qc}>
+        <MagicChatPanel mode="inline" />
+      </QueryClientProvider>,
+    );
+
+    // Must NOT contain settings trigger button
+    expect(htmlInline).not.toContain("AI Settings");
+    expect(htmlInline).not.toContain("Configure &amp; Verify");
+
+    // In inline mode with no messages, it must not duplicate the header bar
+    expect(htmlInline).not.toContain("<span class=\"text-xs font-bold\">AI Magic Assistant</span>");
+    expect(htmlInline).toContain("Quick suggestions:");
+    expect(htmlInline).toContain("Coffee 2.400 BHD Starbucks #food");
   });
 });
