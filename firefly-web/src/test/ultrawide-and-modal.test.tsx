@@ -158,7 +158,7 @@ describe("Ultra-Wide & Multi-Screen Responsive Grid Architecture", () => {
     expect(content).toContain("@container scroll-mt-6 rounded-2xl");
 
     // Financial Health KPI grid must be container query aware
-    expect(content).toContain("grid grid-cols-1 gap-3 @[560px]:grid-cols-2");
+    expect(content).toContain("grid grid-cols-1 gap-3 @[720px]:grid-cols-2");
 
     // Liquid balance and net cash flow must use whitespace-nowrap and never truncate
     expect(content).toContain("Liquid Balance");

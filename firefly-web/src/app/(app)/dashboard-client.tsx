@@ -2177,14 +2177,14 @@ const WalletGaugesCard = React.memo(function WalletGaugesCard({
   return (
     <div className="flex flex-1 flex-col justify-between gap-4">
       {/* 2 Primary Modern KPI Cards: BALANCE & NET CASH FLOW */}
-      <div className="grid grid-cols-1 gap-3 @[560px]:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 @[720px]:grid-cols-2">
         {/* Liquid Balance Card */}
-        <div className="flex items-center justify-between gap-3 rounded-2xl border border-border/80 bg-surface-2/40 p-3.5 sm:p-4">
-          <div className="flex min-w-0 flex-col">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted">
+        <div className="flex items-center justify-between gap-3 rounded-2xl border border-border/80 bg-surface-2/40 p-3 sm:p-4">
+          <div className="flex min-w-0 flex-1 flex-col">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted whitespace-nowrap">
               Liquid Balance
             </span>
-            <span className="tabular mt-1 text-xl sm:text-2xl font-bold tracking-tight text-fg whitespace-nowrap">
+            <span className="tabular mt-0.5 text-lg sm:text-xl xl:text-2xl font-bold tracking-tight text-fg whitespace-nowrap">
               <AnimatedMoney
                 amount={balance.toNumber()}
                 code={primaryCode}
@@ -2192,13 +2192,13 @@ const WalletGaugesCard = React.memo(function WalletGaugesCard({
                 symbol={primarySymbol}
               />
             </span>
-            <span className="mt-1 text-[11px] text-muted whitespace-nowrap">
+            <span className="mt-0.5 text-[11px] text-muted leading-tight">
               Selected accounts total
             </span>
           </div>
-          <div className="shrink-0">
+          <div className="shrink-0 pl-1">
             <RadialArcMeter
-              size="lg"
+              size="md"
               pct={balance.gt(0) ? 85 : 15}
               tone={balance.gt(0) ? "success" : "danger"}
               value={balance.gt(0) ? "Active" : "Low"}
@@ -2208,17 +2208,17 @@ const WalletGaugesCard = React.memo(function WalletGaugesCard({
         </div>
 
         {/* Net Cash Flow Card */}
-        <div className="flex items-center justify-between gap-3 rounded-2xl border border-border/80 bg-surface-2/40 p-3.5 sm:p-4">
-          <div className="flex min-w-0 flex-col">
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted">
+        <div className="flex items-center justify-between gap-3 rounded-2xl border border-border/80 bg-surface-2/40 p-3 sm:p-4">
+          <div className="flex min-w-0 flex-1 flex-col">
+            <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted whitespace-nowrap">
                 Net Cash Flow
               </span>
               <Badge tone={cashflow.gte(0) ? "success" : "danger"} className="text-[10px] whitespace-nowrap">
                 {cashflow.gte(0) ? `+${savingsPct}% saved` : `${savingsPct}% deficit`}
               </Badge>
             </div>
-            <span className={cn("tabular mt-1 text-xl sm:text-2xl font-bold tracking-tight whitespace-nowrap", cashflow.gte(0) ? "text-success" : "text-danger")}>
+            <span className={cn("tabular mt-0.5 text-lg sm:text-xl xl:text-2xl font-bold tracking-tight whitespace-nowrap", cashflow.gte(0) ? "text-success" : "text-danger")}>
               <AnimatedMoney
                 amount={cashflow.toNumber()}
                 code={primaryCode}
@@ -2227,13 +2227,13 @@ const WalletGaugesCard = React.memo(function WalletGaugesCard({
                 signed
               />
             </span>
-            <span className="mt-1 text-[11px] text-muted whitespace-nowrap">
+            <span className="mt-0.5 text-[11px] text-muted leading-tight">
               Income minus expenses (30d)
             </span>
           </div>
-          <div className="shrink-0">
+          <div className="shrink-0 pl-1">
             <RadialArcMeter
-              size="lg"
+              size="md"
               pct={Math.max(0, Math.min(100, savingsPct))}
               tone={cashflow.gte(0) ? "success" : "danger"}
               value={cashflow.gte(0) ? `+${savingsPct}%` : `${savingsPct}%`}
