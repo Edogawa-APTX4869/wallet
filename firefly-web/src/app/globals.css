@@ -676,11 +676,43 @@ html.is-dashboard-dragging {
   transition: none !important;
 }
 
+/* Smooth Edge-Swipe Card Resize Physics (1 col <-> 2 cols) */
+.resizable-bento-card {
+  will-change: transform, opacity, filter, backdrop-filter, box-shadow;
+  transform-origin: left center;
+  transform: translate3d(var(--resize-x, 0px), 0, 0) scaleX(var(--resize-scale-x, 1)) scaleY(var(--resize-scale-y, 1));
+  backdrop-filter: blur(var(--resize-blur, 0px));
+  filter: blur(var(--resize-content-blur, 0px));
+  opacity: var(--resize-opacity, 1);
+  transition: transform 350ms cubic-bezier(0.22, 1, 0.36, 1),
+              backdrop-filter 300ms ease-out,
+              filter 300ms ease-out,
+              opacity 300ms ease-out,
+              box-shadow 300ms ease-out;
+}
+
+.resizable-bento-card.is-rubber-banding {
+  transition: transform 250ms cubic-bezier(0.34, 1.56, 0.64, 1),
+              backdrop-filter 250ms ease-out,
+              filter 250ms ease-out,
+              opacity 250ms ease-out,
+              box-shadow 250ms ease-out;
+}
+
+.resizable-bento-card.is-resizing {
+  transition: none !important;
+  z-index: 30;
+  box-shadow: var(--resize-shadow, -12px 0 24px -6px rgba(0, 0, 0, 0.45));
+}
+
 @media (prefers-reduced-motion: reduce) {
   .swipeable-card,
   .swipeable-card.is-rubber-banding,
   .swipeable-card.is-dragging,
-  .swipeable-incoming-view {
+  .swipeable-incoming-view,
+  .resizable-bento-card,
+  .resizable-bento-card.is-rubber-banding,
+  .resizable-bento-card.is-resizing {
     transform: none !important;
     backdrop-filter: none !important;
     filter: none !important;

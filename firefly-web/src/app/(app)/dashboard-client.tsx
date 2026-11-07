@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import Decimal from "decimal.js";
 import {
@@ -343,18 +343,94 @@ export function DashboardQuickFilterChips() {
   );
 }
 
+export interface EdgeResizeDragPhysics {
+  effectiveDx: number;
+  scaleX: number;
+  scaleY: number;
+  blurPx: number;
+  opacity: number;
+  shadow: string;
+}
+
+export function computeEdgeResizePhysics(
+  dx: number,
+  cardWidth: number,
+  span: 1 | 2,
+): EdgeResizeDragPhysics {
+  const safeWidth = Math.max(240, cardWidth);
+  // Expand direction is dx > 0 when span === 1; shrink direction is dx < 0 when span === 2
+  const isBlockedDirection = (span === 1 && dx < 0) || (span === 2 && dx > 0);
+
+  let effectiveDx = dx;
+  if (isBlockedDirection) {
+    // Logarithmic rubber-band resistance (~0.35 decay factor)
+    const sign = Math.sign(dx);
+    const abs = Math.abs(dx);
+    effectiveDx = sign * Math.min(abs * 0.35, 65 * Math.log10(1 + abs / 35));
+  } else {
+    // Smooth elastic tracking up to +/- 180px
+    const sign = Math.sign(dx);
+    const abs = Math.abs(dx);
+    effectiveDx = sign * Math.min(180, abs * 0.65);
+  }
+
+  const absEff = Math.abs(effectiveDx);
+  const progress = Math.min(1, absEff / Math.min(160, safeWidth * 0.35));
+
+  // Stretch or compress card width dynamically during drag
+  const scaleDelta = (effectiveDx / safeWidth) * 0.22;
+  const scaleX = Number(Math.max(0.88, Math.min(1.16, 1 + scaleDelta)).toFixed(4));
+  const scaleY = Number((1 - progress * 0.012).toFixed(4));
+
+  // Progressive motion blur & depth softening (0px -> 10px)
+  const blurPx = Number(Math.min(10, progress * 10).toFixed(2));
+  const opacity = Number((1 - progress * 0.12).toFixed(3));
+  const shadow =
+    effectiveDx >= 0
+      ? "14px 0 28px -6px rgba(99, 102, 241, 0.38), 0 12px 24px -6px rgba(0, 0, 0, 0.35)"
+      : "-14px 0 28px -6px rgba(99, 102, 241, 0.38), 0 12px 24px -6px rgba(0, 0, 0, 0.35)";
+
+  return {
+    effectiveDx,
+    scaleX,
+    scaleY,
+    blurPx,
+    opacity,
+    shadow,
+  };
+}
+
 function CardEdgeResizeHandle({
   span,
   onSetSpan,
   onToggleSpan,
+  onDragPhysicsChange,
 }: {
   span: 1 | 2;
   onSetSpan: (s: 1 | 2) => void;
   onToggleSpan: () => void;
+  onDragPhysicsChange?: (state: {
+    isDragging: boolean;
+    isRubberBanding: boolean;
+    physics: EdgeResizeDragPhysics | null;
+  }) => void;
 }) {
   const [isDragging, setIsDragging] = useState(false);
-  const startXRef = useRef(0);
-  const currentSpanRef = useRef(span);
+  const gestureRef = useRef<{
+    startX: number;
+    lastX: number;
+    lastTime: number;
+    velocityX: number;
+    cardWidth: number;
+    initialSpan: 1 | 2;
+  }>({
+    startX: 0,
+    lastX: 0,
+    lastTime: 0,
+    velocityX: 0,
+    cardWidth: 400,
+    initialSpan: span,
+  });
 
   return (
     <div
@@ -365,9 +441,18 @@ function CardEdgeResizeHandle({
       onPointerDown={(e) => {
         e.preventDefault();
         e.stopPropagation();
+        const cardEl = (e.currentTarget as HTMLElement).closest("[data-card-key]") as HTMLElement | null;
+        const rect = cardEl?.getBoundingClientRect();
         setIsDragging(true);
-        startXRef.current = e.clientX;
-        currentSpanRef.current = span;
+        gestureRef.current = {
+          startX: e.clientX,
+          lastX: e.clientX,
+          lastTime: performance.now(),
+          velocityX: 0,
+          cardWidth: rect?.width || 400,
+          initialSpan: span,
+        };
+        onDragPhysicsChange?.({ isDragging: true, isRubberBanding: false, physics: null });
         try {
           (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
         } catch {
@@ -376,38 +461,84 @@ function CardEdgeResizeHandle({
       }}
       onPointerMove={(e) => {
         if (!isDragging) return;
-        const dx = e.clientX - startXRef.current;
-        if (dx > 25 && currentSpanRef.current === 1) {
-          onSetSpan(2);
-          startXRef.current = e.clientX;
-          currentSpanRef.current = 2;
-        } else if (dx < -25 && currentSpanRef.current === 2) {
-          onSetSpan(1);
-          startXRef.current = e.clientX;
-          currentSpanRef.current = 1;
-        }
+        const g = gestureRef.current;
+        const dx = e.clientX - g.startX;
+        const now = performance.now();
+        const dt = Math.max(1, now - g.lastTime);
+        const instantVel = (e.clientX - g.lastX) / dt;
+        g.velocityX = g.velocityX * 0.4 + instantVel * 0.6;
+        g.lastX = e.clientX;
+        g.lastTime = now;
+
+        const physics = computeEdgeResizePhysics(dx, g.cardWidth, g.initialSpan);
+        onDragPhysicsChange?.({
+          isDragging: true,
+          isRubberBanding: false,
+          physics,
+        });
       }}
       onPointerUp={(e) => {
-        if (isDragging) {
-          const dx = e.clientX - startXRef.current;
-          if (Math.abs(dx) < 6) {
-            onToggleSpan();
-          }
-          setIsDragging(false);
+        if (!isDragging) return;
+        setIsDragging(false);
+        const g = gestureRef.current;
+        const dx = e.clientX - g.startX;
+        const absDx = Math.abs(dx);
+        const absVel = Math.abs(g.velocityX);
+
+        // Tap / click toggle (< 6px movement)
+        if (absDx < 6) {
+          onDragPhysicsChange?.({ isDragging: false, isRubberBanding: false, physics: null });
+          onToggleSpan();
+          return;
+        }
+
+        // Velocity-aware threshold: >= 20% card width OR >= 55px drag OR flick velocity > 0.45 px/ms
+        const thresholdMet = absDx >= Math.min(75, g.cardWidth * 0.2) || absVel > 0.45;
+
+        if (thresholdMet && dx > 0 && g.initialSpan === 1) {
+          onDragPhysicsChange?.({ isDragging: false, isRubberBanding: false, physics: null });
+          onSetSpan(2);
+        } else if (thresholdMet && dx < 0 && g.initialSpan === 2) {
+          onDragPhysicsChange?.({ isDragging: false, isRubberBanding: false, physics: null });
+          onSetSpan(1);
+        } else {
+          // Rubber-band bounce back
+          onDragPhysicsChange?.({ isDragging: false, isRubberBanding: true, physics: null });
         }
       }}
-      onPointerCancel={() => setIsDragging(false)}
-      className="group/edge absolute -right-2.5 inset-y-6 hidden w-5 cursor-ew-resize items-center justify-center lg:flex select-none touch-none z-20"
+      onPointerCancel={() => {
+        setIsDragging(false);
+        onDragPhysicsChange?.({ isDragging: false, isRubberBanding: true, physics: null });
+      }}
+      className="group/edge absolute -right-3 inset-y-6 hidden w-6 cursor-grab active:cursor-grabbing items-center justify-center lg:flex select-none touch-none z-20"
     >
+      {/* Tactile Capsule Resize Pill with 2-position indicator dots (1 col vs 2 cols) */}
       <div
         className={cn(
-          "flex h-12 w-1.5 items-center justify-center rounded-full bg-border/70 shadow-xs transition-all duration-200 group-hover/edge:w-2.5 group-hover/edge:bg-primary group-hover/edge:scale-y-115",
-          isDragging && "w-2.5 bg-primary ring-2 ring-primary/40 scale-y-125",
+          "flex h-14 w-2.5 flex-col items-center justify-center gap-1 rounded-full border border-border/60 bg-surface-2/90 backdrop-blur-md shadow-xs transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover/edge:w-3.5 group-hover/edge:border-primary/60 group-hover/edge:bg-primary/20 group-hover/edge:shadow-[0_0_14px_rgba(99,102,241,0.45)]",
+          isDragging && "w-4 border-primary bg-primary text-primary-fg ring-4 ring-primary/25 scale-y-110 shadow-[0_0_20px_rgba(99,102,241,0.65)]",
         )}
       >
-        <span className="size-1 rounded-full bg-surface" />
+        <span
+          className={cn(
+            "rounded-full transition-all duration-300",
+            span === 1
+              ? "h-3 w-1 bg-primary group-hover/edge:bg-primary"
+              : "size-1 bg-muted/60",
+            isDragging && "bg-white",
+          )}
+        />
+        <span
+          className={cn(
+            "rounded-full transition-all duration-300",
+            span === 2
+              ? "h-3 w-1 bg-primary group-hover/edge:bg-primary"
+              : "size-1 bg-muted/60",
+            isDragging && "bg-white",
+          )}
+        />
       </div>
-      <span className="pointer-events-none absolute -bottom-7 right-0 hidden rounded-md bg-fg px-2 py-0.5 text-[10px] font-semibold text-bg shadow-md group-hover/edge:block whitespace-nowrap z-30">
+      <span className="pointer-events-none absolute -bottom-7 right-0 hidden rounded-lg border border-border/50 bg-fg/95 backdrop-blur-md px-2.5 py-1 text-[10px] font-semibold text-bg shadow-lg group-hover/edge:block whitespace-nowrap z-30">
         {span === 2 ? "← Swipe / click to shrink (1 col)" : "Swipe / click to expand (2 cols) →"}
       </span>
     </div>
@@ -1719,6 +1850,79 @@ function DashboardCardsGrid({
     onReorderCards,
   });
 
+  const resizePrevRectsRef = useRef<Map<DashboardCardKey, DOMRect> | null>(null);
+
+  // Record bounding rects right before a card span changes, then FLIP-animate all cards smoothly
+  const handleUpdateCardWithFlip = useCallback(
+    (key: DashboardCardKey, patch: Partial<DashboardCardConfig>) => {
+      if (patch.span !== undefined && typeof document !== "undefined") {
+        const map = new Map<DashboardCardKey, DOMRect>();
+        for (const c of cards) {
+          if (!c.visible) continue;
+          const el = document.getElementById(`card-${c.key}`);
+          if (el) {
+            map.set(c.key, el.getBoundingClientRect());
+          }
+        }
+        resizePrevRectsRef.current = map;
+      }
+      updateCardConfig(key, patch);
+    },
+    [cards, updateCardConfig],
+  );
+
+  // Trigger smooth spring FLIP animation whenever any card's span changes
+  const spanSignature = useMemo(
+    () => cards.map((c) => `${c.key}:${c.span}`).join(","),
+    [cards],
+  );
+  useEffect(() => {
+    if (typeof window === "undefined" || !resizePrevRectsRef.current) return;
+    const prevRects = resizePrevRectsRef.current;
+    resizePrevRectsRef.current = null;
+
+    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (prefersReducedMotion) return;
+
+    for (const c of cards) {
+      if (!c.visible) continue;
+      const el = document.getElementById(`card-${c.key}`);
+      const first = prevRects.get(c.key);
+      if (!el || !first) continue;
+
+      const last = el.getBoundingClientRect();
+      const dx = first.left - last.left;
+      const dy = first.top - last.top;
+      const scaleW = last.width > 0 ? first.width / last.width : 1;
+
+      if (Math.abs(dx) > 1 || Math.abs(dy) > 1 || Math.abs(scaleW - 1) > 0.02) {
+        if (typeof el.animate === "function") {
+          el.animate(
+            [
+              {
+                transformOrigin: "left top",
+                transform: `translate3d(${dx}px, ${dy}px, 0) scaleX(${scaleW.toFixed(3)})`,
+                filter: Math.abs(scaleW - 1) > 0.05 ? "blur(6px)" : "blur(0px)",
+                opacity: Math.abs(scaleW - 1) > 0.05 ? 0.82 : 1,
+              },
+              {
+                transformOrigin: "left top",
+                transform: "translate3d(0, 0, 0) scaleX(1)",
+                filter: "blur(0px)",
+                opacity: 1,
+              },
+            ],
+            {
+              duration: 360,
+              easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+              fill: "none",
+            },
+          );
+        }
+      }
+    }
+  }, [spanSignature, cards]);
+
   const metrics7 = useMemo(() => computeMetricsForPeriod(7), [computeMetricsForPeriod]);
   const metrics30 = useMemo(() => computeMetricsForPeriod(30), [computeMetricsForPeriod]);
   const metrics90 = useMemo(() => computeMetricsForPeriod(90), [computeMetricsForPeriod]);
@@ -1763,7 +1967,7 @@ function DashboardCardsGrid({
             configOpenKey={configOpenKey}
             setConfigOpenKey={setConfigOpenKey}
             stepCardOrder={stepCardOrder}
-            updateCardConfig={updateCardConfig}
+            updateCardConfig={handleUpdateCardWithFlip}
             removeCard={removeCard}
             onStartDrag={(e) => startDrag(e, card.key)}
             isCurrent={activeDrag?.key === card.key}
@@ -1941,19 +2145,52 @@ function DashboardCardShell({
 }) {
   const entry = CATALOG_BY_KEY.get(card.key);
   const span = card.span ?? entry?.defaultSpan ?? 1;
+  const [resizeDragState, setResizeDragState] = useState<{
+    isDragging: boolean;
+    isRubberBanding: boolean;
+    physics: EdgeResizeDragPhysics | null;
+  }>({
+    isDragging: false,
+    isRubberBanding: false,
+    physics: null,
+  });
+
   const subtitle =
     card.key === "gauges"
       ? `Past ${card.periodDays} days performance, and outlook for next 7 days.`
       : entry?.usesPeriod
         ? `Last ${card.periodDays} days · ${entry.description}`
         : entry?.description;
+
+  const rp = resizeDragState.physics;
+  const resizeCssVars = rp
+    ? ({
+        "--resize-x": `${(rp.effectiveDx * 0.18).toFixed(1)}px`,
+        "--resize-scale-x": String(rp.scaleX),
+        "--resize-scale-y": String(rp.scaleY),
+        "--resize-blur": `${rp.blurPx}px`,
+        "--resize-content-blur": `${(rp.blurPx * 0.35).toFixed(1)}px`,
+        "--resize-opacity": String(rp.opacity),
+        "--resize-shadow": rp.shadow,
+      } as React.CSSProperties)
+    : undefined;
+
   return (
+    <div
+      style={resizeCssVars}
+      className={cn(
+        "resizable-bento-card h-full flex flex-col",
+        resizeDragState.isDragging && "is-resizing",
+        resizeDragState.isRubberBanding && "is-rubber-banding",
+      )}
+    >
     <Card className="relative flex flex-col gap-3 h-full">
       {/* Outside edge resizer (swipe left/right or click to expand/shrink card) */}
       <CardEdgeResizeHandle
         span={span as 1 | 2}
         onSetSpan={(nextSpan) => onUpdate({ span: nextSpan })}
         onToggleSpan={() => onUpdate({ span: span === 2 ? 1 : 2 })}
+        onDragPhysicsChange={setResizeDragState}
       />
 
       <div className="flex items-start justify-between gap-2">
@@ -2095,6 +2332,7 @@ function DashboardCardShell({
         </div>
       )}
     </Card>
+    </div>
   );
 }
 

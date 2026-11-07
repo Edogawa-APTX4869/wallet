@@ -7,6 +7,7 @@ import {
   SwipePaginationDots,
   SwipeableWidget,
 } from "@/components/swipeable-widget";
+import { computeEdgeResizePhysics } from "@/app/(app)/dashboard-client";
 
 describe("Swipe Physics & Dynamic Depth Effects", () => {
   it("tracks 1:1 displacement when swiping towards an available view", () => {
@@ -78,5 +79,25 @@ describe("Swipe Physics & Dynamic Depth Effects", () => {
     expect(html).toContain("swipeable-card");
     expect(html).toContain("cursor-grab");
     expect(html).toContain("Panel Content");
+  });
+
+  it("computes edge-resize swipe physics with elastic stretching, rubber-banding, and dynamic blur", () => {
+    // Expanding a 1-col card (dx > 0)
+    const expand = computeEdgeResizePhysics(100, 400, 1);
+    expect(expand.effectiveDx).toBeGreaterThan(0);
+    expect(expand.scaleX).toBeGreaterThan(1);
+    expect(expand.blurPx).toBeGreaterThan(0);
+    expect(expand.opacity).toBeLessThan(1);
+
+    // Rubber-banding when trying to shrink a 1-col card further (dx < 0)
+    const rubber = computeEdgeResizePhysics(-100, 400, 1);
+    expect(Math.abs(rubber.effectiveDx)).toBeLessThanOrEqual(35);
+    expect(rubber.scaleX).toBeLessThan(1);
+
+    // Shrinking a 2-col card (dx < 0)
+    const shrink = computeEdgeResizePhysics(-120, 800, 2);
+    expect(shrink.effectiveDx).toBeLessThan(0);
+    expect(shrink.scaleX).toBeLessThan(1);
+    expect(shrink.blurPx).toBeGreaterThan(0);
   });
 });
