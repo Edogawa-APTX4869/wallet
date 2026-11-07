@@ -205,9 +205,17 @@ export function Money({
   );
 }
 
-export function EmptyState({ title, children }: { title: string; children?: React.ReactNode }) {
+export function EmptyState({
+  title,
+  children,
+  className,
+}: {
+  title: string;
+  children?: React.ReactNode;
+  className?: string;
+}) {
   return (
-    <div className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-border p-10 text-center">
+    <div className={cn("flex flex-1 flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-border p-8 text-center min-h-[140px] w-full", className)}>
       <p className="font-medium">{title}</p>
       {children && <div className="text-sm text-muted">{children}</div>}
     </div>

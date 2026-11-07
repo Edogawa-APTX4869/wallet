@@ -114,7 +114,7 @@ function RankedBars({
   const max = rows[0].total.toNumber() || 1;
   const total = rows.reduce((acc, r) => acc.plus(r.total), new Decimal(0));
   return (
-    <div className="flex flex-col gap-2.5">
+    <div className="flex flex-1 flex-col gap-2.5">
       {rows.slice(0, limit).map((r) => {
         const pct = Math.round((r.total.toNumber() / max) * 100);
         const share = total.gt(0) ? Math.round(r.total.div(total).mul(100).toNumber()) : 0;
@@ -217,7 +217,7 @@ export function ExtraCard({ card, ctx }: { card: DashboardCardConfig; ctx: Extra
         .slice(0, limit);
       if (rows.length === 0) return <EmptyState title="No expenses in this period" />;
       return (
-        <ul className="divide-y divide-border">
+        <ul className="flex-1 divide-y divide-border">
           {rows.map(({ g, s }, i) => (
             <li key={`${g.id}-${i}`}>
               <Link
@@ -279,7 +279,7 @@ export function ExtraCard({ card, ctx }: { card: DashboardCardConfig; ctx: Extra
         },
       ];
       return (
-        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
+        <div className="grid flex-1 grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
           {stats.map((s) => (
             <div key={s.label} className="rounded-xl border border-border/60 bg-surface-2 p-2.5 sm:p-3 min-w-0">
               <p className="text-[10px] sm:text-[11px] font-semibold tracking-wide text-muted uppercase truncate">{s.label}</p>
@@ -295,7 +295,7 @@ export function ExtraCard({ card, ctx }: { card: DashboardCardConfig; ctx: Extra
     case "balance_by_currency": {
       if (ctx.balancesByCurrency.length === 0) return <EmptyState title="No balances" />;
       return (
-        <ul className="divide-y divide-border">
+        <ul className="flex-1 divide-y divide-border">
           {ctx.balancesByCurrency.map((b) => (
             <li key={b.code} className="flex items-center justify-between gap-2 py-2.5 text-sm">
               <div className="flex items-center gap-2">
@@ -320,7 +320,7 @@ export function ExtraCard({ card, ctx }: { card: DashboardCardConfig; ctx: Extra
 
     case "balance_trend":
       return (
-        <div className="h-56">
+        <div className="h-56 flex-1 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={ctx.trendData} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
@@ -342,7 +342,7 @@ export function ExtraCard({ card, ctx }: { card: DashboardCardConfig; ctx: Extra
 
     case "income_expense_bars":
       return (
-        <div className="h-56">
+        <div className="h-56 flex-1 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={ctx.barData} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
@@ -370,7 +370,7 @@ export function ExtraCard({ card, ctx }: { card: DashboardCardConfig; ctx: Extra
         .slice(0, limit);
       if (rows.length === 0) return <EmptyState title="Nothing left to pay this month" />;
       return (
-        <ul className="divide-y divide-border">
+        <ul className="flex-1 divide-y divide-border">
           {rows.map((b) => {
             const a = b.attributes;
             const avg = new Decimal(a.amount_min || 0).plus(a.amount_max || 0).div(2);
@@ -407,7 +407,7 @@ export function ExtraCard({ card, ctx }: { card: DashboardCardConfig; ctx: Extra
       const rows = ctx.piggies.filter((p) => p.attributes.active !== false).slice(0, limit);
       if (rows.length === 0) return <EmptyState title="No savings goals yet" />;
       return (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-1 flex-col gap-3">
           {rows.map((p) => {
             const a = p.attributes;
             const cur = Number(a.current_amount || 0);
@@ -536,7 +536,7 @@ export function ExtraCard({ card, ctx }: { card: DashboardCardConfig; ctx: Extra
       const totalExpectedPrimary = items.reduce((s, x) => s + x.expectedPrimary, 0);
 
       return (
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-1 flex-col gap-4">
           {/* Global Debt KPI Summary Row */}
           <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
             <div className="rounded-xl border border-success/30 bg-success-soft/30 p-2 sm:p-2.5 min-w-0">

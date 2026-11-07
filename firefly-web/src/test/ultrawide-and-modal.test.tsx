@@ -171,5 +171,10 @@ describe("Ultra-Wide & Multi-Screen Responsive Grid Architecture", () => {
     expect(content).toContain("min-w-[145px]");
     expect(content).toContain("1 col (Half)");
     expect(content).toContain("2 cols (Full)");
+
+    // Cards in the same row/level must have identical height (items-stretch + h-full)
+    expect(content).toContain("items-stretch");
+    expect(content).toContain("h-full flex flex-col");
+    expect(content).toContain("Card className=\"relative flex flex-col gap-3 h-full\"");
   });
 });

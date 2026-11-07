@@ -1720,7 +1720,7 @@ function DashboardCardsGrid({
       ref={containerRef}
       style={isDraggingAny ? { touchAction: "none" } : undefined}
       className={cn(
-        "grid grid-cols-1 items-start gap-4 lg:grid-cols-2 2xl:grid-cols-3 3xl:grid-cols-4",
+        "grid grid-cols-1 items-stretch gap-4 lg:grid-cols-2 2xl:grid-cols-3 3xl:grid-cols-4",
         isDraggingAny && "touch-none select-none",
       )}
     >
@@ -1825,7 +1825,7 @@ const DashboardCardItem = React.memo(function DashboardCardItem({
       id={`card-${card.key}`}
       data-card-key={card.key}
       className={cn(
-        "@container scroll-mt-6 rounded-2xl transition-opacity duration-200",
+        "@container scroll-mt-6 rounded-2xl transition-opacity duration-200 h-full flex flex-col",
         span === 2 ? "lg:col-span-2 2xl:col-span-2 3xl:col-span-2" : "lg:col-span-1 2xl:col-span-1 3xl:col-span-1",
         isDraggingAny && !isCurrent && "widget-card-recessed widget-card-sibling",
         isDraggingAny && "will-change-transform [backface-visibility:hidden] [transform:translate3d(0,0,0)]",
@@ -1931,7 +1931,7 @@ function DashboardCardShell({
         ? `Last ${card.periodDays} days · ${entry.description}`
         : entry?.description;
   return (
-    <Card className="relative flex flex-col gap-3">
+    <Card className="relative flex flex-col gap-3 h-full">
       {/* Outside edge resizer (swipe left/right or click to expand/shrink card) */}
       <CardEdgeResizeHandle
         span={span as 1 | 2}
@@ -2056,7 +2056,9 @@ function DashboardCardShell({
         </div>
       </div>
 
-      {children}
+      <div className="flex-1 flex flex-col min-h-0">
+        {children}
+      </div>
     </Card>
   );
 }
@@ -2173,7 +2175,7 @@ const WalletGaugesCard = React.memo(function WalletGaugesCard({
   const spendingBarWidth = Math.min(100, Math.max(8, Math.round((spendingAmt.toNumber() / totalFlow) * 100)));
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-1 flex-col justify-between gap-4">
       {/* 2 Primary Modern KPI Cards: BALANCE & NET CASH FLOW */}
       <div className="grid grid-cols-1 gap-3 @[560px]:grid-cols-2">
         {/* Liquid Balance Card */}
@@ -2363,17 +2365,19 @@ const RecentRecordsCard = React.memo(function RecentRecordsCard({
   periodDays: number;
 }) {
   return (
-    <div className="flex flex-col gap-2">
-      <p className="text-[11px] font-semibold tracking-wider text-muted uppercase">Last {periodDays} days</p>
-      {transactions.length === 0 ? (
-        <EmptyState title="No matching records for selected accounts" />
-      ) : (
-        <ul className="divide-y divide-border">
-          {transactions.map((g) => (
-            <TransactionRow key={g.id} group={g} />
-          ))}
-        </ul>
-      )}
+    <div className="flex flex-1 flex-col justify-between gap-2">
+      <div className="flex flex-col gap-2">
+        <p className="text-[11px] font-semibold tracking-wider text-muted uppercase">Last {periodDays} days</p>
+        {transactions.length === 0 ? (
+          <EmptyState title="No matching records for selected accounts" />
+        ) : (
+          <ul className="divide-y divide-border">
+            {transactions.map((g) => (
+              <TransactionRow key={g.id} group={g} />
+            ))}
+          </ul>
+        )}
+      </div>
       <div className="pt-1">
         <Link href="/transactions" className="text-xs font-semibold text-primary hover:underline">
           Show more
@@ -2409,69 +2413,73 @@ const CashFlowTableCard = React.memo(function CashFlowTableCard({
   };
 }) {
   return (
-    <div className="flex flex-col gap-3">
-      <p className="text-[11px] font-semibold tracking-wider text-muted uppercase">Last {periodDays} days</p>
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="text-muted">
-              <th className="py-1.5 text-left font-medium">Quick overview</th>
-              <th className="py-1.5 text-right font-medium">Income</th>
-              <th className="py-1.5 text-right font-medium text-danger">Expenses</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border tabular">
-            <tr className="bg-surface-2/60">
-              <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 font-medium">Count</td>
-              <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 text-right">
-                <AnimatedNumber value={metrics.incomeCount} />
-              </td>
-              <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 text-right text-danger">
-                <AnimatedNumber value={metrics.expenseCount} />
-              </td>
-            </tr>
-            <tr>
-              <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 font-medium">Average (Day)</td>
-              <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 text-right">
-                <Money animated amount={metrics.avgIncomeDay.toString()} code={primaryCode} decimals={primaryDecimals} />
-              </td>
-              <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 text-right text-danger">
-                -<Money animated amount={metrics.avgExpenseDay.toString()} code={primaryCode} decimals={primaryDecimals} />
-              </td>
-            </tr>
-            <tr className="bg-surface-2/60">
-              <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 font-medium">Average (Record)</td>
-              <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 text-right">
-                <Money animated amount={metrics.avgIncomeRec.toString()} code={primaryCode} decimals={primaryDecimals} />
-              </td>
-              <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 text-right text-danger">
-                -<Money animated amount={metrics.avgExpenseRec.toString()} code={primaryCode} decimals={primaryDecimals} />
-              </td>
-            </tr>
-            <tr>
-              <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 font-semibold">Total</td>
-              <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 text-right font-semibold">
-                <Money animated amount={metrics.incomeSum.toString()} code={primaryCode} decimals={primaryDecimals} />
-              </td>
-              <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 text-right font-semibold text-danger">
-                -<Money animated amount={metrics.expenseSum.toString()} code={primaryCode} decimals={primaryDecimals} />
-              </td>
-            </tr>
-          </tbody>
-        </table>
+    <div className="flex flex-1 flex-col justify-between gap-3">
+      <div className="flex flex-col gap-3">
+        <p className="text-[11px] font-semibold tracking-wider text-muted uppercase">Last {periodDays} days</p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-muted">
+                <th className="py-1.5 text-left font-medium">Quick overview</th>
+                <th className="py-1.5 text-right font-medium">Income</th>
+                <th className="py-1.5 text-right font-medium text-danger">Expenses</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border tabular">
+              <tr className="bg-surface-2/60">
+                <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 font-medium">Count</td>
+                <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 text-right">
+                  <AnimatedNumber value={metrics.incomeCount} />
+                </td>
+                <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 text-right text-danger">
+                  <AnimatedNumber value={metrics.expenseCount} />
+                </td>
+              </tr>
+              <tr>
+                <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 font-medium">Average (Day)</td>
+                <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 text-right">
+                  <Money animated amount={metrics.avgIncomeDay.toString()} code={primaryCode} decimals={primaryDecimals} />
+                </td>
+                <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 text-right text-danger">
+                  -<Money animated amount={metrics.avgExpenseDay.toString()} code={primaryCode} decimals={primaryDecimals} />
+                </td>
+              </tr>
+              <tr className="bg-surface-2/60">
+                <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 font-medium">Average (Record)</td>
+                <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 text-right">
+                  <Money animated amount={metrics.avgIncomeRec.toString()} code={primaryCode} decimals={primaryDecimals} />
+                </td>
+                <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 text-right text-danger">
+                  -<Money animated amount={metrics.avgExpenseRec.toString()} code={primaryCode} decimals={primaryDecimals} />
+                </td>
+              </tr>
+              <tr>
+                <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 font-semibold">Total</td>
+                <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 text-right font-semibold">
+                  <Money animated amount={metrics.incomeSum.toString()} code={primaryCode} decimals={primaryDecimals} />
+                </td>
+                <td className="px-1.5 py-1 sm:px-2 sm:py-1.5 text-right font-semibold text-danger">
+                  -<Money animated amount={metrics.expenseSum.toString()} code={primaryCode} decimals={primaryDecimals} />
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
 
-      <div className="flex items-baseline justify-end gap-3 border-t border-border pt-2.5 text-sm">
-        <span className="text-xs text-muted">Cash flow</span>
-        <span className={cn("text-base font-bold", metrics.netCashflow.lt(0) ? "text-danger" : "text-fg")}>
-          <Money animated amount={metrics.netCashflow.toString()} code={primaryCode} decimals={primaryDecimals} />
-        </span>
-      </div>
+      <div className="flex flex-col gap-2 border-t border-border pt-2.5">
+        <div className="flex items-baseline justify-end gap-3 text-sm">
+          <span className="text-xs text-muted">Cash flow</span>
+          <span className={cn("text-base font-bold", metrics.netCashflow.lt(0) ? "text-danger" : "text-fg")}>
+            <Money animated amount={metrics.netCashflow.toString()} code={primaryCode} decimals={primaryDecimals} />
+          </span>
+        </div>
 
-      <div>
-        <Link href="/transactions" className="text-xs font-semibold text-primary hover:underline">
-          Show more
-        </Link>
+        <div>
+          <Link href="/transactions" className="text-xs font-semibold text-primary hover:underline">
+            Show more
+          </Link>
+        </div>
       </div>
     </div>
   );
@@ -2493,7 +2501,7 @@ const ChartsCard = React.memo(function ChartsCard({
   loadingTrend: boolean;
 }) {
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
+    <div className="grid flex-1 gap-4 lg:grid-cols-2">
       <div className="flex flex-col gap-2">
         <CardTitle>Income vs Expense (6 months · {primaryCode})</CardTitle>
         <div className="h-56 w-full">
@@ -2573,28 +2581,30 @@ const BudgetsGoalsCard = React.memo(function BudgetsGoalsCard({
     );
   }
   return (
-    <div className="flex flex-col gap-3">
-      {budgetRows.map((b) => {
-        const pct = b.limit > 0 ? (b.spent / b.limit) * 100 : 0;
-        const tone = pct >= 100 ? "danger" : pct >= 80 ? "warning" : "primary";
-        return (
-          <div key={b.id} className="flex flex-col gap-1.5">
-            <div className="flex items-baseline justify-between text-sm">
-              <span className="font-medium">{b.name}</span>
-              <span className="text-xs text-muted">
-                <Money amount={b.spent} code={b.code} decimals={b.decimals} />
-                {b.limit > 0 && (
-                  <>
-                    {" / "}
-                    <Money amount={b.limit} code={b.code} decimals={b.decimals} />
-                  </>
-                )}
-              </span>
+    <div className="flex flex-1 flex-col justify-between gap-3">
+      <div className="flex flex-col gap-3">
+        {budgetRows.map((b) => {
+          const pct = b.limit > 0 ? (b.spent / b.limit) * 100 : 0;
+          const tone = pct >= 100 ? "danger" : pct >= 80 ? "warning" : "primary";
+          return (
+            <div key={b.id} className="flex flex-col gap-1.5">
+              <div className="flex items-baseline justify-between text-sm">
+                <span className="font-medium">{b.name}</span>
+                <span className="text-xs text-muted">
+                  <Money amount={b.spent} code={b.code} decimals={b.decimals} />
+                  {b.limit > 0 && (
+                    <>
+                      {" / "}
+                      <Money amount={b.limit} code={b.code} decimals={b.decimals} />
+                    </>
+                  )}
+                </span>
+              </div>
+              {b.limit > 0 && <Progress value={pct} tone={tone} />}
             </div>
-            {b.limit > 0 && <Progress value={pct} tone={tone} />}
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
       <div className="pt-1">
         <Link href="/budgets" className="flex items-center gap-1 text-xs font-semibold text-primary hover:underline">
           All budgets <ArrowRight className="size-3.5" aria-hidden />
