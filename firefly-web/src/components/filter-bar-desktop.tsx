@@ -19,6 +19,7 @@ import {
 } from "@/lib/filter-presets";
 import { useUniversalFilter } from "@/lib/filter-context";
 import { ASSET_LIKE, useAccounts } from "@/lib/hooks";
+import { isSystemContraAccount } from "@/app/(app)/dashboard-extra-cards";
 import { cn, formatMoney } from "@/lib/utils";
 import { useEscapeDismiss } from "@/lib/use-escape-dismiss";
 import { Badge, Button } from "@/components/ui";
@@ -65,7 +66,10 @@ export function DesktopStickyFilterBar({
   const accountsQ = useAccounts("all");
   const assetAccounts = useMemo(() => {
     return (accountsQ.data ?? []).filter(
-      (a) => ASSET_LIKE.has(a.attributes.type) && a.attributes.active !== false,
+      (a) =>
+        ASSET_LIKE.has(a.attributes.type) &&
+        !isSystemContraAccount(a) &&
+        a.attributes.active !== false,
     );
   }, [accountsQ.data]);
 
@@ -73,6 +77,59 @@ export function DesktopStickyFilterBar({
   const [periodDropdownOpen, setPeriodDropdownOpen] = useState(false);
   const [datePopoverOpen, setDatePopoverOpen] = useState(false);
   const [accountDropdownOpen, setAccountDropdownOpen] = useState(false);
+
+  // Dynamic alignment for popovers to prevent overflowing left or right viewport edges
+  const [accountMenuAlign, setAccountMenuAlign] = useState<"left" | "right">("left");
+  const [datePopoverAlign, setDatePopoverAlign] = useState<"left" | "right">("left");
+
+  // Popover references for click-outside and positioning
+  const periodMenuRef = useRef<HTMLDivElement>(null);
+  const datePopoverRef = useRef<HTMLDivElement>(null);
+  const accountMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!accountDropdownOpen) return;
+    function updateAccountAlign() {
+      if (accountMenuRef.current) {
+        const rect = accountMenuRef.current.getBoundingClientRect();
+        const screenWidth = typeof window !== "undefined" ? window.innerWidth : 1024;
+        // Popover width: 320px (w-80) + 16px safety padding = 336px
+        const fitsOnRight = rect.left + 336 <= screenWidth;
+        const fitsOnLeft = rect.right >= 336;
+
+        if (!fitsOnRight && fitsOnLeft) {
+          setAccountMenuAlign("right");
+        } else {
+          setAccountMenuAlign("left");
+        }
+      }
+    }
+    updateAccountAlign();
+    window.addEventListener("resize", updateAccountAlign);
+    return () => window.removeEventListener("resize", updateAccountAlign);
+  }, [accountDropdownOpen]);
+
+  useEffect(() => {
+    if (!datePopoverOpen) return;
+    function updateDateAlign() {
+      if (datePopoverRef.current) {
+        const rect = datePopoverRef.current.getBoundingClientRect();
+        const screenWidth = typeof window !== "undefined" ? window.innerWidth : 1024;
+        // Date popover width: 288px (w-72) + 16px safety padding = 304px
+        const fitsOnRight = rect.left + 304 <= screenWidth;
+        const fitsOnLeft = rect.right >= 304;
+
+        if (!fitsOnRight && fitsOnLeft) {
+          setDatePopoverAlign("right");
+        } else {
+          setDatePopoverAlign("left");
+        }
+      }
+    }
+    updateDateAlign();
+    window.addEventListener("resize", updateDateAlign);
+    return () => window.removeEventListener("resize", updateDateAlign);
+  }, [datePopoverOpen]);
 
   // Local draft dates for custom range popover
   const [customStart, setCustomStart] = useState(startDate);
@@ -133,10 +190,6 @@ export function DesktopStickyFilterBar({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [stepPeriod, setPreset, toggleDatePopover]);
 
-  // Popover references for click-outside
-  const periodMenuRef = useRef<HTMLDivElement>(null);
-  const datePopoverRef = useRef<HTMLDivElement>(null);
-  const accountMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -318,7 +371,12 @@ export function DesktopStickyFilterBar({
 
             {/* Dual Date Range Popover */}
             {datePopoverOpen && (
-              <div className="absolute left-0 top-full mt-2 z-50 w-72 rounded-2xl border border-border bg-surface p-4 shadow-xl popover-in">
+              <div
+                className={cn(
+                  "absolute top-full mt-2 z-50 w-72 max-w-[calc(100vw-2rem)] rounded-2xl border border-border bg-surface p-4 shadow-xl popover-in",
+                  datePopoverAlign === "right" ? "right-0" : "left-0",
+                )}
+              >
                 <div className="mb-3 flex items-center justify-between border-b border-border pb-2">
                   <h4 className="text-xs font-bold text-fg flex items-center gap-1.5">
                     <Calendar className="size-3.5 text-primary" />
@@ -409,7 +467,12 @@ export function DesktopStickyFilterBar({
               </button>
 
               {accountDropdownOpen && (
-                <div className="absolute right-0 top-full mt-2 z-50 w-80 rounded-2xl border border-border bg-surface p-3 shadow-xl popover-in">
+                <div
+                  className={cn(
+                    "absolute top-full mt-2 z-50 w-80 max-w-[calc(100vw-2rem)] rounded-2xl border border-border bg-surface p-3 shadow-xl popover-in",
+                    accountMenuAlign === "right" ? "right-0" : "left-0",
+                  )}
+                >
                   <div className="mb-2 flex items-center justify-between border-b border-border pb-2">
                     <div className="text-xs font-bold text-fg flex items-center gap-1.5">
                       <SlidersHorizontal className="size-3.5 text-primary" />

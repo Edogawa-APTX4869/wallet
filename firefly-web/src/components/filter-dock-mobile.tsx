@@ -15,6 +15,7 @@ import {
 import { type PeriodPreset } from "@/lib/filter-presets";
 import { useUniversalFilter } from "@/lib/filter-context";
 import { ASSET_LIKE, useAccounts } from "@/lib/hooks";
+import { isSystemContraAccount } from "@/app/(app)/dashboard-extra-cards";
 import { cn, formatMoney } from "@/lib/utils";
 import { Badge, Button, ModalSheet } from "@/components/ui";
 
@@ -57,7 +58,10 @@ export function MobileFilterDock({
   const accountsQ = useAccounts("all");
   const assetAccounts = useMemo(() => {
     return (accountsQ.data ?? []).filter(
-      (a) => ASSET_LIKE.has(a.attributes.type) && a.attributes.active !== false,
+      (a) =>
+        ASSET_LIKE.has(a.attributes.type) &&
+        !isSystemContraAccount(a) &&
+        a.attributes.active !== false,
     );
   }, [accountsQ.data]);
 
