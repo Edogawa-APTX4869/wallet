@@ -54,6 +54,7 @@ import {
   useDashboardDnd,
   DashboardDropPlaceholder,
 } from "@/components/dashboard-dnd";
+import { SwipeableWidget } from "@/components/swipeable-widget";
 import { ExtraCard, inPeriod, type ExtraCardContext } from "./dashboard-extra-cards";
 import { useAccounts, usePrimaryCurrency, useRatesToPrimary } from "@/lib/hooks";
 import { cn, formatMoney, isoDate, monthRange, sumDecimal } from "@/lib/utils";
@@ -1213,91 +1214,98 @@ export function DashboardClient() {
 
       <ErrorBox error={accountsQ.error || summaryQ.error} />
 
-      {/* Top Panel: My Accounts in Wallet (Multi-Select Tiles) OR Budgets & Goals */}
-      <div key={`top-${topTab}`} className="animate-tab-enter">
-        {topTab === "accounts" ? (
-        <Card className="flex flex-col gap-2 p-2 sm:p-4 md:p-5">
-          <AccountsSectionHeader
-            accountCount={walletAccounts.length}
-            selectedCount={selectedIds.length}
-            onSelectAll={selectAllAccounts}
-          />
-
-          {accountsQ.isLoading ? (
-            <div className="grid grid-cols-2 gap-2 sm:gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
-              <Skeleton className="h-16" />
-              <Skeleton className="h-16" />
-              <Skeleton className="h-16" />
-            </div>
-          ) : (
-            <TwoColumnAccountGrid
-              accounts={walletAccounts}
-              selectedIdSet={selectedIdSet}
-              onToggleAccount={toggleAccountSelection}
-              showManageLink={true}
+      {/* Top Panel: My Accounts in Wallet (Multi-Select Tiles) OR Budgets & Goals (Swipeable with dynamic blur) */}
+      <SwipeableWidget
+        activeIndex={topTab === "accounts" ? 0 : 1}
+        totalViews={2}
+        viewLabels={["Accounts", "Budgets & Goals"]}
+        onIndexChange={(idx) => setTopTab(idx === 0 ? "accounts" : "budgets")}
+      >
+        <div key={`top-${topTab}`} className="animate-tab-enter">
+          {topTab === "accounts" ? (
+          <Card className="flex flex-col gap-2 p-2 sm:p-4 md:p-5">
+            <AccountsSectionHeader
+              accountCount={walletAccounts.length}
+              selectedCount={selectedIds.length}
+              onSelectAll={selectAllAccounts}
             />
-          )}
-        </Card>
-      ) : (
-        <Card className="flex flex-col gap-3 p-2.5 sm:p-4 md:p-5">
-          <div className="flex items-center justify-between">
-            <h2 className="text-base font-bold">Budgets & Savings Goals</h2>
-            <div className="flex gap-2">
-              <Link href="/budgets">
-                <Button variant="secondary" size="sm">Budgets</Button>
-              </Link>
-              <Link href="/piggy-banks">
-                <Button variant="secondary" size="sm">Piggy Banks</Button>
-              </Link>
-            </div>
-          </div>
 
-          {budgetRows.length === 0 && (piggyQ.data?.length ?? 0) === 0 ? (
-            <EmptyState title="No active budgets or piggy banks yet" />
-          ) : (
-            <div className="grid gap-3 sm:grid-cols-2">
-              {budgetRows.map((b) => {
-                const pct = b.limit > 0 ? Math.min(100, Math.round((b.spent / b.limit) * 100)) : 0;
-                return (
-                  <Link key={b.id} href="/budgets" className="rounded-xl border border-border p-3 hover:bg-surface-2">
-                    <div className="mb-1 flex items-center justify-between text-sm font-semibold">
-                      <span>{b.name}</span>
-                      <Badge tone={pct >= 100 ? "danger" : "primary"}>{pct}%</Badge>
-                    </div>
-                    <p className="mb-2 text-xs text-muted">
-                      <Money amount={b.spent} code={b.code} decimals={b.decimals} /> of{" "}
-                      <Money amount={b.limit} code={b.code} decimals={b.decimals} />
-                    </p>
-                    <Progress value={pct} tone={pct >= 100 ? "danger" : pct >= 80 ? "warning" : "primary"} />
-                  </Link>
-                );
-              })}
-              {(piggyQ.data ?? []).map((p) => {
-                const a = p.attributes;
-                const cur = Number(a.current_amount || 0);
-                const target = Number(a.target_amount || 0);
-                const pct = target > 0 ? Math.min(100, Math.round((cur / target) * 100)) : 0;
-                return (
-                  <Link key={p.id} href="/piggy-banks" className="rounded-xl border border-border p-3 hover:bg-surface-2">
-                    <div className="mb-1 flex items-center justify-between text-sm font-semibold">
-                      <span className="flex items-center gap-2">
-                        <ResourceIconBadge entityType="piggy" entityId={p.id} defaultIcon="PiggyBank" size="sm" />
-                        <span>{a.name}</span>
-                      </span>
-                      <Badge tone="success">{pct}%</Badge>
-                    </div>
-                    <p className="mb-2 text-xs text-muted">
-                      Saved <Money amount={cur} code={a.currency_code} decimals={a.currency_decimal_places} />
-                    </p>
-                    <Progress value={pct} tone="success" />
-                  </Link>
-                );
-              })}
+            {accountsQ.isLoading ? (
+              <div className="grid grid-cols-2 gap-2 sm:gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
+                <Skeleton className="h-16" />
+                <Skeleton className="h-16" />
+                <Skeleton className="h-16" />
+              </div>
+            ) : (
+              <TwoColumnAccountGrid
+                accounts={walletAccounts}
+                selectedIdSet={selectedIdSet}
+                onToggleAccount={toggleAccountSelection}
+                showManageLink={true}
+              />
+            )}
+          </Card>
+        ) : (
+          <Card className="flex flex-col gap-3 p-2.5 sm:p-4 md:p-5">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-bold">Budgets & Savings Goals</h2>
+              <div className="flex gap-2">
+                <Link href="/budgets">
+                  <Button variant="secondary" size="sm">Budgets</Button>
+                </Link>
+                <Link href="/piggy-banks">
+                  <Button variant="secondary" size="sm">Piggy Banks</Button>
+                </Link>
+              </div>
             </div>
-          )}
-        </Card>
-      )}
-      </div>
+
+            {budgetRows.length === 0 && (piggyQ.data?.length ?? 0) === 0 ? (
+              <EmptyState title="No active budgets or piggy banks yet" />
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {budgetRows.map((b) => {
+                  const pct = b.limit > 0 ? Math.min(100, Math.round((b.spent / b.limit) * 100)) : 0;
+                  return (
+                    <Link key={b.id} href="/budgets" className="rounded-xl border border-border p-3 hover:bg-surface-2">
+                      <div className="mb-1 flex items-center justify-between text-sm font-semibold">
+                        <span>{b.name}</span>
+                        <Badge tone={pct >= 100 ? "danger" : "primary"}>{pct}%</Badge>
+                      </div>
+                      <p className="mb-2 text-xs text-muted">
+                        <Money amount={b.spent} code={b.code} decimals={b.decimals} /> of{" "}
+                        <Money amount={b.limit} code={b.code} decimals={b.decimals} />
+                      </p>
+                      <Progress value={pct} tone={pct >= 100 ? "danger" : pct >= 80 ? "warning" : "primary"} />
+                    </Link>
+                  );
+                })}
+                {(piggyQ.data ?? []).map((p) => {
+                  const a = p.attributes;
+                  const cur = Number(a.current_amount || 0);
+                  const target = Number(a.target_amount || 0);
+                  const pct = target > 0 ? Math.min(100, Math.round((cur / target) * 100)) : 0;
+                  return (
+                    <Link key={p.id} href="/piggy-banks" className="rounded-xl border border-border p-3 hover:bg-surface-2">
+                      <div className="mb-1 flex items-center justify-between text-sm font-semibold">
+                        <span className="flex items-center gap-2">
+                          <ResourceIconBadge entityType="piggy" entityId={p.id} defaultIcon="PiggyBank" size="sm" />
+                          <span>{a.name}</span>
+                        </span>
+                        <Badge tone="success">{pct}%</Badge>
+                      </div>
+                      <p className="mb-2 text-xs text-muted">
+                        Saved <Money amount={cur} code={a.currency_code} decimals={a.currency_decimal_places} />
+                      </p>
+                      <Progress value={pct} tone="success" />
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </Card>
+        )}
+        </div>
+      </SwipeableWidget>
 
       {/* Horizontal Quick-Action Filter Chips (Planned payments, Debts, Budgets, Savings Goals) */}
       <DashboardQuickFilterChips />
@@ -2065,9 +2073,27 @@ function DashboardCardShell({
         </div>
       </div>
 
-      <div className="flex-1 flex flex-col min-h-0">
-        {children}
-      </div>
+      {entry?.usesPeriod ? (
+        <SwipeableWidget
+          activeIndex={card.periodDays === 7 ? 0 : card.periodDays === 30 ? 1 : 2}
+          totalViews={3}
+          viewLabels={["Last 7 days", "Last 30 days", "Last 90 days"]}
+          onIndexChange={(idx) => {
+            const periods: Array<7 | 30 | 90> = [7, 30, 90];
+            const nextPeriod = periods[idx] ?? 30;
+            onUpdate({ periodDays: nextPeriod });
+          }}
+          className="flex-1 flex flex-col min-h-0"
+        >
+          <div key={`period-${card.periodDays}`} className="animate-tab-enter flex-1 flex flex-col min-h-0">
+            {children}
+          </div>
+        </SwipeableWidget>
+      ) : (
+        <div className="flex-1 flex flex-col min-h-0">
+          {children}
+        </div>
+      )}
     </Card>
   );
 }

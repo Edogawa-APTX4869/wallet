@@ -14,6 +14,7 @@ import { useUniversalFilter } from "@/lib/filter-context";
 import { useAccounts, usePrimaryCurrency, useRatesToPrimary } from "@/lib/hooks";
 import { PageHeader } from "@/components/ui";
 import { AnimatedTabs, type TabItem } from "@/components/animated-tabs";
+import { SwipeableWidget } from "@/components/swipeable-widget";
 import { DesktopStickyFilterBar } from "@/components/filter-bar-desktop";
 import { MobileFilterDock } from "@/components/filter-dock-mobile";
 import { BalanceTab } from "./components/balance-tab";
@@ -139,63 +140,73 @@ export function ReportsClient() {
         />
       </div>
 
-      {/* Active Tab Panel */}
-      <div key={currentTab} className="animate-tab-enter">
-        {currentTab === "balance" && (
-          <BalanceTab
-            startDate={startDate}
-            endDate={endDate}
-            priorPeriod={priorPeriod}
-            accounts={filteredAssetAccounts}
-            primaryCode={primaryCode}
-            primaryDecimals={primaryDecimals}
-            toPrimary={toPrimary}
-          />
-        )}
+      {/* Active Tab Panel (Swipeable across report tabs) */}
+      <SwipeableWidget
+        activeIndex={Math.max(0, REPORT_TABS.findIndex((t) => t.key === currentTab))}
+        totalViews={REPORT_TABS.length}
+        viewLabels={REPORT_TABS.map((t) => String(t.label))}
+        onIndexChange={(idx) => {
+          const target = REPORT_TABS[idx];
+          if (target) handleTabChange(target.key);
+        }}
+      >
+        <div key={currentTab} className="animate-tab-enter">
+          {currentTab === "balance" && (
+            <BalanceTab
+              startDate={startDate}
+              endDate={endDate}
+              priorPeriod={priorPeriod}
+              accounts={filteredAssetAccounts}
+              primaryCode={primaryCode}
+              primaryDecimals={primaryDecimals}
+              toPrimary={toPrimary}
+            />
+          )}
 
-        {currentTab === "cash-flow" && (
-          <CashFlowTab
-            startDate={startDate}
-            endDate={endDate}
-            accounts={filteredAssetAccounts}
-            primaryCode={primaryCode}
-            primaryDecimals={primaryDecimals}
-            toPrimary={toPrimary}
-            selectedAccountIds={selectedAccountIds}
-            isAccountIncluded={isAccountIncluded}
-          />
-        )}
+          {currentTab === "cash-flow" && (
+            <CashFlowTab
+              startDate={startDate}
+              endDate={endDate}
+              accounts={filteredAssetAccounts}
+              primaryCode={primaryCode}
+              primaryDecimals={primaryDecimals}
+              toPrimary={toPrimary}
+              selectedAccountIds={selectedAccountIds}
+              isAccountIncluded={isAccountIncluded}
+            />
+          )}
 
-        {currentTab === "spending" && (
-          <SpendingTab
-            startDate={startDate}
-            endDate={endDate}
-            accounts={filteredAssetAccounts}
-            primaryCode={primaryCode}
-            primaryDecimals={primaryDecimals}
-            toPrimary={toPrimary}
-            selectedAccountIds={selectedAccountIds}
-          />
-        )}
+          {currentTab === "spending" && (
+            <SpendingTab
+              startDate={startDate}
+              endDate={endDate}
+              accounts={filteredAssetAccounts}
+              primaryCode={primaryCode}
+              primaryDecimals={primaryDecimals}
+              toPrimary={toPrimary}
+              selectedAccountIds={selectedAccountIds}
+            />
+          )}
 
-        {currentTab === "outlook" && (
-          <OutlookTab
-            accounts={filteredAssetAccounts}
-            primaryCode={primaryCode}
-            primaryDecimals={primaryDecimals}
-            toPrimary={toPrimary}
-          />
-        )}
+          {currentTab === "outlook" && (
+            <OutlookTab
+              accounts={filteredAssetAccounts}
+              primaryCode={primaryCode}
+              primaryDecimals={primaryDecimals}
+              toPrimary={toPrimary}
+            />
+          )}
 
-        {currentTab === "debt" && (
-          <DebtTab
-            allAccounts={accountsQ.data ?? []}
-            primaryCode={primaryCode}
-            primaryDecimals={primaryDecimals}
-            toPrimary={toPrimary}
-          />
-        )}
-      </div>
+          {currentTab === "debt" && (
+            <DebtTab
+              allAccounts={accountsQ.data ?? []}
+              primaryCode={primaryCode}
+              primaryDecimals={primaryDecimals}
+              toPrimary={toPrimary}
+            />
+          )}
+        </div>
+      </SwipeableWidget>
 
       {/* Mobile Floating Filter Dock */}
       <MobileFilterDock />

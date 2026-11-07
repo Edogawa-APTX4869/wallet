@@ -634,3 +634,58 @@ html.is-dashboard-dragging {
   padding-right: env(safe-area-inset-right, 0px);
 }
 
+/* Smooth Swipe Animations & Dynamic Depth Effects */
+.swipeable-card {
+  will-change: transform, backdrop-filter, opacity, filter;
+  transform: translate3d(var(--swipe-x, 0px), 0, 0) scale(var(--swipe-scale, 1));
+  backdrop-filter: blur(var(--swipe-blur, 0px));
+  filter: blur(var(--swipe-content-blur, 0px));
+  opacity: var(--swipe-opacity, 1);
+  transition: transform 350ms cubic-bezier(0.22, 1, 0.36, 1),
+              backdrop-filter 300ms ease-out,
+              filter 300ms ease-out,
+              opacity 300ms ease-out,
+              box-shadow 300ms ease-out;
+}
+
+.swipeable-card.is-rubber-banding {
+  transition: transform 250ms cubic-bezier(0.34, 1.56, 0.64, 1),
+              backdrop-filter 250ms ease-out,
+              filter 250ms ease-out,
+              opacity 250ms ease-out,
+              box-shadow 250ms ease-out;
+}
+
+.swipeable-card.is-dragging {
+  transition: none !important;
+  cursor: grabbing !important;
+  box-shadow: var(--swipe-shadow, -12px 0 24px -6px rgba(0, 0, 0, 0.45));
+}
+
+.swipeable-incoming-view {
+  will-change: transform, opacity, filter;
+  transform: scale(var(--incoming-scale, 0.96));
+  opacity: var(--incoming-opacity, 0.5);
+  filter: blur(var(--incoming-blur, 8px));
+  transition: transform 350ms cubic-bezier(0.22, 1, 0.36, 1),
+              opacity 300ms ease-out,
+              filter 300ms ease-out;
+}
+
+.swipeable-incoming-view.is-dragging {
+  transition: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .swipeable-card,
+  .swipeable-card.is-rubber-banding,
+  .swipeable-card.is-dragging,
+  .swipeable-incoming-view {
+    transform: none !important;
+    backdrop-filter: none !important;
+    filter: none !important;
+    transition: opacity 150ms ease !important;
+  }
+}
+
+
