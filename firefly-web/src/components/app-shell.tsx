@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
 import {
   BarChart3,
   Bell,
@@ -148,12 +149,41 @@ function isGroupActive(pathname: string, group: NavGroup) {
   return group.matchPrefixes.some((prefix) => (prefix === "/" ? pathname === "/" : pathname.startsWith(prefix)));
 }
 
-function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
+function SidebarNav({ onNavigate, collapsed = false }: { onNavigate?: () => void; collapsed?: boolean }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
   // Manual overrides for category accordion toggles (collapsed by default unless currently active)
   const [openMap, setOpenMap] = useState<Record<string, boolean>>({});
+
+  if (collapsed) {
+    return (
+      <nav className="flex flex-1 flex-col items-center gap-1.5 overflow-y-auto pr-0 select-none" aria-label="Main navigation rail">
+        {NAV_GROUPS.map((group) => {
+          const active = isGroupActive(pathname, group);
+          return (
+            <Link
+              key={group.key}
+              href={group.href}
+              onClick={onNavigate}
+              aria-label={group.label}
+              title={group.label}
+              aria-current={active ? "page" : undefined}
+              className={cn(
+                "group relative flex size-10 items-center justify-center rounded-xl text-muted transition-all duration-150 hover:bg-surface-2 hover:text-fg active:scale-95",
+                active ? "bg-primary-soft text-primary font-bold shadow-2xs" : "",
+              )}
+            >
+              <group.icon className="size-5 shrink-0" aria-hidden />
+              {active && (
+                <span className="absolute -left-1 top-1/2 -translate-y-1/2 h-5 w-1 rounded-r-full bg-primary" />
+              )}
+            </Link>
+          );
+        })}
+      </nav>
+    );
+  }
 
   function isChildActive(child: NavChild): boolean {
     if (!child.matchPath) return false;
@@ -482,17 +512,26 @@ function NotificationsSheet({
     }
   }, [isOpen, rendered]);
 
+  useEffect(() => {
+    if (!isOpen || typeof document === "undefined") return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [isOpen]);
+
   if (!isOpen && !rendered) return null;
 
   const isClosing = !isOpen && rendered;
 
-  return (
+  const node = (
     <div
       role="dialog"
       aria-modal="true"
       aria-labelledby="notifications-dialog-title"
       className={cn(
-        "fixed inset-0 z-[70] flex items-end justify-center bg-black/50 p-0 backdrop-blur-xs sm:items-center sm:p-4",
+        "fixed inset-0 z-[100] flex items-end justify-center bg-black/65 p-0 backdrop-blur-md sm:items-center sm:p-4",
         isClosing ? "drawer-backdrop-out pointer-events-none" : "drawer-backdrop-in",
       )}
       onClick={onClose}
@@ -568,6 +607,11 @@ function NotificationsSheet({
       </div>
     </div>
   );
+
+  if (typeof document !== "undefined" && document.body) {
+    return createPortal(node, document.body);
+  }
+  return node;
 }
 
 export function AppShellInner({ children, serverUrl }: { children: React.ReactNode; serverUrl: string }) {
@@ -649,59 +693,108 @@ export function AppShellInner({ children, serverUrl }: { children: React.ReactNo
         onCycleTheme={cycleTheme}
       />
 
-      {/* Desktop sidebar */}
+      {/* Desktop sidebar: full w-64 when expanded, compact w-16 icon rail when collapsed */}
       <aside
         className={cn(
           "sticky top-0 hidden h-dvh shrink-0 flex-col border-r border-border bg-surface transition-all duration-200 ease-in-out md:flex",
           desktopSidebarOpen
             ? "w-64 p-4"
-            : "w-0 p-0 border-r-0 overflow-hidden opacity-0 pointer-events-none",
+            : "w-16 p-2 items-center",
         )}
       >
-        <div className="mb-5 flex items-center justify-between px-2">
-          <Link href="/" className="flex items-center gap-2 text-lg font-bold">
-            <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-fg shadow-xs">
-              <Wallet className="size-4" aria-hidden />
-            </span>
-            Wallet
-          </Link>
-          <button
-            type="button"
-            onClick={toggleDesktopSidebar}
-            aria-label="Hide side menu"
-            title="Hide side menu (Hotkey: [ or Ctrl+B)"
-            className="flex size-8 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-fg active:scale-95 transition-all"
-          >
-            <PanelLeftClose className="size-4" />
-          </button>
-        </div>
-        <Link
-          href="/new?type=withdrawal"
-          className="mb-4 flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-primary text-sm font-medium text-primary-fg hover:opacity-90 active:scale-[0.97] transition-all duration-150 ease-[cubic-bezier(0.16,1,0.3,1)]"
-        >
-          <Plus className="size-4" aria-hidden /> New transaction
-        </Link>
+        {desktopSidebarOpen ? (
+          <>
+            <div className="mb-5 flex items-center justify-between px-2">
+              <Link href="/" className="flex items-center gap-2 text-lg font-bold">
+                <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-fg shadow-xs">
+                  <Wallet className="size-4" aria-hidden />
+                </span>
+                Wallet
+              </Link>
+              <button
+                type="button"
+                onClick={toggleDesktopSidebar}
+                aria-label="Collapse side menu"
+                title="Collapse side menu (Hotkey: [ or Ctrl+B)"
+                className="flex size-8 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-fg active:scale-95 transition-all"
+              >
+                <PanelLeftClose className="size-4" />
+              </button>
+            </div>
+            <Link
+              href="/new?type=withdrawal"
+              className="mb-4 flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-primary text-sm font-medium text-primary-fg hover:opacity-90 active:scale-[0.97] transition-all duration-150 ease-[cubic-bezier(0.16,1,0.3,1)]"
+            >
+              <Plus className="size-4" aria-hidden /> New transaction
+            </Link>
 
-        <Suspense fallback={<div className="flex-1" />}>
-          <SidebarNav />
-        </Suspense>
+            <Suspense fallback={<div className="flex-1" />}>
+              <SidebarNav />
+            </Suspense>
 
-        <div className="mt-3 flex items-center justify-between gap-2 border-t border-border pt-3 px-1">
-          <p className="truncate text-xs text-muted" title={serverUrl}>
-            {serverUrl.replace(/^https?:\/\//, "")}
-          </p>
-          <button
-            type="button"
-            onClick={cycleTheme}
-            aria-label={themeAriaLabel}
-            title={themeTitle}
-            className="flex min-h-[48px] min-w-[48px] size-12 shrink-0 items-center justify-center rounded-xl border border-border bg-surface-2 text-muted hover:text-fg active:scale-95 transition-all"
-          >
-            {theme === "system" && <Monitor className="size-4" aria-hidden />}
-            {theme === "light" && <Sun className="size-4" aria-hidden />}
-            {theme === "dark" && <Moon className="size-4" aria-hidden />}
-          </button>
-        </div>
+            <div className="mt-3 flex items-center justify-between gap-2 border-t border-border pt-3 px-1">
+              <p className="truncate text-xs text-muted" title={serverUrl}>
+                {serverUrl.replace(/^https?:\/\//, "")}
+              </p>
+              <button
+                type="button"
+                onClick={cycleTheme}
+                aria-label={themeAriaLabel}
+                title={themeTitle}
+                className="flex min-h-[48px] min-w-[48px] size-12 shrink-0 items-center justify-center rounded-xl border border-border bg-surface-2 text-muted hover:text-fg active:scale-95 transition-all"
+              >
+                {theme === "system" && <Monitor className="size-4" aria-hidden />}
+                {theme === "light" && <Sun className="size-4" aria-hidden />}
+                {theme === "dark" && <Moon className="size-4" aria-hidden />}
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Collapsed Rail Header: Expand Toggle Button */}
+            <div className="mb-3 flex flex-col items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={toggleDesktopSidebar}
+                aria-label="Expand side menu"
+                title="Expand side menu (Hotkey: [ or Ctrl+B)"
+                className="flex size-10 items-center justify-center rounded-xl bg-surface-2 text-primary hover:bg-primary-soft active:scale-95 transition-all shadow-xs"
+              >
+                <PanelLeftOpen className="size-5" />
+              </button>
+            </div>
+
+            {/* Collapsed Quick New Transaction Action */}
+            <Link
+              href="/new?type=withdrawal"
+              aria-label="New transaction"
+              title="New transaction (Hotkey: N)"
+              className="mb-3 flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-fg shadow-xs hover:opacity-90 active:scale-95 transition-all"
+            >
+              <Plus className="size-5" aria-hidden />
+            </Link>
+
+            {/* Collapsed Compact Icon Rail */}
+            <Suspense fallback={<div className="flex-1" />}>
+              <SidebarNav collapsed />
+            </Suspense>
+
+            {/* Collapsed Footer: Theme Toggle */}
+            <div className="mt-auto flex flex-col items-center gap-2 border-t border-border pt-3">
+              <button
+                type="button"
+                onClick={cycleTheme}
+                aria-label={themeAriaLabel}
+                title={themeTitle}
+                className="flex size-10 items-center justify-center rounded-xl border border-border bg-surface-2 text-muted hover:text-fg active:scale-95 transition-all"
+              >
+                {theme === "system" && <Monitor className="size-4" aria-hidden />}
+                {theme === "light" && <Sun className="size-4" aria-hidden />}
+                {theme === "dark" && <Moon className="size-4" aria-hidden />}
+              </button>
+            </div>
+          </>
+        )}
       </aside>
 
       <main className="min-w-0 flex-1 px-3.5 pt-4 pb-[calc(8rem+env(safe-area-inset-bottom))] sm:px-6 sm:pt-6 md:px-8 md:pt-7 md:pb-24 pl-[max(0.875rem,env(safe-area-inset-left))] pr-[max(0.875rem,env(safe-area-inset-right))]">
@@ -709,27 +802,7 @@ export function AppShellInner({ children, serverUrl }: { children: React.ReactNo
           {/* Desktop quick shortcut bar */}
           <div className="mb-5 hidden items-center justify-between gap-3 rounded-xl border border-border bg-surface px-4 py-2 text-xs text-muted md:flex">
             <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={toggleDesktopSidebar}
-                aria-label={desktopSidebarOpen ? "Hide side menu" : "Show side menu"}
-                title={`${desktopSidebarOpen ? "Hide" : "Show"} side menu (Hotkey: [ or Ctrl+B)`}
-                className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-fg hover:bg-surface-2 hover:text-primary transition-colors font-medium active:scale-95"
-              >
-                {desktopSidebarOpen ? (
-                  <>
-                    <PanelLeftClose className="size-4 text-primary" aria-hidden="true" />
-                    <span>Hide menu</span>
-                  </>
-                ) : (
-                  <>
-                    <PanelLeftOpen className="size-4 text-primary" aria-hidden="true" />
-                    <span>Show menu</span>
-                  </>
-                )}
-              </button>
-              <div className="h-4 w-px bg-border" aria-hidden="true" />
-              <span>Shortcuts:</span>
+              <span className="font-semibold text-fg">Shortcuts:</span>
               <Link href="/new?type=withdrawal" className="interactive-tap inline-flex items-center gap-1 hover:text-fg transition-all active:scale-95">
                 <kbd className="rounded border border-border bg-surface-2 px-1.5 py-0.5 font-mono text-[11px]">N</kbd> Expense
               </Link>
@@ -746,11 +819,9 @@ export function AppShellInner({ children, serverUrl }: { children: React.ReactNo
                 <kbd className="rounded border border-border bg-surface-2 px-1.5 py-0.5 font-mono text-[11px]">S</kbd> Reports
               </Link>
             </div>
-            {!desktopSidebarOpen && (
-              <span className="text-[11px] text-muted font-mono">
-                Press [ or Ctrl+B to toggle menu
-              </span>
-            )}
+            <span className="text-[11px] text-muted font-mono">
+              Press [ or Ctrl+B to toggle menu
+            </span>
           </div>
           <PageTransition>
             {children}

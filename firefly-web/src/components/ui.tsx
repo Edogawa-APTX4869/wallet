@@ -1,6 +1,7 @@
 "use client";
 
 import { forwardRef, useEffect, useId, useState } from "react";
+import { createPortal } from "react-dom";
 import { Loader2, X } from "lucide-react";
 import { cn, formatMoney } from "@/lib/utils";
 import { useEscapeDismiss } from "@/lib/use-escape-dismiss";
@@ -291,7 +292,12 @@ export function ModalSheet({
 }) {
   useEscapeDismiss(open, onClose);
 
+  const [mounted, setMounted] = useState(false);
   const [rendered, setRendered] = useState(open);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   if (open && !rendered) {
     setRendered(true);
@@ -304,14 +310,23 @@ export function ModalSheet({
     }
   }, [open, rendered]);
 
+  useEffect(() => {
+    if (!open || typeof document === "undefined") return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [open]);
+
   if (!open && !rendered) return null;
 
   const isClosing = !open && rendered;
 
-  return (
+  const modalNode = (
     <div
       className={cn(
-        "fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 backdrop-blur-xs sm:items-center sm:p-4",
+        "fixed inset-0 z-[100] flex items-end justify-center bg-black/65 p-0 backdrop-blur-md sm:items-center sm:p-4",
         isClosing ? "drawer-backdrop-out pointer-events-none" : "drawer-backdrop-in",
       )}
       onClick={onClose}
@@ -352,4 +367,9 @@ export function ModalSheet({
       </div>
     </div>
   );
+
+  if (mounted && typeof document !== "undefined" && document.body) {
+    return createPortal(modalNode, document.body);
+  }
+  return modalNode;
 }
