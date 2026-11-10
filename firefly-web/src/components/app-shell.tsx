@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import {
+  ArrowLeft,
   BarChart3,
   Bell,
   ChevronDown,
@@ -29,7 +30,8 @@ import { UniversalFilterProvider } from "@/lib/filter-context";
 import { SpeedDialFab } from "@/components/speed-dial-fab";
 import { MagicChatbar } from "@/components/magic-chatbar";
 import { useTheme } from "@/components/theme-provider";
-import { useEscapeDismiss } from "@/lib/use-escape-dismiss";
+import { useEscapeDismiss, useHasActiveOverlay } from "@/lib/use-escape-dismiss";
+import { isMainBottomNavRoute } from "@/components/capacitor-bridge";
 import { PageTransition } from "@/components/page-transition";
 
 interface NavChild {
@@ -320,6 +322,8 @@ export interface MobileHeaderProps {
   onOpenMenu?: () => void;
   onOpenNotifications?: () => void;
   hasUnreadNotifications?: boolean;
+  isOverlayView?: boolean;
+  onBack?: () => void;
 }
 
 export function MobileTopHeader({
@@ -328,25 +332,50 @@ export function MobileTopHeader({
   onOpenMenu,
   onOpenNotifications,
   hasUnreadNotifications = false,
+  isOverlayView = false,
+  onBack,
 }: MobileHeaderProps) {
   return (
     <header className="sticky top-0 z-30 flex items-center justify-between border-b border-border bg-surface/95 px-2.5 py-1.5 pt-[calc(0.5rem+env(safe-area-inset-top))] backdrop-blur md:hidden">
-      <div className="flex items-center gap-2 min-w-0">
-        <button
-          type="button"
-          onClick={onOpenMenu}
-          aria-label="Open navigation menu"
-          aria-expanded={drawerOpen}
-          aria-controls="mobile-nav-drawer"
-          className="flex min-h-[48px] min-w-[48px] size-12 items-center justify-center rounded-xl text-fg hover:bg-surface-2 active:scale-95 transition-all"
-        >
-          <Menu className="size-5" />
-        </button>
+      <div className="flex items-center gap-1.5 min-w-0">
+        {isOverlayView && onBack ? (
+          <button
+            type="button"
+            onClick={onBack}
+            aria-label="Go back"
+            className="flex min-h-[48px] min-w-[48px] size-12 items-center justify-center rounded-xl text-fg hover:bg-surface-2 active:scale-95 transition-all"
+          >
+            <ArrowLeft className="size-5" />
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onOpenMenu}
+            aria-label="Open navigation menu"
+            aria-expanded={drawerOpen}
+            aria-controls="mobile-nav-drawer"
+            className="flex min-h-[48px] min-w-[48px] size-12 items-center justify-center rounded-xl text-fg hover:bg-surface-2 active:scale-95 transition-all"
+          >
+            <Menu className="size-5" />
+          </button>
+        )}
         <span className="font-semibold text-base text-fg truncate">
           {title}
         </span>
       </div>
-      <div className="flex items-center">
+      <div className="flex items-center gap-1">
+        {isOverlayView && onOpenMenu && (
+          <button
+            type="button"
+            onClick={onOpenMenu}
+            aria-label="Open navigation menu"
+            aria-expanded={drawerOpen}
+            aria-controls="mobile-nav-drawer"
+            className="flex min-h-[48px] min-w-[48px] size-12 items-center justify-center rounded-xl text-muted hover:text-fg hover:bg-surface-2 active:scale-95 transition-all"
+          >
+            <Menu className="size-5" />
+          </button>
+        )}
         <button
           type="button"
           onClick={onOpenNotifications}
@@ -639,6 +668,21 @@ export function AppShellInner({ children, serverUrl }: { children: React.ReactNo
   useEscapeDismiss(drawerOpen, () => setDrawerOpen(false), "mobile-nav-drawer");
   useEscapeDismiss(notificationsOpen, () => setNotificationsOpen(false), "mobile-notifications-dialog");
 
+  const hasActiveOverlay = useHasActiveOverlay();
+  const isMainTabRoute = isMainBottomNavRoute(pathname);
+  const isOverlayRoute = !isMainTabRoute;
+  const isFullBleedOverlayRoute = pathname.startsWith("/new");
+  const hideMobileBottomNav = isOverlayRoute || hasActiveOverlay || drawerOpen || notificationsOpen;
+  const suppressFloatingActions = drawerOpen || notificationsOpen || isOverlayRoute || hasActiveOverlay;
+
+  const handleMobileBack = () => {
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      router.back();
+    } else {
+      router.push("/");
+    }
+  };
+
   const screenTitle = getScreenTitle(pathname);
 
   const nextTheme = theme === "system" ? "light" : theme === "light" ? "dark" : "system";
@@ -674,13 +718,17 @@ export function AppShellInner({ children, serverUrl }: { children: React.ReactNo
 
   return (
     <div className="flex min-h-dvh flex-col md:flex-row">
-      {/* Mobile top bar */}
-      <MobileTopHeader
-        title={screenTitle}
-        drawerOpen={drawerOpen}
-        onOpenMenu={() => setDrawerOpen(true)}
-        onOpenNotifications={() => setNotificationsOpen(true)}
-      />
+      {/* Mobile top bar (hidden on full-bleed overlay routes like /new which render their own header) */}
+      {!isFullBleedOverlayRoute && (
+        <MobileTopHeader
+          title={screenTitle}
+          drawerOpen={drawerOpen}
+          onOpenMenu={() => setDrawerOpen(true)}
+          onOpenNotifications={() => setNotificationsOpen(true)}
+          isOverlayView={isOverlayRoute}
+          onBack={handleMobileBack}
+        />
+      )}
 
       {/* Mobile slide-over drawer with full Main + Sub menu */}
       <MobileNavDrawer
@@ -797,7 +845,14 @@ export function AppShellInner({ children, serverUrl }: { children: React.ReactNo
         )}
       </aside>
 
-      <main className="min-w-0 flex-1 px-3.5 pt-4 pb-[calc(8rem+env(safe-area-inset-bottom))] sm:px-6 sm:pt-6 md:px-8 md:pt-7 md:pb-24 pl-[max(0.875rem,env(safe-area-inset-left))] pr-[max(0.875rem,env(safe-area-inset-right))]">
+      <main
+        className={cn(
+          "min-w-0 flex-1 px-3.5 pt-4 sm:px-6 sm:pt-6 md:px-8 md:pt-7 md:pb-24 pl-[max(0.875rem,env(safe-area-inset-left))] pr-[max(0.875rem,env(safe-area-inset-right))]",
+          isOverlayRoute
+            ? "pb-[calc(2rem+env(safe-area-inset-bottom))]"
+            : "pb-[calc(8rem+env(safe-area-inset-bottom))]",
+        )}
+      >
         <div className="mx-auto w-full max-w-6xl xl:max-w-7xl 2xl:max-w-[1720px] 3xl:max-w-[2400px] transition-all duration-150">
           {/* Desktop quick shortcut bar */}
           <div className="mb-5 hidden items-center justify-between gap-3 rounded-xl border border-border bg-surface px-4 py-2 text-xs text-muted md:flex">
@@ -838,43 +893,54 @@ export function AppShellInner({ children, serverUrl }: { children: React.ReactNo
 
       {/* Fast-Access Bottom AI Magic Chatbar ("Ramble" voice & text dock) */}
       <div
-        aria-hidden={drawerOpen}
-        className={cn("transition-opacity duration-150", drawerOpen && "max-md:hidden max-md:pointer-events-none max-md:opacity-0")}
+        aria-hidden={suppressFloatingActions}
+        className={cn(
+          "transition-opacity duration-150",
+          suppressFloatingActions && "max-md:hidden max-md:pointer-events-none max-md:opacity-0",
+        )}
       >
         {!drawerOpen && <MagicChatbar />}
       </div>
 
       {/* BudgetBakers Wallet-style Speed Dial FAB (Templates, Transfer, New Record) */}
       <div
-        aria-hidden={drawerOpen}
-        className={cn("transition-opacity duration-150", drawerOpen && "max-md:hidden max-md:pointer-events-none max-md:opacity-0")}
+        aria-hidden={suppressFloatingActions}
+        className={cn(
+          "transition-opacity duration-150",
+          suppressFloatingActions && "max-md:hidden max-md:pointer-events-none max-md:opacity-0",
+        )}
       >
         {!drawerOpen && <SpeedDialFab />}
       </div>
 
-      {/* Mobile bottom nav */}
-      <nav
-        aria-label="Main"
-        className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-border bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden select-none"
-      >
-        {MOBILE_NAV.map((item) => {
-          const active = item.match === "/" ? pathname === "/" : pathname.startsWith(item.match);
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              aria-current={active ? "page" : undefined}
-              className={cn(
-                "flex min-h-[50px] flex-col items-center justify-center gap-1 py-1.5 text-[11px] font-medium transition-all duration-150 active:scale-90",
-                active ? "font-semibold text-primary" : "text-muted hover:text-fg",
-              )}
-            >
-              <item.icon className={cn("size-5 transition-transform duration-200", active && "scale-110")} aria-hidden />
-              <span>{item.label}</span>
-            </Link>
-          );
-        })}
-      </nav>
+      {/* Mobile bottom nav — only visible on the 5 main tab routes when no overlay layer is active */}
+      {!hideMobileBottomNav && (
+        <nav
+          aria-label="Main"
+          data-mobile-bottom-nav="true"
+          data-nav-hidden="false"
+          className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-border bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden select-none"
+        >
+          {MOBILE_NAV.map((item) => {
+            const active = item.match === "/" ? pathname === "/" : pathname === item.match;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                replace
+                aria-current={active ? "page" : undefined}
+                className={cn(
+                  "flex min-h-[50px] flex-col items-center justify-center gap-1 py-1.5 text-[11px] font-medium transition-all duration-150 active:scale-90",
+                  active ? "font-semibold text-primary" : "text-muted hover:text-fg",
+                )}
+              >
+                <item.icon className={cn("size-5 transition-transform duration-200", active && "scale-110")} aria-hidden />
+                <span>{item.label}</span>
+              </Link>
+            );
+          })}
+        </nav>
+      )}
     </div>
   );
 }

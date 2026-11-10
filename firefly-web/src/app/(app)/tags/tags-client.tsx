@@ -8,6 +8,7 @@ import type { Resource, Tag } from "@/lib/firefly/types";
 import { ResourceIconBadge, useResourceMeta, useUpdateResourceMeta } from "@/components/resource-icon";
 import { Badge, Button, Card, EmptyState, ErrorBox, Field, Input, PageHeader, Skeleton } from "@/components/ui";
 import { useToast } from "@/components/providers";
+import { useEscapeDismiss } from "@/lib/use-escape-dismiss";
 
 interface TagTreeGroup {
   parent: string;
@@ -65,6 +66,8 @@ export function TagsClient() {
   const [newIsTodo, setNewIsTodo] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
+
+  useEscapeDismiss(editId !== null, () => setEditId(null), "tags-edit");
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ["tags-list"] });
 

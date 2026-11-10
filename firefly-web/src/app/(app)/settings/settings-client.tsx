@@ -42,6 +42,7 @@ import {
 } from "@/components/ui";
 import { useToast } from "@/components/providers";
 import { useTheme } from "@/components/theme-provider";
+import { useEscapeDismiss } from "@/lib/use-escape-dismiss";
 
 const CONFIG_LABELS: Record<string, { label: string; desc: string }> = {
   "configuration.enable_exchange_rates": {
@@ -137,6 +138,7 @@ export function SettingsClient() {
   const [newCurSymbol, setNewCurSymbol] = useState("");
   const [newCurDecimals, setNewCurDecimals] = useState("2");
   const [editingCur, setEditingCur] = useState<string | null>(null);
+  useEscapeDismiss(editingCur !== null, () => setEditingCur(null), "settings-currency-edit");
   const [editDecimals, setEditDecimals] = useState("2");
   const [editSymbol, setEditSymbol] = useState("");
   const [editName, setEditName] = useState("");

@@ -18,6 +18,7 @@ import { ASSET_LIKE, useAccounts } from "@/lib/hooks";
 import { isSystemContraAccount } from "@/app/(app)/dashboard-extra-cards";
 import { cn, formatMoney } from "@/lib/utils";
 import { Badge, Button, ModalSheet } from "@/components/ui";
+import { useEscapeDismiss } from "@/lib/use-escape-dismiss";
 
 const MOBILE_PRIMARY_PRESETS: { key: PeriodPreset; label: string }[] = [
   { key: "7D", label: "7D" },
@@ -68,6 +69,8 @@ export function MobileFilterDock({
   const [expanded, setExpanded] = useState(false);
   const [accountSheetOpen, setAccountSheetOpen] = useState(false);
   const [customRangeOpen, setCustomRangeOpen] = useState(false);
+
+  useEscapeDismiss(expanded, () => setExpanded(false), "mobile-filter-dock-expanded");
 
   const [draftStart, setDraftStart] = useState(startDate);
   const [draftEnd, setDraftEnd] = useState(endDate);

@@ -61,6 +61,7 @@ import {
   Skeleton,
 } from "@/components/ui";
 import { useToast } from "@/components/providers";
+import { useEscapeDismiss } from "@/lib/use-escape-dismiss";
 
 // Common Firefly III rule triggers & whether they require a value
 export const TRIGGER_OPTIONS: Array<{ value: string; label: string; needsValue: boolean; hint?: string }> = [
@@ -180,6 +181,17 @@ function RulesSection() {
   const [newGroupTitle, setNewGroupTitle] = useState("");
   const [showNewGroup, setShowNewGroup] = useState(false);
   const [previewResult, setPreviewResult] = useState<{ title: string; matches: Resource<TransactionGroup>[] } | null>(null);
+
+  useEscapeDismiss(
+    showBuilder || editingRule !== null,
+    () => {
+      setShowBuilder(false);
+      setEditingRule(null);
+    },
+    "rules-builder",
+  );
+  useEscapeDismiss(showNewGroup, () => setShowNewGroup(false), "rules-new-group");
+  useEscapeDismiss(previewResult !== null, () => setPreviewResult(null), "rules-preview-result");
 
   // Date range for testing / triggering rules on existing transactions
   const [execStart, setExecStart] = useState(month.start);
@@ -911,6 +923,7 @@ function RecurrencesSection() {
   const categoriesQ = useQuery({ queryKey: ["categories-list"], queryFn: () => api.categories(), staleTime: 5 * 60_000 });
 
   const [showNew, setShowNew] = useState(false);
+  useEscapeDismiss(showNew, () => setShowNew(false), "recurrences-new-form");
   const [title, setTitle] = useState("");
   const [txType, setTxType] = useState<"withdrawal" | "deposit" | "transfer">("withdrawal");
   const [freq, setFreq] = useState<"daily" | "weekly" | "monthly" | "yearly">("monthly");
@@ -1669,6 +1682,7 @@ function BillsSection() {
   const [rulingBill, setRulingBill] = useState<Resource<Bill> | null>(null);
 
   const [showNew, setShowNew] = useState(false);
+  useEscapeDismiss(showNew, () => setShowNew(false), "bills-new-form");
   const [name, setName] = useState("");
   const [minAmt, setMinAmt] = useState("");
   const [maxAmt, setMaxAmt] = useState("");

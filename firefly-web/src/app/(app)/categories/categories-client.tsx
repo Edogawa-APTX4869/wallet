@@ -11,6 +11,7 @@ import { inferCategoryDefaultStyle, ResourceIconBadge } from "@/components/resou
 import { monthRange, cn } from "@/lib/utils";
 import { Badge, Button, Card, EmptyState, ErrorBox, Field, Input, Money, PageHeader, Skeleton } from "@/components/ui";
 import { useToast } from "@/components/providers";
+import { useEscapeDismiss } from "@/lib/use-escape-dismiss";
 
 const CATEGORY_ORDER_STORAGE_KEY = "wallet_categories_order";
 
@@ -73,6 +74,9 @@ export function CategoriesClient() {
 
   const [editId, setEditId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
+
+  useEscapeDismiss(quickAddUnderParent !== null, () => setQuickAddUnderParent(null), "categories-quick-add");
+  useEscapeDismiss(editId !== null, () => setEditId(null), "categories-edit");
   const [parentOrder, setParentOrder] = useState<string[]>(() => getStoredCategoryOrder());
   const [draggingParent, setDraggingParent] = useState<string | null>(null);
   const [dragOverParent, setDragOverParent] = useState<string | null>(null);

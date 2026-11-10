@@ -24,6 +24,7 @@ import {
   Skeleton,
 } from "@/components/ui";
 import { useToast } from "@/components/providers";
+import { useEscapeDismiss } from "@/lib/use-escape-dismiss";
 
 export function PiggyBanksClient() {
   const qc = useQueryClient();
@@ -37,6 +38,7 @@ export function PiggyBanksClient() {
   );
 
   const [showNew, setShowNew] = useState(false);
+  useEscapeDismiss(showNew, () => setShowNew(false), "piggy-banks-new-form");
   const [name, setName] = useState("");
   const [accountId, setAccountId] = useState("");
   const [targetAmount, setTargetAmount] = useState("");

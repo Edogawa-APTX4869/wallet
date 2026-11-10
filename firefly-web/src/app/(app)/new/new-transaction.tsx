@@ -35,6 +35,7 @@ import { MagicChatPanel } from "@/components/magic-chatbar";
 import { ICON_CATALOG, inferCategoryDefaultStyle, ResourceIconBadge } from "@/components/resource-icon";
 import { AnimatedTabs, Badge, Button, Card, ErrorBox, Field, Input, ModalSheet, Select, Skeleton } from "@/components/ui";
 import { useToast } from "@/components/providers";
+import { useEscapeDismiss } from "@/lib/use-escape-dismiss";
 
 type TxType = "withdrawal" | "deposit" | "transfer" | "ramble";
 
@@ -386,6 +387,21 @@ function WalletCalculatorForm({
   const [templateName, setTemplateName] = useState("");
   const [appliedInitTemplate, setAppliedInitTemplate] = useState<string | null>(null);
 
+  useEscapeDismiss(detailsOpen, () => setDetailsOpen(false), "new-transaction-details");
+  useEscapeDismiss(showSaveTemplate, () => setShowSaveTemplate(false), "new-transaction-save-template");
+
+  const handleCancelOrBack = () => {
+    if (detailsOpen) {
+      setDetailsOpen(false);
+      return;
+    }
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      router.back();
+    } else {
+      router.push("/");
+    }
+  };
+
   const assetId = selectedAssetId ?? assetLike[0]?.id ?? null;
   const asset = all.find((a) => a.id === assetId) ?? null;
   const defaultDest = assetLike.find((a) => a.id !== assetId) ?? assetLike[0] ?? null;
@@ -725,10 +741,16 @@ function WalletCalculatorForm({
       }}
     >
       {/* Top Bar + Mode Tabs + Saved Templates */}
-      <div className="flex flex-col gap-3 border-b border-border p-3 sm:p-4">
+      <div className="flex flex-col gap-3 border-b border-border p-3 pt-[max(0.75rem,env(safe-area-inset-top))] sm:p-4">
         <div className="flex items-center justify-between">
-          <Button type="button" variant="ghost" size="icon" onClick={() => router.back()} aria-label="Cancel">
-            <X className="size-5" />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={handleCancelOrBack}
+            aria-label={detailsOpen ? "Back to calculator" : "Cancel"}
+          >
+            {detailsOpen ? <ChevronLeft className="size-5" /> : <X className="size-5" />}
           </Button>
           <span className="text-sm font-semibold">
             {detailsOpen ? "Transaction details" : "New transaction"}

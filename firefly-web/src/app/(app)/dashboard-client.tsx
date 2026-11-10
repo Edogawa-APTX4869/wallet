@@ -82,6 +82,7 @@ import {
   Skeleton,
 } from "@/components/ui";
 import { useToast } from "@/components/providers";
+import { useEscapeDismiss } from "@/lib/use-escape-dismiss";
 
 function extractSummaryByPrefix(summary: BasicSummary | undefined, prefix: string): SummaryEntry[] {
   if (!summary) return [];
@@ -864,6 +865,8 @@ export function DashboardClient() {
   const [showCardManager, setShowCardManager] = useState(false);
   const [previewCardKey, setPreviewCardKey] = useState<DashboardCardKey | null>(null);
   const [closingPreview, setClosingPreview] = useState(false);
+
+  useEscapeDismiss(configOpenKey !== null, () => setConfigOpenKey(null), "dashboard-card-config");
 
   const handleClosePreview = useCallback(() => {
     setClosingPreview(true);

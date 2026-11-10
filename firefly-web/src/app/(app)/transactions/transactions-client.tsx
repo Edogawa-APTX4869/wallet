@@ -27,6 +27,7 @@ import { useToast } from "@/components/providers";
 import { DesktopStickyFilterBar } from "@/components/filter-bar-desktop";
 import { MobileFilterDock } from "@/components/filter-dock-mobile";
 import { useUniversalFilter, type AccountFilterMode } from "@/lib/filter-context";
+import { useEscapeDismiss } from "@/lib/use-escape-dismiss";
 
 export interface Filters {
   text: string;
@@ -130,6 +131,8 @@ export function TransactionsClient() {
   const [showFilters, setShowFilters] = useState(false);
   const [editingGroup, setEditingGroup] = useState<Resource<TransactionGroup> | null>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
+
+  useEscapeDismiss(showFilters, () => setShowFilters(false), "transactions-filters");
 
   const accountsQ = useAccounts("all");
   const month = useMemo(() => monthRange(0), []);

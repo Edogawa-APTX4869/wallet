@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useRef, useSyncExternalStore } from "react";
 
 export interface Dismissible {
   id: string;
@@ -9,18 +9,37 @@ export interface Dismissible {
 
 export class EscapeStackManager {
   private stack: Dismissible[] = [];
+  private listeners: Set<() => void> = new Set();
+
+  private notify() {
+    for (const listener of this.listeners) {
+      listener();
+    }
+  }
+
+  public subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  };
 
   public register(id: string, onDismiss: () => void): () => void {
     this.stack = this.stack.filter((item) => item.id !== id);
     const item: Dismissible = { id, onDismiss };
     this.stack.push(item);
+    this.notify();
     return () => {
       this.unregister(id);
     };
   }
 
   public unregister(id: string) {
+    const prevLen = this.stack.length;
     this.stack = this.stack.filter((item) => item.id !== id);
+    if (this.stack.length !== prevLen) {
+      this.notify();
+    }
   }
 
   public handleKeyDown(key: string): boolean {
@@ -28,6 +47,7 @@ export class EscapeStackManager {
       return false;
     }
     const top = this.stack.pop();
+    this.notify();
     if (top) {
       top.onDismiss();
       return true;
@@ -35,20 +55,41 @@ export class EscapeStackManager {
     return false;
   }
 
-  public getStackSize(): number {
+  public getStackSize = (): number => {
     return this.stack.length;
-  }
+  };
 
   public getTopId(): string | undefined {
     return this.stack[this.stack.length - 1]?.id;
   }
 
   public clear() {
-    this.stack = [];
+    if (this.stack.length > 0) {
+      this.stack = [];
+      this.notify();
+    }
   }
 }
 
 export const globalEscapeStack = new EscapeStackManager();
+
+function getServerStackSizeSnapshot(): number {
+  return 0;
+}
+
+/**
+ * Reactive hook that returns true whenever any dismissible overlay
+ * (modal sheet, drawer, speed-dial menu, chatbar sheet, filter sheet, etc.)
+ * is currently active on the global escape stack.
+ */
+export function useHasActiveOverlay(): boolean {
+  const stackSize = useSyncExternalStore(
+    globalEscapeStack.subscribe,
+    globalEscapeStack.getStackSize,
+    getServerStackSizeSnapshot,
+  );
+  return stackSize > 0;
+}
 
 if (typeof window !== "undefined") {
   window.addEventListener("keydown", (e: KeyboardEvent) => {

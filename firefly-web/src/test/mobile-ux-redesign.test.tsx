@@ -41,6 +41,12 @@ import {
   getScreenTitle,
 } from "@/components/app-shell";
 import {
+  handleAndroidBackSwipe,
+  isBottomNavVisibleOnScreen,
+  isMainBottomNavRoute,
+} from "@/components/capacitor-bridge";
+import { globalEscapeStack } from "@/lib/use-escape-dismiss";
+import {
   DashboardSegmentedTabs,
   AccountsSectionHeader,
   RecordsQuickActionPill,
@@ -1313,6 +1319,115 @@ describe("Mobile UX Redesign E2E & Production Suite (M1-M4)", () => {
       expect(fullPage).toContain("Planned payments");
       expect(fullPage).toContain("Ask AI / Ramble");
       expect(fullPage).toContain('aria-label="Add transaction"');
+      expect(fullPage).toContain('data-mobile-bottom-nav="true"');
+    });
+
+    it("T4.6: Scenario 6 - Android Back Swipe & Overlay Layer Navigation Rules", () => {
+      globalEscapeStack.clear();
+
+      // 1. Primary bottom-nav routes show the navigation bar and quit the app on Android back swipe
+      const mainRoutes = ["/", "/accounts", "/transactions", "/reports", "/budgets"];
+      for (const route of mainRoutes) {
+        currentMockPathname = route;
+        expect(isMainBottomNavRoute(route)).toBe(true);
+        expect(isBottomNavVisibleOnScreen(route)).toBe(true);
+
+        const html = renderWithProviders(
+          <AppShell serverUrl="https://firefly.internal">
+            <div>Main Content</div>
+          </AppShell>,
+        );
+        expect(html).toContain('data-mobile-bottom-nav="true"');
+
+        let minimized = false;
+        let navigatedBack = false;
+        const res = handleAndroidBackSwipe({
+          pathname: route,
+          canGoBack: true, // Even if browser history has previous pages, back swipe on nav-bar screen quits!
+          onMinimizeApp: () => {
+            minimized = true;
+          },
+          onNavigateBack: () => {
+            navigatedBack = true;
+          },
+        });
+        expect(res).toBe("minimized-app");
+        expect(minimized).toBe(true);
+        expect(navigatedBack).toBe(false);
+      }
+
+      // 2. Clicked sub-views / overlay routes hide the bottom navigation bar and go back on Android back swipe
+      const overlayRoutes = [
+        "/new",
+        "/accounts/123",
+        "/rules",
+        "/piggy-banks",
+        "/categories",
+        "/tags",
+        "/settings",
+      ];
+      for (const route of overlayRoutes) {
+        currentMockPathname = route;
+        expect(isMainBottomNavRoute(route)).toBe(false);
+        expect(isBottomNavVisibleOnScreen(route)).toBe(false);
+
+        const html = renderWithProviders(
+          <AppShell serverUrl="https://firefly.internal">
+            <div>Overlay Content</div>
+          </AppShell>,
+        );
+        expect(html).not.toContain('data-mobile-bottom-nav="true"');
+
+        let minimized = false;
+        let navigatedBack = false;
+        const res = handleAndroidBackSwipe({
+          pathname: route,
+          canGoBack: true,
+          onMinimizeApp: () => {
+            minimized = true;
+          },
+          onNavigateBack: () => {
+            navigatedBack = true;
+          },
+        });
+        expect(res).toBe("navigated-back");
+        expect(navigatedBack).toBe(true);
+        expect(minimized).toBe(false);
+      }
+
+      // 3. When an in-page overlay (modal, drawer, sheet, speed-dial, details layer) is open on a main route,
+      //    back swipe dismisses that overlay first instead of quitting the app
+      currentMockPathname = "/";
+      let overlayDismissed = false;
+      const unregister = globalEscapeStack.register("test-modal-layer", () => {
+        overlayDismissed = true;
+      });
+      expect(isBottomNavVisibleOnScreen("/")).toBe(false);
+
+      let appMinimized = false;
+      const dismissResult = handleAndroidBackSwipe({
+        pathname: "/",
+        canGoBack: true,
+        onMinimizeApp: () => {
+          appMinimized = true;
+        },
+      });
+      expect(dismissResult).toBe("dismissed-overlay");
+      expect(overlayDismissed).toBe(true);
+      expect(appMinimized).toBe(false);
+
+      // 4. Subsequent back swipe on "/" after overlay is dismissed now quits the app
+      const secondResult = handleAndroidBackSwipe({
+        pathname: "/",
+        canGoBack: true,
+        onMinimizeApp: () => {
+          appMinimized = true;
+        },
+      });
+      expect(secondResult).toBe("minimized-app");
+      expect(appMinimized).toBe(true);
+
+      unregister();
     });
   });
 });
