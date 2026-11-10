@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { triggerNativeHaptic } from "@/components/capacitor-bridge";
 import { ImpactStyle } from "@capacitor/haptics";
@@ -103,18 +103,20 @@ export interface SwipePaginationDotsProps {
   activeIndex: number;
   labels?: string[];
   onSelect?: (index: number) => void;
+  visible?: boolean;
   className?: string;
 }
 
 /**
- * Subtle bottom pill indicators / glowing pagination dots.
- * Active index dot expands to a rounded capsule (w-5 vs w-2).
+ * Ultra-compact native widget pagination dots (inspired by iOS/OneUI Smart Stack widgets).
+ * Appears subtly on touch/swipe/hover and fades out when idle.
  */
 export function SwipePaginationDots({
   total,
   activeIndex,
   labels,
   onSelect,
+  visible = true,
   className,
 }: SwipePaginationDotsProps) {
   if (total <= 1) return null;
@@ -122,7 +124,11 @@ export function SwipePaginationDots({
     <div
       role="tablist"
       aria-label="View pagination"
-      className={cn("flex items-center justify-center gap-1.5 py-1 select-none", className)}
+      className={cn(
+        "flex items-center justify-center gap-1 py-0.5 select-none transition-all duration-300 ease-out",
+        visible ? "opacity-90 translate-y-0" : "opacity-0 translate-y-0.5 pointer-events-none",
+        className,
+      )}
     >
       {Array.from({ length: total }).map((_, idx) => {
         const isActive = idx === activeIndex;
@@ -132,6 +138,7 @@ export function SwipePaginationDots({
             key={idx}
             type="button"
             role="tab"
+            data-pagination-dot="true"
             aria-selected={isActive}
             aria-label={label}
             title={label}
@@ -139,13 +146,17 @@ export function SwipePaginationDots({
               e.stopPropagation();
               onSelect?.(idx);
             }}
-            className={cn(
-              "h-2 min-h-[8px] min-w-[8px] rounded-full transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
-              isActive
-                ? "w-5 bg-primary shadow-[0_0_8px_rgba(99,102,241,0.5)]"
-                : "w-2 bg-border hover:bg-muted/70",
-            )}
-          />
+            className="group/dot flex items-center justify-center p-1 !min-h-0 !min-w-0 focus:outline-none"
+          >
+            <span
+              className={cn(
+                "block h-1.5 rounded-full transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+                isActive
+                  ? "w-3.5 bg-primary/90 shadow-[0_0_6px_rgba(99,102,241,0.45)]"
+                  : "w-1.5 bg-muted/35 group-hover/dot:bg-muted/65",
+              )}
+            />
+          </button>
         );
       })}
     </div>
@@ -190,6 +201,23 @@ export function SwipeableWidget({
     physics: null,
   });
 
+  const [dotsVisible, setDotsVisible] = useState(false);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const revealDotsBriefly = useCallback(() => {
+    setDotsVisible(true);
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    hideTimerRef.current = setTimeout(() => {
+      setDotsVisible(false);
+    }, 1800);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    };
+  }, []);
+
   const gestureRef = useRef<{
     active: boolean;
     lockedAxis: "x" | "y" | null;
@@ -216,6 +244,7 @@ export function SwipeableWidget({
   const handlePointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       if (disabled || totalViews <= 1) return;
+      revealDotsBriefly();
       // Ignore interactive child elements like buttons, inputs, selects, links
       const target = e.target as HTMLElement | null;
       if (
@@ -238,7 +267,7 @@ export function SwipeableWidget({
         width: rect?.width || 320,
       };
     },
-    [disabled, totalViews],
+    [disabled, totalViews, revealDotsBriefly],
   );
 
   const handlePointerMove = useCallback(
@@ -265,6 +294,7 @@ export function SwipeableWidget({
 
       if (g.lockedAxis !== "x") return;
 
+      revealDotsBriefly();
       const now = performance.now();
       const dt = Math.max(1, now - g.lastTimestamp);
       const instantVel = (e.clientX - g.lastX) / dt;
@@ -282,7 +312,7 @@ export function SwipeableWidget({
         physics,
       });
     },
-    [canSwipePrev, canSwipeNext],
+    [canSwipePrev, canSwipeNext, revealDotsBriefly],
   );
 
   const finishGesture = useCallback(
@@ -290,6 +320,7 @@ export function SwipeableWidget({
       const g = gestureRef.current;
       if (!g.active) return;
       g.active = false;
+      revealDotsBriefly();
 
       if (g.lockedAxis !== "x") {
         setDragState({ isDragging: false, isRubberBanding: false, physics: null });
@@ -317,7 +348,7 @@ export function SwipeableWidget({
         setDragState({ isDragging: false, isRubberBanding: true, physics: null });
       }
     },
-    [activeIndex, canSwipeNext, canSwipePrev, onIndexChange],
+    [activeIndex, canSwipeNext, canSwipePrev, onIndexChange, revealDotsBriefly],
   );
 
   const p = dragState.physics;
@@ -336,7 +367,10 @@ export function SwipeableWidget({
     : undefined;
 
   return (
-    <div className={cn("flex flex-col gap-1.5", className)}>
+    <div
+      className={cn("group/swipe flex flex-col gap-0.5", className)}
+      onPointerEnter={revealDotsBriefly}
+    >
       <div
         ref={containerRef}
         onPointerDown={handlePointerDown}
@@ -367,7 +401,11 @@ export function SwipeableWidget({
           total={totalViews}
           activeIndex={activeIndex}
           labels={viewLabels}
-          onSelect={onIndexChange}
+          visible={dotsVisible || dragState.isDragging}
+          onSelect={(idx) => {
+            revealDotsBriefly();
+            onIndexChange(idx);
+          }}
         />
       )}
     </div>

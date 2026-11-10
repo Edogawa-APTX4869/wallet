@@ -609,10 +609,10 @@ html.is-dashboard-dragging {
 
 /* Accessibility: WCAG 2.5.5 / 2.5.8 interactive touch target compliance (>= 48px x 48px) */
 @media (pointer: coarse) {
-  button,
-  [role="button"],
-  [role="tab"],
-  [type="button"],
+  button:not([data-pagination-dot]),
+  [role="button"]:not([data-pagination-dot]),
+  [role="tab"]:not([data-pagination-dot]),
+  [type="button"]:not([data-pagination-dot]),
   [type="submit"],
   [type="reset"] {
     min-height: 48px;

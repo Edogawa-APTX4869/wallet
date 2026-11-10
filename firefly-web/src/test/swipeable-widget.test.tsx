@@ -52,7 +52,7 @@ describe("Swipe Physics & Dynamic Depth Effects", () => {
     expect(evaluateSwipeSnap(150, 0.9, 400, false, true)).toBe("bounce");
   });
 
-  it("renders SwipePaginationDots with expanded active capsule (w-5 vs w-2)", () => {
+  it("renders SwipePaginationDots with ultra-compact active capsule (w-3.5 vs w-1.5) and data-pagination-dot", () => {
     const html = renderToStaticMarkup(
       <SwipePaginationDots
         total={3}
@@ -60,8 +60,9 @@ describe("Swipe Physics & Dynamic Depth Effects", () => {
         labels={["Last 7 days", "Last 30 days", "Last 90 days"]}
       />,
     );
-    expect(html).toContain("w-5");
-    expect(html).toContain("w-2");
+    expect(html).toContain("w-3.5");
+    expect(html).toContain("w-1.5");
+    expect(html).toContain('data-pagination-dot="true"');
     expect(html).toContain('aria-label="Last 30 days"');
   });
 
