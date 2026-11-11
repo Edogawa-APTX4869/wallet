@@ -22,6 +22,7 @@ import {
   Skeleton,
 } from "@/components/ui";
 import { useToast } from "@/components/providers";
+import { useEscapeDismiss } from "@/lib/use-escape-dismiss";
 
 export function BudgetsClient() {
   const qc = useQueryClient();
@@ -42,6 +43,8 @@ export function BudgetsClient() {
   const [newName, setNewName] = useState("");
   const [editingLimitId, setEditingLimitId] = useState<string | null>(null);
   const [limitAmount, setLimitAmount] = useState("");
+
+  useEscapeDismiss(editingLimitId !== null, () => setEditingLimitId(null), "budget-edit-limit");
 
   const createMut = useMutation({
     mutationFn: async () => {

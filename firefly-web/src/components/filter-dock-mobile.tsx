@@ -70,7 +70,7 @@ export function MobileFilterDock({
   const [accountSheetOpen, setAccountSheetOpen] = useState(false);
   const [customRangeOpen, setCustomRangeOpen] = useState(false);
 
-  useEscapeDismiss(expanded, () => setExpanded(false), "mobile-filter-dock-expanded");
+  useEscapeDismiss(expanded, () => setExpanded(false), "mobile-filter-dock-expanded", { hidesChrome: true });
 
   const [draftStart, setDraftStart] = useState(startDate);
   const [draftEnd, setDraftEnd] = useState(endDate);

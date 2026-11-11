@@ -117,12 +117,37 @@ export async function triggerNativeHaptic(style: ImpactStyle = ImpactStyle.Light
   }
 }
 
+declare global {
+  interface Window {
+    __walletBack?: () => "handled" | "exit" | "back";
+  }
+}
+
 /**
  * Bridges native Android capabilities (Status Bar theme sync, Hardware Back Button
  * LIFO modal/drawer dismissal, and Splash Screen lifecycle) when running as an APK.
  */
 export function CapacitorBridge() {
   const { resolvedTheme } = useTheme();
+
+  // Always expose window.__walletBack so the native Android WebView host (MainActivity)
+  // can query the live React escape stack and navigation bar state on any origin.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.__walletBack = () => {
+      const dismissedOverlay = globalEscapeStack.handleKeyDown("Escape");
+      if (dismissedOverlay) {
+        return "handled";
+      }
+      if (isBottomNavVisibleOnScreen(window.location.pathname)) {
+        return "exit";
+      }
+      return "back";
+    };
+    return () => {
+      delete window.__walletBack;
+    };
+  }, []);
 
   // 1. Sync native Android status bar with active light/dark theme
   useEffect(() => {

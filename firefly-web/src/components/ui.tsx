@@ -290,7 +290,7 @@ export function ModalSheet({
   maxWidth?: string;
   children: React.ReactNode;
 }) {
-  useEscapeDismiss(open, onClose);
+  useEscapeDismiss(open, onClose, undefined, { hidesChrome: true });
 
   const [mounted, setMounted] = useState(false);
   const [rendered, setRendered] = useState(open);

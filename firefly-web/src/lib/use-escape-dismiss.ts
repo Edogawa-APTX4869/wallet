@@ -5,16 +5,22 @@ import { useEffect, useId, useRef, useSyncExternalStore } from "react";
 export interface Dismissible {
   id: string;
   onDismiss: () => void;
+  /**
+   * Full-screen layers (modal sheets, navigation drawer, notifications) cover the
+   * whole view, so the app chrome (bottom nav bar, FAB, AI pill) is hidden while
+   * they are open. Small popovers / inline panels keep the chrome visible.
+   */
+  hidesChrome: boolean;
 }
 
 export class EscapeStackManager {
   private stack: Dismissible[] = [];
   private listeners: Set<() => void> = new Set();
+  private chromeCount = 0;
 
-  private notify() {
-    for (const listener of this.listeners) {
-      listener();
-    }
+  private recount() {
+    this.chromeCount = this.stack.filter((i) => i.hidesChrome).length;
+    for (const listener of this.listeners) listener();
   }
 
   public subscribe = (listener: () => void): (() => void) => {
@@ -24,30 +30,30 @@ export class EscapeStackManager {
     };
   };
 
-  public register(id: string, onDismiss: () => void): () => void {
+  public register(id: string, onDismiss: () => void, hidesChrome = false): () => void {
     this.stack = this.stack.filter((item) => item.id !== id);
-    const item: Dismissible = { id, onDismiss };
+    const item: Dismissible = { id, onDismiss, hidesChrome };
     this.stack.push(item);
-    this.notify();
+    this.recount();
     return () => {
-      this.unregister(id);
+      // Only remove this exact registration (a newer one with the same id may exist).
+      const before = this.stack.length;
+      this.stack = this.stack.filter((i) => i !== item);
+      if (this.stack.length !== before) this.recount();
     };
   }
 
   public unregister(id: string) {
-    const prevLen = this.stack.length;
+    const before = this.stack.length;
     this.stack = this.stack.filter((item) => item.id !== id);
-    if (this.stack.length !== prevLen) {
-      this.notify();
-    }
+    if (this.stack.length !== before) this.recount();
   }
 
+  /** Dismisses the top-most layer. Returns true if something was dismissed. */
   public handleKeyDown(key: string): boolean {
-    if (key !== "Escape" || this.stack.length === 0) {
-      return false;
-    }
+    if (key !== "Escape" || this.stack.length === 0) return false;
     const top = this.stack.pop();
-    this.notify();
+    this.recount();
     if (top) {
       top.onDismiss();
       return true;
@@ -55,9 +61,10 @@ export class EscapeStackManager {
     return false;
   }
 
-  public getStackSize = (): number => {
-    return this.stack.length;
-  };
+  public getStackSize = (): number => this.stack.length;
+
+  /** Number of open full-screen layers that hide the app chrome. */
+  public getChromeOverlayCount = (): number => this.chromeCount;
 
   public getTopId(): string | undefined {
     return this.stack[this.stack.length - 1]?.id;
@@ -66,30 +73,12 @@ export class EscapeStackManager {
   public clear() {
     if (this.stack.length > 0) {
       this.stack = [];
-      this.notify();
+      this.recount();
     }
   }
 }
 
 export const globalEscapeStack = new EscapeStackManager();
-
-function getServerStackSizeSnapshot(): number {
-  return 0;
-}
-
-/**
- * Reactive hook that returns true whenever any dismissible overlay
- * (modal sheet, drawer, speed-dial menu, chatbar sheet, filter sheet, etc.)
- * is currently active on the global escape stack.
- */
-export function useHasActiveOverlay(): boolean {
-  const stackSize = useSyncExternalStore(
-    globalEscapeStack.subscribe,
-    globalEscapeStack.getStackSize,
-    getServerStackSizeSnapshot,
-  );
-  return stackSize > 0;
-}
 
 if (typeof window !== "undefined") {
   window.addEventListener("keydown", (e: KeyboardEvent) => {
@@ -103,14 +92,31 @@ if (typeof window !== "undefined") {
   });
 }
 
+const getServerZero = () => 0;
+
+/**
+ * True while a full-screen layer (modal sheet, drawer, notifications) is open.
+ * Small popovers do not count, so they never make the bottom nav bar flicker.
+ */
+export function useHasActiveOverlay(): boolean {
+  const count = useSyncExternalStore(
+    globalEscapeStack.subscribe,
+    globalEscapeStack.getChromeOverlayCount,
+    getServerZero,
+  );
+  return count > 0;
+}
+
 export function useEscapeDismiss(
   enabled: boolean,
   onDismiss: () => void,
   explicitId?: string,
+  options?: { hidesChrome?: boolean },
 ) {
   const autoId = useId();
   const id = explicitId ?? autoId;
   const onDismissRef = useRef(onDismiss);
+  const hidesChrome = options?.hidesChrome ?? false;
 
   useEffect(() => {
     onDismissRef.current = onDismiss;
@@ -118,12 +124,16 @@ export function useEscapeDismiss(
 
   useEffect(() => {
     if (!enabled) return;
-    return globalEscapeStack.register(id, () => {
-      onDismissRef.current();
-    });
-  }, [enabled, id]);
+    return globalEscapeStack.register(
+      id,
+      () => {
+        onDismissRef.current();
+      },
+      hidesChrome,
+    );
+  }, [enabled, id, hidesChrome]);
 }
 
-export function registerDismissible(id: string, onDismiss: () => void): () => void {
-  return globalEscapeStack.register(id, onDismiss);
+export function registerDismissible(id: string, onDismiss: () => void, hidesChrome = false): () => void {
+  return globalEscapeStack.register(id, onDismiss, hidesChrome);
 }

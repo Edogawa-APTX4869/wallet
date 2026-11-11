@@ -132,7 +132,7 @@ export function TransactionsClient() {
   const [editingGroup, setEditingGroup] = useState<Resource<TransactionGroup> | null>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
-  useEscapeDismiss(showFilters, () => setShowFilters(false), "transactions-filters");
+  useEscapeDismiss(showFilters, () => setShowFilters(false), "transactions-filters", { hidesChrome: true });
 
   const accountsQ = useAccounts("all");
   const month = useMemo(() => monthRange(0), []);

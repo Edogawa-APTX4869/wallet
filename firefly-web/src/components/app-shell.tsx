@@ -30,7 +30,7 @@ import { UniversalFilterProvider } from "@/lib/filter-context";
 import { SpeedDialFab } from "@/components/speed-dial-fab";
 import { MagicChatbar } from "@/components/magic-chatbar";
 import { useTheme } from "@/components/theme-provider";
-import { useEscapeDismiss, useHasActiveOverlay } from "@/lib/use-escape-dismiss";
+import { globalEscapeStack, useEscapeDismiss, useHasActiveOverlay } from "@/lib/use-escape-dismiss";
 import { isMainBottomNavRoute } from "@/components/capacitor-bridge";
 import { PageTransition } from "@/components/page-transition";
 
@@ -416,7 +416,7 @@ export function MobileNavDrawer({
   onCycleTheme,
   children,
 }: MobileDrawerProps) {
-  useEscapeDismiss(isOpen, onClose, "mobile-nav-drawer");
+  useEscapeDismiss(isOpen, onClose, "mobile-nav-drawer", { hidesChrome: true });
   const [rendered, setRendered] = useState(isOpen);
 
   if (isOpen && !rendered) {
@@ -665,15 +665,20 @@ export function AppShellInner({ children, serverUrl }: { children: React.ReactNo
     }
   }
 
-  useEscapeDismiss(drawerOpen, () => setDrawerOpen(false), "mobile-nav-drawer");
-  useEscapeDismiss(notificationsOpen, () => setNotificationsOpen(false), "mobile-notifications-dialog");
+  useEscapeDismiss(drawerOpen, () => setDrawerOpen(false), "mobile-nav-drawer", { hidesChrome: true });
+  useEscapeDismiss(notificationsOpen, () => setNotificationsOpen(false), "mobile-notifications-dialog", {
+    hidesChrome: true,
+  });
 
   const hasActiveOverlay = useHasActiveOverlay();
+  const isFabTop = hasActiveOverlay && globalEscapeStack.getTopId() === "speed-dial-fab";
   const isMainTabRoute = isMainBottomNavRoute(pathname);
   const isOverlayRoute = !isMainTabRoute;
   const isFullBleedOverlayRoute = pathname.startsWith("/new");
   const hideMobileBottomNav = isOverlayRoute || hasActiveOverlay || drawerOpen || notificationsOpen;
-  const suppressFloatingActions = drawerOpen || notificationsOpen || isOverlayRoute || hasActiveOverlay;
+  const suppressChatbar = drawerOpen || notificationsOpen || isOverlayRoute || hasActiveOverlay;
+  const suppressSpeedDialFab =
+    drawerOpen || notificationsOpen || isOverlayRoute || (hasActiveOverlay && !isFabTop);
 
   const handleMobileBack = () => {
     if (typeof window !== "undefined" && window.history.length > 1) {
@@ -893,10 +898,10 @@ export function AppShellInner({ children, serverUrl }: { children: React.ReactNo
 
       {/* Fast-Access Bottom AI Magic Chatbar ("Ramble" voice & text dock) */}
       <div
-        aria-hidden={suppressFloatingActions}
+        aria-hidden={suppressChatbar}
         className={cn(
           "transition-opacity duration-150",
-          suppressFloatingActions && "max-md:hidden max-md:pointer-events-none max-md:opacity-0",
+          suppressChatbar && "max-md:hidden max-md:pointer-events-none max-md:opacity-0",
         )}
       >
         {!drawerOpen && <MagicChatbar />}
@@ -904,10 +909,10 @@ export function AppShellInner({ children, serverUrl }: { children: React.ReactNo
 
       {/* BudgetBakers Wallet-style Speed Dial FAB (Templates, Transfer, New Record) */}
       <div
-        aria-hidden={suppressFloatingActions}
+        aria-hidden={suppressSpeedDialFab}
         className={cn(
           "transition-opacity duration-150",
-          suppressFloatingActions && "max-md:hidden max-md:pointer-events-none max-md:opacity-0",
+          suppressSpeedDialFab && "max-md:hidden max-md:pointer-events-none max-md:opacity-0",
         )}
       >
         {!drawerOpen && <SpeedDialFab />}

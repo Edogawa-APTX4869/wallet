@@ -125,7 +125,7 @@ export function MagicChatPanel({
   const [attachments, setAttachments] = useState<AttachmentPayload[]>([]);
   const [listening, setListening] = useState(false);
   const [expanded, setExpanded] = useState(mode === "inline");
-  useEscapeDismiss(mode === "dock" && expanded, () => setExpanded(false), "magic-chat-dock");
+  useEscapeDismiss(mode === "dock" && expanded, () => setExpanded(false), "magic-chat-dock", { hidesChrome: true });
   const [messages, setMessages] = useState<MagicChatMessage[]>([]);
 
   const inputRef = useRef<HTMLInputElement | null>(null);

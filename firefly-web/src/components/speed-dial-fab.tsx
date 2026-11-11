@@ -64,7 +64,7 @@ export function SpeedDialFab({
     staleTime: 60_000,
   });
 
-  useEscapeDismiss(open, () => setOpen(false), "speed-dial-fab");
+  useEscapeDismiss(open, () => setOpen(false), "speed-dial-fab", { hidesChrome: true });
 
   if (pathname === "/new") return null;
 

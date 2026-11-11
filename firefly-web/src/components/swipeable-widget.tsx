@@ -146,9 +146,23 @@ export function SwipePaginationDots({
               e.stopPropagation();
               onSelect?.(idx);
             }}
-            className="group/dot flex items-center justify-center p-1 !min-h-0 !min-w-0 focus:outline-none"
+            style={{
+              minWidth: 0,
+              minHeight: 0,
+              width: "auto",
+              height: "auto",
+              padding: "2px",
+              background: "transparent",
+            }}
+            className="group/dot flex items-center justify-center p-0.5 !min-h-0 !min-w-0 focus:outline-none"
           >
             <span
+              style={{
+                width: isActive ? "14px" : "5px",
+                height: "5px",
+                minWidth: 0,
+                minHeight: 0,
+              }}
               className={cn(
                 "block h-1.5 rounded-full transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
                 isActive

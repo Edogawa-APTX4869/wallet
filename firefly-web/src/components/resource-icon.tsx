@@ -290,7 +290,7 @@ export function ResourceIconBadge({
   const isClosing = !open && rendered;
   const showPicker = open || isClosing;
 
-  useEscapeDismiss(open, () => setOpen(false), "resource-icon-picker");
+  useEscapeDismiss(open, () => setOpen(false), "resource-icon-picker", { hidesChrome: true });
 
   const item = meta.get(entityType, entityId);
   const iconName = item?.icon || defaultIcon;
