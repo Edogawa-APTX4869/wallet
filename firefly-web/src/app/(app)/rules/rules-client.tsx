@@ -1389,20 +1389,17 @@ function QuickPayModal({
           )}
         </Field>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="flex flex-col gap-3">
           <Field label="Payment Date">
             {(id) => <Input id={id} type="date" value={date} onChange={(e) => setDate(e.target.value)} required />}
           </Field>
           <Field label="Category (optional)">
-            {(id) => (
-              <Select id={id} value={category} onChange={(e) => setCategory(e.target.value)}>
-                <option value="">No category</option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.attributes.name}>
-                    {c.attributes.name}
-                  </option>
-                ))}
-              </Select>
+            {() => (
+              <CategoryCascadeSelect
+                categories={categories}
+                value={category}
+                onChange={setCategory}
+              />
             )}
           </Field>
         </div>
