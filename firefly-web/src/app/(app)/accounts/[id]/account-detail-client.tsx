@@ -142,6 +142,8 @@ export function formatAccountRole(roleOrType?: string | null): string {
       return "Debt liability";
     case "mortgage":
       return "Mortgage liability";
+    case "credit_card":
+      return "Credit card liability";
     case "asset":
       return "Asset account";
     case "liability":
@@ -584,7 +586,10 @@ function EditAccountModalContent({
 }) {
   const [name, setName] = useState(account.name);
   const [role, setRole] = useState(account.account_role || "defaultAsset");
-  const [liabilityType, setLiabilityType] = useState(account.liability_type || "loan");
+  const [liabilityType, setLiabilityType] = useState(
+    account.liability_type ||
+      (account.type === "debt" ? "debt" : account.type === "mortgage" ? "mortgage" : "loan"),
+  );
   const [liabilityDirection, setLiabilityDirection] = useState(account.liability_direction || "debit");
   const [iban, setIban] = useState(account.iban || "");
   const [accountNumber, setAccountNumber] = useState(account.account_number || "");
@@ -592,8 +597,14 @@ function EditAccountModalContent({
   const [includeNetWorth, setIncludeNetWorth] = useState(account.include_net_worth ?? true);
   const [notes, setNotes] = useState(account.notes || "");
 
-  const isAsset = account.type === "asset";
-  const isLiability = account.type === "liability" || account.type === "liabilities";
+  const isAsset = account.type === "asset" || account.type === "cash";
+  const isLiability =
+    account.type === "liability" ||
+    account.type === "liabilities" ||
+    account.type === "loan" ||
+    account.type === "debt" ||
+    account.type === "mortgage" ||
+    Boolean(account.liability_type);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

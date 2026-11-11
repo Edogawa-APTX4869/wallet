@@ -89,6 +89,21 @@ function CreateAccountModalContent({
   const [accountNumber, setAccountNumber] = useState("");
   const [notes, setNotes] = useState("");
 
+  useEffect(() => {
+    if (open) {
+      setAccountType(normalizeType(initialType));
+      setName("");
+      setOpeningBalance("");
+      setOpeningBalanceDate(isoDate());
+      setIban("");
+      setAccountNumber("");
+      setNotes("");
+      setLiabilityType("loan");
+      setLiabilityDirection("debit");
+      setAccountRole("defaultAsset");
+    }
+  }, [open, initialType]);
+
   const createMut = useMutation({
     mutationFn: async () => {
       const payload: Parameters<typeof api.createAccount>[0] = {

@@ -145,7 +145,9 @@ describe("formatAccountRole", () => {
     expect(formatAccountRole("loan")).toBe("Loan liability");
     expect(formatAccountRole("debt")).toBe("Debt liability");
     expect(formatAccountRole("mortgage")).toBe("Mortgage liability");
+    expect(formatAccountRole("credit_card")).toBe("Credit card liability");
     expect(formatAccountRole("liability")).toBe("Liability account");
+    expect(formatAccountRole("liabilities")).toBe("Liability account");
     expect(formatAccountRole(null)).toBe("—");
   });
 });
@@ -174,6 +176,29 @@ describe("EditAccountModal liability rendering", () => {
     expect(html).toContain("Liability direction");
     expect(html).toContain("I owe this debt (debit)");
     expect(html).toContain("I am owed this debt (credit)");
+    expect(html).not.toContain("Default asset account");
+  });
+
+  it("renders liability fields when account type is specifically loan, debt, or mortgage", () => {
+    const mockMortgageAccount: Account = {
+      name: "Home Mortgage 30Y",
+      type: "mortgage",
+      active: true,
+      liability_direction: "debit",
+    };
+
+    const html = renderToStaticMarkup(
+      React.createElement(EditAccountModal, {
+        open: true,
+        account: mockMortgageAccount,
+        onClose: () => {},
+        onSave: () => {},
+        isSaving: false,
+      }),
+    );
+
+    expect(html).toContain("Liability type");
+    expect(html).toContain("Liability direction");
     expect(html).not.toContain("Default asset account");
   });
 
