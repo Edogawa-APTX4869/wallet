@@ -224,4 +224,27 @@ describe("EditAccountModal liability rendering", () => {
     expect(html).toContain("Default asset account");
     expect(html).not.toContain("Liability direction");
   });
+
+  it("renders debt liability account with credit direction correctly", () => {
+    const mockDebtAccount: Account = {
+      name: "Loan to Family",
+      type: "debt",
+      active: true,
+      liability_direction: "credit",
+    };
+
+    const html = renderToStaticMarkup(
+      React.createElement(EditAccountModal, {
+        open: true,
+        account: mockDebtAccount,
+        onClose: () => {},
+        onSave: () => {},
+        isSaving: false,
+      }),
+    );
+
+    expect(html).toContain("Liability type");
+    expect(html).toContain("Liability direction");
+    expect(html).toContain("I am owed this debt (credit)");
+  });
 });

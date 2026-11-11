@@ -10,6 +10,7 @@ import { useAccounts, usePrimaryCurrency, useRatesToPrimary } from "@/lib/hooks"
 import { cn, formatDate, isoDate } from "@/lib/utils";
 import { inferAccountDefaultStyle, ResourceIconBadge } from "@/components/resource-icon";
 import { CreateAccountModal } from "@/components/create-account-modal";
+import { formatAccountRole } from "./[id]/account-detail-client";
 import { AnimatedTabs, Badge, Button, Card, EmptyState, ErrorBox, Input, Money, PageHeader, Skeleton } from "@/components/ui";
 
 type GroupKey = "asset" | "liabilities" | "expense" | "revenue";
@@ -226,7 +227,7 @@ function AccountCard({
             <div className="min-w-0">
               <h3 className="truncate font-semibold transition-colors group-hover:text-primary">{a.name}</h3>
               <p className="truncate text-xs text-muted">
-                {a.account_role || a.liability_type || a.type}
+                {formatAccountRole(a.account_role || a.liability_type || a.type)}
                 {a.iban ? ` · ${a.iban}` : a.account_number ? ` · ${a.account_number}` : ""}
               </p>
             </div>
@@ -244,7 +245,14 @@ function AccountCard({
               code={a.currency_code}
               decimals={a.currency_decimal_places}
               symbol={a.currency_symbol}
-              colored={a.type === "asset" || a.type === "liabilities" || a.type === "liability"}
+              colored={
+                a.type === "asset" ||
+                a.type === "liabilities" ||
+                a.type === "liability" ||
+                a.type === "loan" ||
+                a.type === "debt" ||
+                a.type === "mortgage"
+              }
               animated
             />
           </p>

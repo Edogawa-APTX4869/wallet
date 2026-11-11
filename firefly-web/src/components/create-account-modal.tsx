@@ -122,8 +122,8 @@ function CreateAccountModalContent({
         if (iban.trim()) payload.iban = iban.trim();
         if (accountNumber.trim()) payload.account_number = accountNumber.trim();
       } else if (accountType === "liability") {
-        payload.liability_type = liabilityType;
-        payload.liability_direction = liabilityDirection;
+        payload.liability_type = liabilityType || "loan";
+        payload.liability_direction = liabilityDirection || "debit";
         if (openingBalance.trim()) {
           payload.opening_balance = openingBalance.trim();
           payload.opening_balance_date = openingBalanceDate || isoDate();

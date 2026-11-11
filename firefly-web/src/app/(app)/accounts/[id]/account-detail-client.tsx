@@ -437,8 +437,8 @@ export function AccountDetailClient({ id }: { id: string }) {
           <div className="flex items-center justify-between border-b border-border pb-3">
             <h2 className="text-sm font-semibold text-fg">Account Metadata</h2>
             <div className="flex items-center gap-2">
-              {a.liability_type && (
-                <Badge tone="warning">Liability: {a.liability_type}</Badge>
+              {(a.liability_type || (a.type === "loan" || a.type === "debt" || a.type === "mortgage" ? a.type : null)) && (
+                <Badge tone="warning">Liability: {a.liability_type || a.type}</Badge>
               )}
               {a.liability_direction && (
                 <Badge tone="neutral">
@@ -597,6 +597,23 @@ function EditAccountModalContent({
   const [includeNetWorth, setIncludeNetWorth] = useState(account.include_net_worth ?? true);
   const [notes, setNotes] = useState(account.notes || "");
 
+  useEffect(() => {
+    if (open) {
+      setName(account.name);
+      setRole(account.account_role || "defaultAsset");
+      setLiabilityType(
+        account.liability_type ||
+          (account.type === "debt" ? "debt" : account.type === "mortgage" ? "mortgage" : "loan"),
+      );
+      setLiabilityDirection(account.liability_direction || "debit");
+      setIban(account.iban || "");
+      setAccountNumber(account.account_number || "");
+      setActive(account.active ?? true);
+      setIncludeNetWorth(account.include_net_worth ?? true);
+      setNotes(account.notes || "");
+    }
+  }, [open, account]);
+
   const isAsset = account.type === "asset" || account.type === "cash";
   const isLiability =
     account.type === "liability" ||
@@ -615,7 +632,7 @@ function EditAccountModalContent({
       ...(isLiability
         ? {
             liability_type: liabilityType || undefined,
-            liability_direction: liabilityDirection || undefined,
+            liability_direction: liabilityDirection || "debit",
           }
         : {}),
       iban: iban.trim() || undefined,
