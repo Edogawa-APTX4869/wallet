@@ -191,7 +191,7 @@ export function buildAccountPayload(values: CreateAccountFormValues, fallbackDat
     }
   } else if (normType === "liability") {
     payload.liability_type = values.liabilityType?.trim() || "loan";
-    payload.liability_direction = values.liabilityDirection?.trim() || "credit";
+    payload.liability_direction = values.liabilityDirection?.trim() || "debit";
     if (values.openingBalance?.trim()) {
       payload.opening_balance = values.openingBalance.trim();
       payload.opening_balance_date = values.openingBalanceDate?.trim() || fallbackDate;

@@ -123,7 +123,7 @@ export function computeAccount30dKpi(
   };
 }
 
-function formatAccountRole(roleOrType?: string | null): string {
+export function formatAccountRole(roleOrType?: string | null): string {
   if (!roleOrType) return "—";
   switch (roleOrType) {
     case "defaultAsset":
@@ -434,9 +434,16 @@ export function AccountDetailClient({ id }: { id: string }) {
         <Card className="flex flex-col gap-4">
           <div className="flex items-center justify-between border-b border-border pb-3">
             <h2 className="text-sm font-semibold text-fg">Account Metadata</h2>
-            {a.liability_type && (
-              <Badge tone="warning">Liability: {a.liability_type}</Badge>
-            )}
+            <div className="flex items-center gap-2">
+              {a.liability_type && (
+                <Badge tone="warning">Liability: {a.liability_type}</Badge>
+              )}
+              {a.liability_direction && (
+                <Badge tone="neutral">
+                  {a.liability_direction === "credit" ? "Owed to me" : "I owe"}
+                </Badge>
+              )}
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             <div>
@@ -523,7 +530,7 @@ export function AccountDetailClient({ id }: { id: string }) {
   );
 }
 
-function EditAccountModal({
+export function EditAccountModal({
   open,
   account,
   onClose,
@@ -577,18 +584,29 @@ function EditAccountModalContent({
 }) {
   const [name, setName] = useState(account.name);
   const [role, setRole] = useState(account.account_role || "defaultAsset");
+  const [liabilityType, setLiabilityType] = useState(account.liability_type || "loan");
+  const [liabilityDirection, setLiabilityDirection] = useState(account.liability_direction || "debit");
   const [iban, setIban] = useState(account.iban || "");
   const [accountNumber, setAccountNumber] = useState(account.account_number || "");
   const [active, setActive] = useState(account.active ?? true);
   const [includeNetWorth, setIncludeNetWorth] = useState(account.include_net_worth ?? true);
   const [notes, setNotes] = useState(account.notes || "");
 
+  const isAsset = account.type === "asset";
+  const isLiability = account.type === "liability" || account.type === "liabilities";
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
     onSave({
       name: name.trim(),
-      account_role: role || undefined,
+      ...(isAsset ? { account_role: role || undefined } : {}),
+      ...(isLiability
+        ? {
+            liability_type: liabilityType || undefined,
+            liability_direction: liabilityDirection || undefined,
+          }
+        : {}),
       iban: iban.trim() || undefined,
       account_number: accountNumber.trim() || undefined,
       active,
@@ -619,17 +637,46 @@ function EditAccountModalContent({
           )}
         </Field>
 
-        <Field label="Account role">
-          {(id) => (
-            <Select id={id} value={role} onChange={(e) => setRole(e.target.value)}>
-              <option value="defaultAsset">Default asset account</option>
-              <option value="savingAsset">Savings account</option>
-              <option value="sharedAsset">Shared asset account</option>
-              <option value="ccAsset">Credit card account</option>
-              <option value="cashWalletAsset">Cash wallet</option>
-            </Select>
-          )}
-        </Field>
+        {isAsset && (
+          <Field label="Account role">
+            {(id) => (
+              <Select id={id} value={role} onChange={(e) => setRole(e.target.value)}>
+                <option value="defaultAsset">Default asset account</option>
+                <option value="savingAsset">Savings account</option>
+                <option value="sharedAsset">Shared asset account</option>
+                <option value="ccAsset">Credit card account</option>
+                <option value="cashWalletAsset">Cash wallet</option>
+              </Select>
+            )}
+          </Field>
+        )}
+
+        {isLiability && (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label="Liability type">
+              {(id) => (
+                <Select id={id} value={liabilityType} onChange={(e) => setLiabilityType(e.target.value)}>
+                  <option value="loan">Loan</option>
+                  <option value="debt">Debt</option>
+                  <option value="mortgage">Mortgage</option>
+                </Select>
+              )}
+            </Field>
+
+            <Field label="Liability direction">
+              {(id) => (
+                <Select
+                  id={id}
+                  value={liabilityDirection}
+                  onChange={(e) => setLiabilityDirection(e.target.value)}
+                >
+                  <option value="debit">I owe this debt (debit)</option>
+                  <option value="credit">I am owed this debt (credit)</option>
+                </Select>
+              )}
+            </Field>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="IBAN">

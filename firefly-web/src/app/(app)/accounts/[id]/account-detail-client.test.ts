@@ -1,5 +1,8 @@
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { computeAccount30dKpi } from "./account-detail-client";
+import { Account } from "@/lib/firefly/types";
+import { computeAccount30dKpi, EditAccountModal, formatAccountRole } from "./account-detail-client";
 
 describe("computeAccount30dKpi", () => {
   it("returns zero metrics when there are no transactions in the 30-day window", () => {
@@ -133,5 +136,67 @@ describe("computeAccount30dKpi", () => {
     expect(stats.outflow.toString()).toBe("100");
     expect(stats.netChange.toString()).toBe("150");
     expect(stats.count).toBe(2);
+  });
+});
+
+describe("formatAccountRole", () => {
+  it("formats standard roles and liability types correctly", () => {
+    expect(formatAccountRole("defaultAsset")).toBe("Default asset account");
+    expect(formatAccountRole("loan")).toBe("Loan liability");
+    expect(formatAccountRole("debt")).toBe("Debt liability");
+    expect(formatAccountRole("mortgage")).toBe("Mortgage liability");
+    expect(formatAccountRole("liability")).toBe("Liability account");
+    expect(formatAccountRole(null)).toBe("—");
+  });
+});
+
+describe("EditAccountModal liability rendering", () => {
+  it("renders liability type and liability direction fields for liability accounts", () => {
+    const mockLiabilityAccount: Account = {
+      name: "Tesla Auto Loan",
+      type: "liability",
+      active: true,
+      liability_type: "loan",
+      liability_direction: "debit",
+    };
+
+    const html = renderToStaticMarkup(
+      React.createElement(EditAccountModal, {
+        open: true,
+        account: mockLiabilityAccount,
+        onClose: () => {},
+        onSave: () => {},
+        isSaving: false,
+      }),
+    );
+
+    expect(html).toContain("Liability type");
+    expect(html).toContain("Liability direction");
+    expect(html).toContain("I owe this debt (debit)");
+    expect(html).toContain("I am owed this debt (credit)");
+    expect(html).not.toContain("Default asset account");
+  });
+
+  it("renders asset account roles and omits liability direction for asset accounts", () => {
+    const mockAssetAccount: Account = {
+      name: "Main Checking",
+      type: "asset",
+      active: true,
+      account_role: "defaultAsset",
+    };
+
+    const html = renderToStaticMarkup(
+      React.createElement(EditAccountModal, {
+        open: true,
+        account: mockAssetAccount,
+        onClose: () => {},
+        onSave: () => {},
+        isSaving: false,
+      }),
+    );
+
+    expect(html).toContain("Account role");
+    expect(html).toContain("Default asset account");
+    expect(html).not.toContain("Liability direction");
   });
 });

@@ -45,7 +45,7 @@ describe("CreateAccountModal normalizeType", () => {
 describe("CreateAccountModal markup and liability_direction", () => {
   const createQc = () => new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
-  it("renders liability direction select with credit and debit when initialType is liability", () => {
+  it("renders liability direction select with debit and credit when initialType is liability", () => {
     const qc = createQc();
     const html = renderToStaticMarkup(
       React.createElement(
@@ -60,10 +60,10 @@ describe("CreateAccountModal markup and liability_direction", () => {
     );
 
     expect(html).toContain("Liability direction");
-    expect(html).toContain("I owe this debt (credit)");
-    expect(html).toContain("I am owed this debt (debit)");
-    expect(html).toContain('value="credit"');
+    expect(html).toContain("I owe this debt (debit)");
+    expect(html).toContain("I am owed this debt (credit)");
     expect(html).toContain('value="debit"');
+    expect(html).toContain('value="credit"');
   });
 
   it("does not render liability direction select when initialType is asset", () => {
