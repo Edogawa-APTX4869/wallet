@@ -1,5 +1,8 @@
+import React from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { normalizeType } from "./create-account-modal";
+import { CreateAccountModal, normalizeType } from "./create-account-modal";
 
 describe("CreateAccountModal normalizeType", () => {
   it("defaults to asset when undefined or empty", () => {
@@ -36,5 +39,66 @@ describe("CreateAccountModal normalizeType", () => {
     expect(normalizeType("Expenses")).toBe("expense");
     expect(normalizeType("REVENUE")).toBe("revenue");
     expect(normalizeType("unknownType123")).toBe("asset");
+  });
+});
+
+describe("CreateAccountModal markup and liability_direction", () => {
+  const createQc = () => new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+  it("renders liability direction select with credit and debit when initialType is liability", () => {
+    const qc = createQc();
+    const html = renderToStaticMarkup(
+      React.createElement(
+        QueryClientProvider,
+        { client: qc },
+        React.createElement(CreateAccountModal, {
+          open: true,
+          onClose: () => {},
+          initialType: "liability",
+        }),
+      ),
+    );
+
+    expect(html).toContain("Liability direction");
+    expect(html).toContain("I owe this debt (credit)");
+    expect(html).toContain("I am owed this debt (debit)");
+    expect(html).toContain('value="credit"');
+    expect(html).toContain('value="debit"');
+  });
+
+  it("does not render liability direction select when initialType is asset", () => {
+    const qc = createQc();
+    const html = renderToStaticMarkup(
+      React.createElement(
+        QueryClientProvider,
+        { client: qc },
+        React.createElement(CreateAccountModal, {
+          open: true,
+          onClose: () => {},
+          initialType: "asset",
+        }),
+      ),
+    );
+
+    expect(html).not.toContain("Liability direction");
+    expect(html).toContain("Account role");
+  });
+
+  it("does not render liability direction select when initialType is expense", () => {
+    const qc = createQc();
+    const html = renderToStaticMarkup(
+      React.createElement(
+        QueryClientProvider,
+        { client: qc },
+        React.createElement(CreateAccountModal, {
+          open: true,
+          onClose: () => {},
+          initialType: "expense",
+        }),
+      ),
+    );
+
+    expect(html).not.toContain("Liability direction");
+    expect(html).not.toContain("Account role");
   });
 });

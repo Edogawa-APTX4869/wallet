@@ -82,6 +82,7 @@ function CreateAccountModalContent({
   const currencyCode = selectedCurrency ?? primaryCode ?? currencies?.[0]?.attributes.code ?? "USD";
   const [accountRole, setAccountRole] = useState("defaultAsset");
   const [liabilityType, setLiabilityType] = useState("loan");
+  const [liabilityDirection, setLiabilityDirection] = useState("credit");
   const [openingBalance, setOpeningBalance] = useState("");
   const [openingBalanceDate, setOpeningBalanceDate] = useState(() => isoDate());
   const [iban, setIban] = useState("");
@@ -107,6 +108,7 @@ function CreateAccountModalContent({
         if (accountNumber.trim()) payload.account_number = accountNumber.trim();
       } else if (accountType === "liability") {
         payload.liability_type = liabilityType;
+        payload.liability_direction = liabilityDirection;
         if (openingBalance.trim()) {
           payload.opening_balance = openingBalance.trim();
           payload.opening_balance_date = openingBalanceDate || isoDate();
@@ -259,6 +261,21 @@ function CreateAccountModalContent({
             </Field>
           )}
         </div>
+
+        {accountType === "liability" && (
+          <Field label="Liability direction">
+            {(id) => (
+              <Select
+                id={id}
+                value={liabilityDirection}
+                onChange={(e) => setLiabilityDirection(e.target.value)}
+              >
+                <option value="credit">I owe this debt (credit)</option>
+                <option value="debit">I am owed this debt (debit)</option>
+              </Select>
+            )}
+          </Field>
+        )}
 
         {/* Opening Balance (Asset & Liability only) */}
         {(accountType === "asset" || accountType === "liability") && (

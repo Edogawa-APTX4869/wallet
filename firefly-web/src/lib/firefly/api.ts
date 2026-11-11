@@ -130,6 +130,7 @@ export const api = {
     currency_code?: string;
     account_role?: string;
     liability_type?: string;
+    liability_direction?: string;
     iban?: string;
     account_number?: string;
     opening_balance?: string;

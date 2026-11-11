@@ -37,9 +37,10 @@ describe("R1: Account Creation & Management (Tiers 1-4)", () => {
       expect(payload.account_number).toBe("ACC-9921");
       expect(payload.notes).toBe("Primary household checking account");
       expect(payload.liability_type).toBeUndefined();
+      expect(payload.liability_direction).toBeUndefined();
     });
 
-    it("T1.2: generates liability account payload with default liability_type loan", () => {
+    it("T1.2: generates liability account payload with default liability_type loan and liability_direction credit", () => {
       const form: CreateAccountFormValues = {
         name: "Car Loan",
         type: "liability",
@@ -55,9 +56,30 @@ describe("R1: Account Creation & Management (Tiers 1-4)", () => {
       expect(payload.name).toBe("Car Loan");
       expect(payload.type).toBe("liability");
       expect(payload.liability_type).toBe("loan");
+      expect(payload.liability_direction).toBe("credit");
       expect(payload.opening_balance).toBe("18500.00");
       expect(payload.opening_balance_date).toBe(TODAY);
       expect(payload.account_role).toBeUndefined();
+    });
+
+    it("T1.2b: generates liability account payload with explicit liability_direction debit", () => {
+      const form: CreateAccountFormValues = {
+        name: "Personal Loan to Friend",
+        type: "liability",
+        currencyCode: "USD",
+        liabilityType: "debt",
+        liabilityDirection: "debit",
+        openingBalance: "500.00",
+        openingBalanceDate: TODAY,
+      };
+
+      const payload = buildAccountPayload(form, TODAY);
+
+      expect(payload.name).toBe("Personal Loan to Friend");
+      expect(payload.type).toBe("liability");
+      expect(payload.liability_type).toBe("debt");
+      expect(payload.liability_direction).toBe("debit");
+      expect(payload.opening_balance).toBe("500.00");
     });
 
     it("T1.3: generates expense account payload without role or opening balance", () => {
@@ -77,6 +99,7 @@ describe("R1: Account Creation & Management (Tiers 1-4)", () => {
       expect(payload.notes).toBe("Weekly food expenses");
       expect(payload.account_role).toBeUndefined();
       expect(payload.liability_type).toBeUndefined();
+      expect(payload.liability_direction).toBeUndefined();
       expect(payload.opening_balance).toBeUndefined();
       expect(payload.opening_balance_date).toBeUndefined();
     });
@@ -97,6 +120,7 @@ describe("R1: Account Creation & Management (Tiers 1-4)", () => {
       expect(payload.notes).toBe("Client invoice deposits");
       expect(payload.account_role).toBeUndefined();
       expect(payload.liability_type).toBeUndefined();
+      expect(payload.liability_direction).toBeUndefined();
       expect(payload.opening_balance).toBeUndefined();
     });
 
@@ -330,6 +354,7 @@ describe("R1: Account Creation & Management (Tiers 1-4)", () => {
       const payload = buildAccountPayload(form, TODAY);
       expect(payload.type).toBe("liability");
       expect(payload.liability_type).toBe("loan");
+      expect(payload.liability_direction).toBe("credit");
     });
 
     it("T3.3: Query cache invalidation triggers on successful account creation", () => {
@@ -388,6 +413,7 @@ describe("R1: Account Creation & Management (Tiers 1-4)", () => {
       const mortgagePayload = buildAccountPayload(mortgageForm, TODAY);
       expect(mortgagePayload.type).toBe("liability");
       expect(mortgagePayload.liability_type).toBe("mortgage");
+      expect(mortgagePayload.liability_direction).toBe("credit");
       expect(mortgagePayload.opening_balance).toBe("320000.00");
       expect(mortgagePayload.notes).toContain("30-year fixed rate");
     });
