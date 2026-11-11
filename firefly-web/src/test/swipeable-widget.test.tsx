@@ -66,7 +66,7 @@ describe("Swipe Physics & Dynamic Depth Effects", () => {
     expect(html).toContain('aria-label="Last 30 days"');
   });
 
-  it("renders SwipeableWidget with cursor-grab and swipeable-card classes", () => {
+  it("renders SwipeableWidget with cursor-grab, touch-pan-y, data-swipe-v2, and swipeable-card classes", () => {
     const html = renderToStaticMarkup(
       <SwipeableWidget
         activeIndex={0}
@@ -78,6 +78,8 @@ describe("Swipe Physics & Dynamic Depth Effects", () => {
       </SwipeableWidget>,
     );
     expect(html).toContain("swipeable-card");
+    expect(html).toContain("touch-pan-y");
+    expect(html).toContain('data-swipe-v2="true"');
     expect(html).toContain("cursor-grab");
     expect(html).toContain("Panel Content");
   });

@@ -43,6 +43,11 @@ public class MainActivity extends BridgeActivity {
     "var st=document.createElement('style');" +
     "st.id='wallet-apk-runtime-style';" +
     "st.textContent=" +
+    "'.swipeable-card{touch-action:pan-y!important;user-select:none!important;-webkit-user-select:none!important;overflow:hidden!important;}'+" +
+    "'@keyframes wallet-swipe-enter-next{0%{opacity:0.15;transform:translate3d(44px,0,0) scale(0.985);filter:blur(2.5px);}100%{opacity:1;transform:translate3d(0,0,0) scale(1);filter:blur(0px);}}'+" +
+    "'@keyframes wallet-swipe-enter-prev{0%{opacity:0.15;transform:translate3d(-44px,0,0) scale(0.985);filter:blur(2.5px);}100%{opacity:1;transform:translate3d(0,0,0) scale(1);filter:blur(0px);}}'+" +
+    "'.swipeable-card.wallet-anim-next>*,.animate-swipe-next{animation:wallet-swipe-enter-next 320ms cubic-bezier(0.22,1,0.36,1) both!important;will-change:transform,opacity,filter!important;}'+" +
+    "'.swipeable-card.wallet-anim-prev>*,.animate-swipe-prev{animation:wallet-swipe-enter-prev 320ms cubic-bezier(0.22,1,0.36,1) both!important;will-change:transform,opacity,filter!important;}'+" +
     "'[aria-label=\"View pagination\"]{display:flex!important;align-items:center!important;justify-content:center!important;gap:5px!important;padding:2px 0!important;margin:2px 0 0 0!important;min-height:0!important;height:10px!important;opacity:0!important;pointer-events:none!important;transition:opacity 0.25s ease!important;}'+" +
     "'[aria-label=\"View pagination\"].wallet-dots-visible{opacity:0.9!important;}'+" +
     "'[aria-label=\"View pagination\"] button,[aria-label=\"View pagination\"] [role=\"tab\"]{min-width:0!important;min-height:0!important;width:5px!important;height:5px!important;padding:0!important;margin:0!important;border-radius:9999px!important;flex:0 0 auto!important;}'+" +
@@ -69,9 +74,120 @@ public class MainActivity extends BridgeActivity {
     "if(prev)clearTimeout(prev);" +
     "dotTimers.set(dots,setTimeout(function(){dots.classList.remove('wallet-dots-visible');},1600));" +
     "}" +
-    "document.addEventListener('pointerdown',function(e){revealWidgetDots(e.target);},true);" +
-    "document.addEventListener('touchstart',function(e){revealWidgetDots(e.target);},{passive:true,capture:true});" +
-    "document.addEventListener('touchmove',function(e){revealWidgetDots(e.target);},{passive:true,capture:true});" +
+    "var suppressClickUntil=0;" +
+    "document.addEventListener('click',function(e){if(e.target&&e.target.closest&&e.target.closest('[aria-label=\"View pagination\"]'))return;if(Date.now()<suppressClickUntil){suppressClickUntil=0;e.preventDefault();e.stopPropagation();}},true);" +
+    "function playSwipeAnim(card,dir){" +
+    "if(!card)return;" +
+    "var cls=dir==='next'?'wallet-anim-next':'wallet-anim-prev';" +
+    "function apply(){var ch=card.firstElementChild||card;card.classList.remove('wallet-anim-next','wallet-anim-prev');ch.style.animation='none';void ch.offsetWidth;ch.style.animation='';card.classList.add(cls);}" +
+    "apply();" +
+    "var obs=new MutationObserver(function(){apply();obs.disconnect();});" +
+    "obs.observe(card,{childList:true,subtree:true,characterData:true});" +
+    "setTimeout(function(){obs.disconnect();},420);" +
+    "setTimeout(function(){card.classList.remove('wallet-anim-next','wallet-anim-prev');},520);" +
+    "}" +
+    "function clearCardDragStyles(card){" +
+    "if(!card)return;" +
+    "card.classList.remove('is-dragging');" +
+    "card.style.removeProperty('--swipe-x');" +
+    "card.style.removeProperty('--swipe-scale');" +
+    "card.style.removeProperty('--swipe-opacity');" +
+    "card.style.removeProperty('--swipe-blur');" +
+    "card.style.removeProperty('--swipe-content-blur');" +
+    "}" +
+    "function interceptLegacyTouchPointer(e){" +
+    "if(e.pointerType!=='touch')return;" +
+    "var t=e.target;" +
+    "if(!t||!t.closest)return;" +
+    "if(t.closest('input,select,textarea,[data-no-swipe],[data-pagination-dot],[aria-label=\"View pagination\"]'))return;" +
+    "var card=t.closest('.swipeable-card:not([data-swipe-v2])');" +
+    "if(card){revealWidgetDots(card);e.stopPropagation();}" +
+    "}" +
+    "document.addEventListener('pointerdown',function(e){revealWidgetDots(e.target);interceptLegacyTouchPointer(e);},true);" +
+    "document.addEventListener('pointermove',interceptLegacyTouchPointer,true);" +
+    "document.addEventListener('pointerup',interceptLegacyTouchPointer,true);" +
+    "document.addEventListener('pointercancel',interceptLegacyTouchPointer,true);" +
+    "var swipeState=null;" +
+    "document.addEventListener('touchstart',function(e){" +
+    "revealWidgetDots(e.target);" +
+    "if(e.touches.length!==1)return;" +
+    "var t=e.target;" +
+    "if(!t||!t.closest)return;" +
+    "if(t.closest('input,select,textarea,[data-no-swipe],[data-pagination-dot],[aria-label=\"View pagination\"]'))return;" +
+    "var card=t.closest('.swipeable-card:not([data-swipe-v2])');" +
+    "if(!card||!card.parentElement)return;" +
+    "var dots=card.parentElement.querySelector('[aria-label=\"View pagination\"]');" +
+    "var tabs=dots?dots.querySelectorAll('[role=\"tab\"]'):null;" +
+    "if(!tabs||tabs.length<=1)return;" +
+    "var activeIdx=0;" +
+    "for(var i=0;i<tabs.length;i++){if(tabs[i].getAttribute('aria-selected')==='true'){activeIdx=i;break;}}" +
+    "var touch=e.touches[0];" +
+    "var rect=card.getBoundingClientRect();" +
+    "swipeState={card:card,tabs:tabs,activeIdx:activeIdx,total:tabs.length,startX:touch.clientX,startY:touch.clientY,lastX:touch.clientX,lastTime:performance.now(),velocityX:0,width:(rect&&rect.width)||320,locked:null};" +
+    "},{passive:true,capture:true});" +
+    "document.addEventListener('touchmove',function(e){" +
+    "revealWidgetDots(e.target);" +
+    "if(!swipeState||e.touches.length!==1)return;" +
+    "var touch=e.touches[0];" +
+    "var dx=touch.clientX-swipeState.startX;" +
+    "var dy=touch.clientY-swipeState.startY;" +
+    "if(!swipeState.locked){" +
+    "if(Math.abs(dx)<7&&Math.abs(dy)<7)return;" +
+    "swipeState.locked=Math.abs(dx)>=Math.abs(dy)?'x':'y';" +
+    "if(swipeState.locked==='y'){swipeState=null;return;}" +
+    "}" +
+    "if(swipeState.locked!=='x')return;" +
+    "if(e.cancelable)e.preventDefault();" +
+    "var now=performance.now();" +
+    "var dt=Math.max(1,now-swipeState.lastTime);" +
+    "var instVel=(touch.clientX-swipeState.lastX)/dt;" +
+    "swipeState.velocityX=swipeState.velocityX*0.4+instVel*0.6;" +
+    "swipeState.lastX=touch.clientX;" +
+    "swipeState.lastTime=now;" +
+    "var canPrev=swipeState.activeIdx>0;" +
+    "var canNext=swipeState.activeIdx<swipeState.total-1;" +
+    "var effDx=dx;" +
+    "if((dx>0&&!canPrev)||(dx<0&&!canNext)){" +
+    "var sgn=dx<0?-1:1;var abs=Math.abs(dx);" +
+    "effDx=sgn*Math.min(abs*0.35,85*(Math.log(1+abs/40)/Math.LN10));" +
+    "}" +
+    "var prog=Math.min(1,Math.abs(effDx)/(swipeState.width*0.65));" +
+    "var c=swipeState.card;" +
+    "c.classList.remove('wallet-anim-next','wallet-anim-prev','is-rubber-banding');" +
+    "c.classList.add('is-dragging');" +
+    "c.style.setProperty('--swipe-x',effDx.toFixed(1)+'px');" +
+    "c.style.setProperty('--swipe-scale',(1-prog*0.03).toFixed(3));" +
+    "c.style.setProperty('--swipe-opacity',(1-prog*0.15).toFixed(3));" +
+    "c.style.setProperty('--swipe-blur',(prog*5).toFixed(1)+'px');" +
+    "c.style.setProperty('--swipe-content-blur',(prog*1.8).toFixed(1)+'px');" +
+    "},{passive:false,capture:true});" +
+    "function finishLegacyTouch(e){" +
+    "if(!swipeState)return;" +
+    "var s=swipeState;swipeState=null;" +
+    "if(s.locked!=='x'){clearCardDragStyles(s.card);return;}" +
+    "var endX=(e.changedTouches&&e.changedTouches[0])?e.changedTouches[0].clientX:s.lastX;" +
+    "var dx=endX-s.startX;" +
+    "var absDx=Math.abs(dx);" +
+    "var ratio=absDx/Math.max(200,s.width);" +
+    "var absVel=Math.abs(s.velocityX);" +
+    "var meets=ratio>=0.16||absDx>=52||(absDx>=16&&absVel>0.32);" +
+    "var canPrev=s.activeIdx>0;" +
+    "var canNext=s.activeIdx<s.total-1;" +
+    "clearCardDragStyles(s.card);" +
+    "if(meets&&dx<0&&canNext){" +
+    "playSwipeAnim(s.card,'next');" +
+    "s.tabs[s.activeIdx+1].click();" +
+    "}else if(meets&&dx>0&&canPrev){" +
+    "playSwipeAnim(s.card,'prev');" +
+    "s.tabs[s.activeIdx-1].click();" +
+    "}else{" +
+    "s.card.classList.add('is-rubber-banding');" +
+    "setTimeout(function(){s.card.classList.remove('is-rubber-banding');},260);" +
+    "}" +
+    "if(absDx>=8)suppressClickUntil=Date.now()+180;" +
+    "}" +
+    "document.addEventListener('touchend',finishLegacyTouch,{passive:true,capture:true});" +
+    "document.addEventListener('touchcancel',finishLegacyTouch,{passive:true,capture:true});" +
     "function isMainPath(p){" +
     "var c=(p||'/').split('?')[0].replace(/\\/+$/,'')||'/';" +
     "return c==='/'||c==='/accounts'||c==='/transactions'||c==='/reports'||c==='/budgets';" +

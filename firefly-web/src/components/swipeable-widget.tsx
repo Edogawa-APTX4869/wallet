@@ -72,7 +72,7 @@ export function computeSwipePhysics(
 
 /**
  * Determines whether a swipe release meets the velocity-aware snapping threshold:
- * >= 25% distance OR flick velocity > 0.5 px/ms.
+ * >= 18% distance (or >= 56px) OR flick velocity > 0.35 px/ms.
  */
 export function evaluateSwipeSnap(
   deltaX: number,
@@ -82,10 +82,12 @@ export function evaluateSwipeSnap(
   canSwipeNext: boolean,
 ): "next" | "prev" | "bounce" {
   const safeWidth = Math.max(containerWidth, 200);
-  const distanceRatio = Math.abs(deltaX) / safeWidth;
+  const absDelta = Math.abs(deltaX);
+  const distanceRatio = absDelta / safeWidth;
   const absVelocity = Math.abs(velocityPxPerMs);
 
-  const meetsThreshold = distanceRatio >= 0.25 || absVelocity > 0.5;
+  const meetsThreshold =
+    distanceRatio >= 0.18 || absDelta >= 56 || (absDelta >= 16 && absVelocity > 0.35);
 
   if (!meetsThreshold) return "bounce";
 
@@ -215,8 +217,25 @@ export function SwipeableWidget({
     physics: null,
   });
 
+  // Track directional transition ("next" slides in from right, "prev" slides in from left)
+  const prevIndexRef = useRef<number>(activeIndex);
+  const [transitionState, setTransitionState] = useState<{
+    dir: "next" | "prev" | null;
+    gen: number;
+  }>({ dir: null, gen: 0 });
+
+  useEffect(() => {
+    if (prevIndexRef.current !== activeIndex) {
+      const dir = activeIndex > prevIndexRef.current ? "next" : "prev";
+      prevIndexRef.current = activeIndex;
+      setTransitionState((prev) => ({ dir, gen: prev.gen + 1 }));
+    }
+  }, [activeIndex]);
+
   const [dotsVisible, setDotsVisible] = useState(false);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const suppressClickRef = useRef(false);
+  const suppressClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const revealDotsBriefly = useCallback(() => {
     setDotsVisible(true);
@@ -229,11 +248,13 @@ export function SwipeableWidget({
   useEffect(() => {
     return () => {
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+      if (suppressClickTimerRef.current) clearTimeout(suppressClickTimerRef.current);
     };
   }, []);
 
   const gestureRef = useRef<{
     active: boolean;
+    source: "touch" | "pointer" | null;
     lockedAxis: "x" | "y" | null;
     startX: number;
     startY: number;
@@ -243,6 +264,7 @@ export function SwipeableWidget({
     width: number;
   }>({
     active: false,
+    source: null,
     lockedAxis: null,
     startX: 0,
     startY: 0,
@@ -255,27 +277,28 @@ export function SwipeableWidget({
   const canSwipePrev = activeIndex > 0;
   const canSwipeNext = activeIndex < totalViews - 1;
 
-  const handlePointerDown = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
+  const isIgnoredTarget = (target: EventTarget | null): boolean => {
+    const el = target as HTMLElement | null;
+    if (!el || typeof el.closest !== "function") return false;
+    return Boolean(
+      el.closest('input, select, textarea, [data-no-swipe], [data-pagination-dot], [aria-label="View pagination"]'),
+    );
+  };
+
+  const beginGesture = useCallback(
+    (clientX: number, clientY: number, source: "touch" | "pointer", target: EventTarget | null) => {
       if (disabled || totalViews <= 1) return;
       revealDotsBriefly();
-      // Ignore interactive child elements like buttons, inputs, selects, links
-      const target = e.target as HTMLElement | null;
-      if (
-        target?.closest(
-          'button, a, input, select, textarea, [role="button"], [role="tab"], [data-no-swipe]',
-        )
-      ) {
-        return;
-      }
+      if (isIgnoredTarget(target)) return;
 
       const rect = containerRef.current?.getBoundingClientRect();
       gestureRef.current = {
         active: true,
+        source,
         lockedAxis: null,
-        startX: e.clientX,
-        startY: e.clientY,
-        lastX: e.clientX,
+        startX: clientX,
+        startY: clientY,
+        lastX: clientX,
         lastTimestamp: performance.now(),
         velocityX: 0,
         width: rect?.width || 320,
@@ -284,40 +307,37 @@ export function SwipeableWidget({
     [disabled, totalViews, revealDotsBriefly],
   );
 
-  const handlePointerMove = useCallback(
-    (e: React.PointerEvent<HTMLDivElement>) => {
+  const moveGesture = useCallback(
+    (clientX: number, clientY: number, onLockHorizontal?: () => void) => {
       const g = gestureRef.current;
       if (!g.active) return;
 
-      const dx = e.clientX - g.startX;
-      const dy = e.clientY - g.startY;
+      const dx = clientX - g.startX;
+      const dy = clientY - g.startY;
 
       if (!g.lockedAxis) {
-        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+        if (Math.abs(dx) < 7 && Math.abs(dy) < 7) return;
         g.lockedAxis = Math.abs(dx) >= Math.abs(dy) ? "x" : "y";
         if (g.lockedAxis === "y") {
           g.active = false;
           return;
         }
-        try {
-          e.currentTarget.setPointerCapture(e.pointerId);
-        } catch {
-          /* ignore */
-        }
+        onLockHorizontal?.();
       }
 
       if (g.lockedAxis !== "x") return;
 
+      onLockHorizontal?.();
       revealDotsBriefly();
       const now = performance.now();
       const dt = Math.max(1, now - g.lastTimestamp);
-      const instantVel = (e.clientX - g.lastX) / dt;
+      const instantVel = (clientX - g.lastX) / dt;
       g.velocityX = g.velocityX * 0.4 + instantVel * 0.6;
-      g.lastX = e.clientX;
+      g.lastX = clientX;
       g.lastTimestamp = now;
 
       const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
-      const maxBlur = isMobile ? 8 : 12;
+      const maxBlur = isMobile ? 6 : 10;
       const physics = computeSwipePhysics(dx, g.width, canSwipePrev, canSwipeNext, maxBlur);
 
       setDragState({
@@ -342,6 +362,14 @@ export function SwipeableWidget({
       }
 
       const dx = clientX - g.startX;
+      if (Math.abs(dx) >= 8) {
+        suppressClickRef.current = true;
+        if (suppressClickTimerRef.current) clearTimeout(suppressClickTimerRef.current);
+        suppressClickTimerRef.current = setTimeout(() => {
+          suppressClickRef.current = false;
+        }, 160);
+      }
+
       const decision = evaluateSwipeSnap(
         dx,
         g.velocityX,
@@ -352,10 +380,14 @@ export function SwipeableWidget({
 
       if (decision === "next") {
         triggerNativeHaptic(ImpactStyle.Light).catch(() => {});
+        prevIndexRef.current = activeIndex + 1;
+        setTransitionState((prev) => ({ dir: "next", gen: prev.gen + 1 }));
         onIndexChange(activeIndex + 1);
         setDragState({ isDragging: false, isRubberBanding: false, physics: null });
       } else if (decision === "prev") {
         triggerNativeHaptic(ImpactStyle.Light).catch(() => {});
+        prevIndexRef.current = activeIndex - 1;
+        setTransitionState((prev) => ({ dir: "prev", gen: prev.gen + 1 }));
         onIndexChange(activeIndex - 1);
         setDragState({ isDragging: false, isRubberBanding: false, physics: null });
       } else {
@@ -365,20 +397,106 @@ export function SwipeableWidget({
     [activeIndex, canSwipeNext, canSwipePrev, onIndexChange, revealDotsBriefly],
   );
 
+  // Attach native non-passive touch listeners so Android WebView / mobile Safari never
+  // fire pointercancel mid-swipe when the user drags horizontally.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || disabled || totalViews <= 1) return;
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      const t = e.touches[0];
+      beginGesture(t.clientX, t.clientY, "touch", e.target);
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      const g = gestureRef.current;
+      if (!g.active || g.source !== "touch" || e.touches.length !== 1) return;
+      const t = e.touches[0];
+      moveGesture(t.clientX, t.clientY, () => {
+        if (e.cancelable) e.preventDefault();
+      });
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      const g = gestureRef.current;
+      if (!g.active || g.source !== "touch") return;
+      const t = e.changedTouches[0];
+      finishGesture(t ? t.clientX : g.lastX);
+    };
+
+    el.addEventListener("touchstart", onTouchStart, { passive: true });
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+    el.addEventListener("touchend", onTouchEnd, { passive: true });
+    el.addEventListener("touchcancel", onTouchEnd, { passive: true });
+
+    return () => {
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("touchend", onTouchEnd);
+      el.removeEventListener("touchcancel", onTouchEnd);
+    };
+  }, [beginGesture, moveGesture, finishGesture, disabled, totalViews]);
+
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (e.pointerType === "touch") return;
+      beginGesture(e.clientX, e.clientY, "pointer", e.target);
+    },
+    [beginGesture],
+  );
+
+  const handlePointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (e.pointerType === "touch") return;
+      const g = gestureRef.current;
+      if (!g.active || g.source !== "pointer") return;
+      moveGesture(e.clientX, e.clientY, () => {
+        try {
+          e.currentTarget.setPointerCapture(e.pointerId);
+        } catch {
+          /* ignore */
+        }
+      });
+    },
+    [moveGesture],
+  );
+
+  const handlePointerEnd = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (e.pointerType === "touch") return;
+      const g = gestureRef.current;
+      if (!g.active || g.source !== "pointer") return;
+      finishGesture(e.clientX);
+    },
+    [finishGesture],
+  );
+
+  const handleClickCapture = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false;
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }, []);
+
   const p = dragState.physics;
-  const cssVars = p
-    ? ({
-        "--swipe-x": `${p.effectiveDeltaX.toFixed(1)}px`,
-        "--swipe-scale": String(p.scale),
-        "--swipe-blur": `${p.dynamicBlurPx}px`,
-        "--swipe-content-blur": `${(p.dynamicBlurPx * 0.35).toFixed(1)}px`,
-        "--swipe-opacity": String(p.opacity),
-        "--swipe-shadow": p.shadow,
-        "--incoming-scale": String(p.incomingScale),
-        "--incoming-opacity": String(p.incomingOpacity),
-        "--incoming-blur": `${p.incomingBlurPx}px`,
-      } as React.CSSProperties)
-    : undefined;
+  const cssVars: React.CSSProperties = {
+    ...(totalViews > 1 && !disabled ? { touchAction: "pan-y" } : {}),
+    ...(p
+      ? ({
+          "--swipe-x": `${p.effectiveDeltaX.toFixed(1)}px`,
+          "--swipe-scale": String(p.scale),
+          "--swipe-blur": `${p.dynamicBlurPx}px`,
+          "--swipe-content-blur": `${(p.dynamicBlurPx * 0.35).toFixed(1)}px`,
+          "--swipe-opacity": String(p.opacity),
+          "--swipe-shadow": p.shadow,
+          "--incoming-scale": String(p.incomingScale),
+          "--incoming-opacity": String(p.incomingOpacity),
+          "--incoming-blur": `${p.incomingBlurPx}px`,
+        } as React.CSSProperties)
+      : {}),
+  };
 
   return (
     <div
@@ -387,13 +505,15 @@ export function SwipeableWidget({
     >
       <div
         ref={containerRef}
+        data-swipe-v2="true"
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
-        onPointerUp={(e) => finishGesture(e.clientX)}
-        onPointerCancel={(e) => finishGesture(e.clientX)}
+        onPointerUp={handlePointerEnd}
+        onPointerCancel={handlePointerEnd}
+        onClickCapture={handleClickCapture}
         style={cssVars}
         className={cn(
-          "swipeable-card relative select-none",
+          "swipeable-card relative select-none touch-pan-y overflow-hidden",
           totalViews > 1 && !disabled && "cursor-grab active:cursor-grabbing",
           dragState.isDragging && "is-dragging",
           dragState.isRubberBanding && "is-rubber-banding",
@@ -407,7 +527,16 @@ export function SwipeableWidget({
             {incomingPreview}
           </div>
         )}
-        {children}
+        <div
+          key={`swipe-stage-${activeIndex}-${transitionState.gen}`}
+          className={cn(
+            "flex-1 flex flex-col min-h-0",
+            transitionState.dir === "next" && "animate-swipe-next",
+            transitionState.dir === "prev" && "animate-swipe-prev",
+          )}
+        >
+          {children}
+        </div>
       </div>
 
       {showDots && totalViews > 1 && (
@@ -418,7 +547,14 @@ export function SwipeableWidget({
           visible={dotsVisible || dragState.isDragging}
           onSelect={(idx) => {
             revealDotsBriefly();
-            onIndexChange(idx);
+            if (idx !== activeIndex) {
+              prevIndexRef.current = idx;
+              setTransitionState((prev) => ({
+                dir: idx > activeIndex ? "next" : "prev",
+                gen: prev.gen + 1,
+              }));
+              onIndexChange(idx);
+            }
           }}
         />
       )}

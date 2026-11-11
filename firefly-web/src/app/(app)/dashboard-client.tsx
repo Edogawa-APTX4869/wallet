@@ -901,6 +901,12 @@ export function DashboardClient() {
       if (!res.ok) throw new Error("Failed to save dashboard layout");
       return (await res.json()) as { data: DashboardPreferences };
     },
+    onMutate: (next) => {
+      qc.setQueryData(["dashboard-prefs"], (old: unknown) => {
+        const prev = (old && typeof old === "object" ? old : DEFAULT_DASHBOARD_PREFS) as Record<string, unknown>;
+        return { ...prev, ...next };
+      });
+    },
     onSuccess: (res) => {
       qc.setQueryData(["dashboard-prefs"], res.data);
     },
@@ -1281,6 +1287,10 @@ export function DashboardClient() {
 
   function updateCardConfig(key: DashboardCardKey, patch: Partial<DashboardCardConfig>) {
     const next = cards.map((c) => (c.key === key ? { ...c, ...patch } : c));
+    qc.setQueryData(["dashboard-prefs"], (old: unknown) => {
+      const prev = (old && typeof old === "object" ? old : DEFAULT_DASHBOARD_PREFS) as Record<string, unknown>;
+      return { ...prev, cards: next };
+    });
     savePrefsMut.mutate({ cards: next });
   }
 
@@ -1355,7 +1365,7 @@ export function DashboardClient() {
         viewLabels={["Accounts", "Budgets & Goals"]}
         onIndexChange={(idx) => setTopTab(idx === 0 ? "accounts" : "budgets")}
       >
-        <div key={`top-${topTab}`} className="animate-tab-enter">
+        <div key={`top-${topTab}`}>
           {topTab === "accounts" ? (
           <Card className="flex flex-col gap-2 p-2 sm:p-4 md:p-5">
             <AccountsSectionHeader
@@ -2325,7 +2335,7 @@ function DashboardCardShell({
           }}
           className="flex-1 flex flex-col min-h-0"
         >
-          <div key={`period-${card.periodDays}`} className="animate-tab-enter flex-1 flex flex-col min-h-0">
+          <div key={`period-${card.periodDays}`} className="flex-1 flex flex-col min-h-0">
             {children}
           </div>
         </SwipeableWidget>

@@ -150,7 +150,7 @@ export function ReportsClient() {
           if (target) handleTabChange(target.key);
         }}
       >
-        <div key={currentTab} className="animate-tab-enter">
+        <div key={currentTab}>
           {currentTab === "balance" && (
             <BalanceTab
               startDate={startDate}

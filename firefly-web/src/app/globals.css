@@ -636,6 +636,7 @@ html.is-dashboard-dragging {
 
 /* Smooth Swipe Animations & Dynamic Depth Effects */
 .swipeable-card {
+  touch-action: pan-y;
   will-change: transform, backdrop-filter, opacity, filter;
   transform: translate3d(var(--swipe-x, 0px), 0, 0) scale(var(--swipe-scale, 1));
   backdrop-filter: blur(var(--swipe-blur, 0px));
@@ -646,6 +647,42 @@ html.is-dashboard-dragging {
               filter 300ms ease-out,
               opacity 300ms ease-out,
               box-shadow 300ms ease-out;
+}
+
+@keyframes swipe-view-enter-next {
+  0% {
+    opacity: 0.15;
+    transform: translate3d(44px, 0, 0) scale(0.985);
+    filter: blur(2.5px);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+    filter: blur(0px);
+  }
+}
+
+@keyframes swipe-view-enter-prev {
+  0% {
+    opacity: 0.15;
+    transform: translate3d(-44px, 0, 0) scale(0.985);
+    filter: blur(2.5px);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+    filter: blur(0px);
+  }
+}
+
+.animate-swipe-next {
+  animation: swipe-view-enter-next 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  will-change: transform, opacity, filter;
+}
+
+.animate-swipe-prev {
+  animation: swipe-view-enter-prev 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  will-change: transform, opacity, filter;
 }
 
 .swipeable-card.is-rubber-banding {
@@ -710,9 +747,12 @@ html.is-dashboard-dragging {
   .swipeable-card.is-rubber-banding,
   .swipeable-card.is-dragging,
   .swipeable-incoming-view,
+  .animate-swipe-next,
+  .animate-swipe-prev,
   .resizable-bento-card,
   .resizable-bento-card.is-rubber-banding,
   .resizable-bento-card.is-resizing {
+    animation: none !important;
     transform: none !important;
     backdrop-filter: none !important;
     filter: none !important;
