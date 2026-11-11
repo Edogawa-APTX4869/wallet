@@ -979,23 +979,23 @@ export function DashboardClient() {
   });
 
   // Net-Worth asset accounts eligible for the Wallet grid:
-  // Strictly excludes accounts not included in Net Worth and excludes liability/debt accounts completely.
+  // Strictly excludes inactive accounts, accounts excluded from Net Worth, and non-asset liability types (loans, debts, mortgages).
+  // Active credit card accounts (type: asset, role: ccAsset) included in net worth are supported and shown.
   const walletAccounts = useMemo(
     () =>
       (accountsQ.data ?? []).filter((a) => {
         if (a.attributes.active === false) return false;
-        // User request: accounts excluded from net worth must not be shown in the accounts list
+        // Accounts excluded from net worth must not be shown in the accounts list
         if (a.attributes.include_net_worth === false) return false;
 
-        // User request: liability accounts must specifically not be shown in the accounts list
         const type = String(a.attributes.type || "").toLowerCase();
+        // Exclude standalone liability accounts (loans, debts, mortgages)
         if (
           type.includes("liabilit") ||
           type.includes("loan") ||
           type.includes("debt") ||
           type.includes("mortgage") ||
-          Boolean(a.attributes.liability_type) ||
-          a.attributes.account_role === "ccAsset"
+          Boolean(a.attributes.liability_type)
         ) {
           return false;
         }
