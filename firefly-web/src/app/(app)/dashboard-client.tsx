@@ -55,7 +55,7 @@ import {
   DashboardDropPlaceholder,
 } from "@/components/dashboard-dnd";
 import { SwipeableWidget } from "@/components/swipeable-widget";
-import { ExtraCard, inPeriod, type ExtraCardContext } from "./dashboard-extra-cards";
+import { ExtraCard, inPeriod, isSystemContraAccount, type ExtraCardContext } from "./dashboard-extra-cards";
 import { useAccounts, usePrimaryCurrency, useRatesToPrimary } from "@/lib/hooks";
 import { cn, formatMoney, isoDate, monthRange, sumDecimal } from "@/lib/utils";
 import {
@@ -189,6 +189,61 @@ export function AccountsSectionHeader({
         <RecordsQuickActionPill className="hidden sm:inline-flex" />
       </div>
     </div>
+  );
+}
+
+/**
+ * Determines whether an account is eligible for the Dashboard's primary Accounts Grid & Net Worth calculation.
+ *
+ * Rules:
+ * - Must be active (`active !== false`).
+ * - Must not be explicitly excluded from Net Worth (`include_net_worth !== false`).
+ * - Must not be a system double-entry contra-account (`!isSystemContraAccount(a)`).
+ * - Active Credit Cards (whether `ccAsset` role, credit card liability, card type, or name match) are always included.
+ * - Active Asset accounts (checking, cash, savings, investments, general assets) are included.
+ * - Non-card standalone liabilities (loans, mortgages, general debts) are kept in the dedicated liabilities card.
+ */
+export function isEligibleWalletAccount(a: Resource<Account>): boolean {
+  if (a.attributes.active === false) return false;
+  if (a.attributes.include_net_worth === false) return false;
+  if (isSystemContraAccount(a)) return false;
+
+  const role = String(a.attributes.account_role || "").toLowerCase();
+  const type = String(a.attributes.type || "").toLowerCase();
+  const liabType = String(a.attributes.liability_type || "").toLowerCase();
+  const nameLower = (a.attributes.name || "").toLowerCase();
+
+  // 1. Credit card accounts (whether ccAsset role, credit card liability, card type, or name match)
+  const isCreditCard =
+    role === "ccasset" ||
+    liabType === "credit_card" ||
+    liabType === "credit card" ||
+    type.includes("credit") ||
+    /credit|card|visa|mastercard|amex/.test(nameLower);
+
+  if (isCreditCard) return true;
+
+  // 2. Exclude standalone non-card liabilities (loans, debts, mortgages)
+  if (
+    type.includes("liabilit") ||
+    type.includes("loan") ||
+    type.includes("debt") ||
+    type.includes("mortgage") ||
+    (Boolean(a.attributes.liability_type) && !isCreditCard)
+  ) {
+    return false;
+  }
+
+  // 3. Asset accounts (asset, cash, default, savings, investments, etc.)
+  return (
+    type.includes("asset") ||
+    type === "cash" ||
+    type === "default" ||
+    role.includes("asset") ||
+    role === "cashwalletasset" ||
+    role === "defaultasset" ||
+    role === "savingasset" ||
+    role === "sharedasset"
   );
 }
 
@@ -983,29 +1038,10 @@ export function DashboardClient() {
   });
 
   // Net-Worth asset accounts eligible for the Wallet grid:
-  // Strictly excludes inactive accounts, accounts excluded from Net Worth, and non-asset liability types (loans, debts, mortgages).
-  // Active credit card accounts (type: asset, role: ccAsset) included in net worth are supported and shown.
+  // Strictly excludes inactive accounts, accounts excluded from Net Worth, system contra-accounts, and non-card liability types (loans, debts, mortgages).
+  // Active credit card accounts (type: asset, role: ccAsset, or credit card liability) included in net worth are supported and shown.
   const walletAccounts = useMemo(
-    () =>
-      (accountsQ.data ?? []).filter((a) => {
-        if (a.attributes.active === false) return false;
-        // Accounts excluded from net worth must not be shown in the accounts list
-        if (a.attributes.include_net_worth === false) return false;
-
-        const type = String(a.attributes.type || "").toLowerCase();
-        // Exclude standalone liability accounts (loans, debts, mortgages)
-        if (
-          type.includes("liabilit") ||
-          type.includes("loan") ||
-          type.includes("debt") ||
-          type.includes("mortgage") ||
-          Boolean(a.attributes.liability_type)
-        ) {
-          return false;
-        }
-
-        return type === "asset" || type === "cash" || type === "default";
-      }),
+    () => (accountsQ.data ?? []).filter(isEligibleWalletAccount),
     [accountsQ.data],
   );
 
@@ -1056,7 +1092,15 @@ export function DashboardClient() {
         symbol: acc.attributes.currency_symbol,
         total: new Decimal(0),
       };
-      cur.total = cur.total.plus(acc.attributes.current_balance ?? 0);
+      const rawBal = new Decimal(acc.attributes.current_balance ?? 0);
+      const isLiabilityType = String(acc.attributes.type || "").toLowerCase().includes("liabilit");
+      const liabDirection = acc.attributes.liability_direction;
+      // In Firefly III, if a liability credit card has direction "debit" and positive raw balance, it reduces net worth
+      const signedBal =
+        isLiabilityType && liabDirection === "debit" && rawBal.gt(0)
+          ? rawBal.neg()
+          : rawBal;
+      cur.total = cur.total.plus(signedBal);
       map.set(code, cur);
     }
     return [...map.values()];
@@ -2263,6 +2307,7 @@ const DashboardCardItem = React.memo(function DashboardCardItem({
           <RecentRecordsCard
             transactions={inPeriod(filteredTransactions, card.periodDays).slice(0, card.recordLimit || 5)}
             periodDays={card.periodDays}
+            perspectiveAccountId={extraCtx.accounts.length === 1 ? extraCtx.accounts[0].id : undefined}
           />
         )}
 
@@ -2826,9 +2871,11 @@ const WalletGaugesCard = React.memo(function WalletGaugesCard({
 const RecentRecordsCard = React.memo(function RecentRecordsCard({
   transactions,
   periodDays,
+  perspectiveAccountId,
 }: {
   transactions: Array<Resource<TransactionGroup>>;
   periodDays: number;
+  perspectiveAccountId?: string;
 }) {
   return (
     <div className="flex flex-1 flex-col justify-between gap-2">
@@ -2839,14 +2886,17 @@ const RecentRecordsCard = React.memo(function RecentRecordsCard({
         ) : (
           <ul className="divide-y divide-border">
             {transactions.map((g) => (
-              <TransactionRow key={g.id} group={g} />
+              <TransactionRow key={g.id} group={g} perspectiveAccountId={perspectiveAccountId} />
             ))}
           </ul>
         )}
       </div>
       <div className="pt-1">
-        <Link href="/transactions" className="text-xs font-semibold text-primary hover:underline">
-          Show more
+        <Link
+          href={perspectiveAccountId ? `/transactions?accountId=${perspectiveAccountId}` : "/transactions"}
+          className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-3 py-1 text-xs font-semibold text-fg hover:bg-surface-3 transition active:scale-95"
+        >
+          <span>Show more</span>
         </Link>
       </div>
     </div>
@@ -3048,33 +3098,71 @@ const BudgetsGoalsCard = React.memo(function BudgetsGoalsCard({
   }
   return (
     <div className="flex flex-1 flex-col justify-between gap-3">
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col divide-y divide-border/60">
         {budgetRows.map((b) => {
-          const pct = b.limit > 0 ? (b.spent / b.limit) * 100 : 0;
-          const tone = pct >= 100 ? "danger" : pct >= 80 ? "warning" : "primary";
+          const pct = b.limit > 0 ? Math.min(100, Math.round((b.spent / b.limit) * 100)) : 0;
+          const isTrendingOver = pct >= 80;
           return (
-            <div key={b.id} className="flex flex-col gap-1.5">
-              <div className="flex items-baseline justify-between text-sm">
-                <span className="font-medium">{b.name}</span>
-                <span className="text-xs text-muted">
+            <Link
+              key={b.id}
+              href="/budgets"
+              className="group flex flex-col gap-1.5 py-2.5 first:pt-0 last:pb-0 hover:opacity-90 transition-opacity"
+            >
+              <div className="flex items-center justify-between text-sm">
+                <span className="font-semibold text-fg group-hover:text-primary transition-colors">{b.name}</span>
+                <span className="inline-flex items-center gap-1 font-mono text-xs text-muted">
                   <Money amount={b.spent} code={b.code} decimals={b.decimals} />
                   {b.limit > 0 && (
                     <>
-                      {" / "}
+                      <span>/</span>
                       <Money amount={b.limit} code={b.code} decimals={b.decimals} />
                     </>
                   )}
+                  <ChevronRight className="size-3.5 text-muted" aria-hidden="true" />
                 </span>
               </div>
-              {b.limit > 0 && <Progress value={pct} tone={tone} />}
-            </div>
+              {b.limit > 0 && (
+                <div className="h-2.5 w-full overflow-hidden rounded-full bg-surface-2">
+                  <div
+                    className={cn(
+                      "h-full rounded-full transition-all duration-500",
+                      isTrendingOver ? "bg-warning" : "bg-success",
+                    )}
+                    style={{ width: `${Math.max(4, pct)}%` }}
+                  />
+                </div>
+              )}
+            </Link>
           );
         })}
       </div>
-      <div className="pt-1">
-        <Link href="/budgets" className="flex items-center gap-1 text-xs font-semibold text-primary hover:underline">
-          All budgets <ArrowRight className="size-3.5" aria-hidden />
-        </Link>
+
+      <div className="flex flex-col gap-2.5 border-t border-border/60 pt-2.5">
+        <div className="flex items-center gap-4 text-xs text-muted">
+          <span className="inline-flex items-center gap-1.5">
+            <span className="size-2.5 rounded-xs bg-success" aria-hidden="true" />
+            <span>On Track</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="size-2.5 rounded-xs bg-warning" aria-hidden="true" />
+            <span>Trending Over</span>
+          </span>
+        </div>
+
+        <div className="flex items-center justify-between gap-2">
+          <Link
+            href="/budgets"
+            className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-3 py-1 text-xs font-semibold text-fg hover:bg-surface-3 transition active:scale-95"
+          >
+            <span>Show more</span>
+          </Link>
+          <Link
+            href="/budgets"
+            className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-3 py-1 text-xs font-semibold text-fg hover:bg-surface-3 transition active:scale-95"
+          >
+            <span>Create budget</span>
+          </Link>
+        </div>
       </div>
     </div>
   );

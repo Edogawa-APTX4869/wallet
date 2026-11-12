@@ -52,6 +52,7 @@ export function AccountsClient() {
   const [createOpen, setCreateOpen] = useState(false);
   const [createTypeOverride, setCreateTypeOverride] = useState<string | null>(null);
   const [createRoleOverride, setCreateRoleOverride] = useState<string | undefined>(undefined);
+  const [assetViewMode, setAssetViewMode] = useState<"grouped" | "grid">("grouped");
   const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({
     archived: true,
   });
@@ -162,7 +163,15 @@ export function AccountsClient() {
         targetKey = "archived";
       } else if (role === "cashWalletAsset" || a.type === "cash" || nameLower.includes("cash") || nameLower.includes("wallet")) {
         targetKey = "cash";
-      } else if (role === "ccAsset" || nameLower.includes("credit card") || nameLower.includes("visa") || nameLower.includes("mastercard")) {
+      } else if (
+        role === "ccAsset" ||
+        a.liability_type === "credit_card" ||
+        nameLower.includes("credit card") ||
+        nameLower.includes("visa") ||
+        nameLower.includes("mastercard") ||
+        nameLower.includes("amex") ||
+        nameLower.includes("credit")
+      ) {
         targetKey = "cc";
       } else if (
         nameLower.includes("stock") ||
@@ -239,13 +248,40 @@ export function AccountsClient() {
       </div>
 
       {totalsByCurrency.length > 0 && (tab === "asset" || tab === "liabilities") && (
-        <div key={`totals-${tab}`} className="animate-tab-enter flex flex-wrap items-center gap-2">
-          <span className="text-xs font-medium text-muted">Active totals:</span>
-          {totalsByCurrency.map((t) => (
-            <Badge key={t.code} tone="primary" className="px-2.5 py-1 text-xs transition-transform hover:scale-105 select-none">
-              <Money animated amount={t.sum.toString()} code={t.code} decimals={t.decimals} symbol={t.symbol} />
-            </Badge>
-          ))}
+        <div key={`totals-${tab}`} className="animate-tab-enter flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-medium text-muted">Active totals:</span>
+            {totalsByCurrency.map((t) => (
+              <Badge key={t.code} tone="primary" className="px-2.5 py-1 text-xs transition-transform hover:scale-105 select-none">
+                <Money animated amount={t.sum.toString()} code={t.code} decimals={t.decimals} symbol={t.symbol} />
+              </Badge>
+            ))}
+          </div>
+
+          {tab === "asset" && (
+            <div className="flex items-center gap-1 rounded-xl border border-border bg-surface-2 p-0.5 text-xs">
+              <button
+                type="button"
+                onClick={() => setAssetViewMode("grouped")}
+                className={cn(
+                  "rounded-lg px-2.5 py-1 font-semibold transition-colors cursor-pointer",
+                  assetViewMode === "grouped" ? "bg-surface text-fg shadow-2xs" : "text-muted hover:text-fg",
+                )}
+              >
+                Grouped
+              </button>
+              <button
+                type="button"
+                onClick={() => setAssetViewMode("grid")}
+                className={cn(
+                  "rounded-lg px-2.5 py-1 font-semibold transition-colors cursor-pointer",
+                  assetViewMode === "grid" ? "bg-surface text-fg shadow-2xs" : "text-muted hover:text-fg",
+                )}
+              >
+                All in Grid
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -265,7 +301,7 @@ export function AccountsClient() {
             </Button>
           </EmptyState>
         </div>
-      ) : tab === "asset" ? (
+      ) : tab === "asset" && assetViewMode === "grouped" ? (
         <div key="asset-accordions" className="animate-tab-enter flex flex-col gap-4">
           {assetCategories.map((cat) => {
             const isCollapsed = Boolean(collapsedCategories[cat.key]);
@@ -289,7 +325,7 @@ export function AccountsClient() {
                       {cat.items.length} {cat.items.length === 1 ? "account" : "accounts"}
                     </span>
                     {!cat.isArchived && primary?.code && (
-                      <span className="hidden sm:inline font-mono font-semibold text-fg">
+                      <span className="inline font-mono font-semibold text-fg">
                         ·{" "}
                         <Money
                           amount={cat.totalPrimary.toFixed(primary.decimal_places ?? 2)}
