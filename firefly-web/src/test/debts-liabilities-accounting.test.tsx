@@ -396,4 +396,184 @@ describe("Debts & Liabilities Payoff Accounting & Initial-Balance Exclusion (R1 
       expect(paymentCount).toBe(2);
     });
   });
+
+  describe("5. Firefly III Direction-Aware Liabilities Scenario (media_1794482692716_2e4b6db2)", () => {
+    // 5 accounts matching the user's Firefly III liabilities table
+    const fireflyLiabilities = [
+      makeMockAccount({
+        id: "l-1",
+        name: "Almosawi - 100",
+        type: "loan",
+        liability_type: "loan",
+        liability_direction: "credit", // Owed this debt
+        current_balance: "-70.000",
+        active: true,
+      }),
+      makeMockAccount({
+        id: "l-2",
+        name: "Alnoohy - 100 GYM",
+        type: "loan",
+        liability_type: "loan",
+        liability_direction: "credit", // Owed this debt
+        current_balance: "-100.000",
+        active: true,
+      }),
+      makeMockAccount({
+        id: "l-3",
+        name: "Alnoohy - 400 Laptop",
+        type: "loan",
+        liability_type: "loan",
+        liability_direction: "credit", // Owed this debt
+        current_balance: "-400.000",
+        active: true,
+      }),
+      makeMockAccount({
+        id: "l-4",
+        name: "Ali Sarhan - 415",
+        type: "loan",
+        liability_type: "loan",
+        liability_direction: "credit", // Owed this debt
+        current_balance: "-265.000",
+        active: true,
+      }),
+      makeMockAccount({
+        id: "l-5",
+        name: "Ali Abdulwahed - 200",
+        type: "loan",
+        liability_type: "loan",
+        liability_direction: "credit", // Owed this debt
+        current_balance: "-200.000",
+        active: true,
+      }),
+    ];
+
+    // Transactions including loan disbursements (withdrawals to the borrowers)
+    // In credit liabilities, disbursements must NEVER be counted as repayments!
+    const transactions = [
+      // Disbursed initial loan to Ali Sarhan (withdrawal)
+      makeMockTx({
+        id: "disburse-1",
+        type: "withdrawal",
+        amount: "415.000",
+        destName: "Ali Sarhan - 415",
+        desc: "Lend money to Ali Sarhan",
+      }),
+      // Disbursed initial loan to Ali Abdulwahed (withdrawal)
+      makeMockTx({
+        id: "disburse-2",
+        type: "withdrawal",
+        amount: "200.000",
+        destName: "Ali Abdulwahed - 200",
+        desc: "Lend money to Ali Abdulwahed",
+      }),
+    ];
+
+    const ctx: ExtraCardContext = {
+      transactions,
+      allTransactions: transactions,
+      accounts: fireflyLiabilities,
+      allAccounts: fireflyLiabilities,
+      toPrimary: (amount) => new Decimal(amount),
+      primaryCode: "BHD",
+      primaryDecimals: 3,
+      primarySymbol: "BHD",
+      balancesByCurrency: [{ code: "BHD", decimals: 3, symbol: "BHD", total: new Decimal(-1035) }],
+      bills: [],
+      piggies: [],
+      barData: [],
+      trendData: [],
+    };
+
+    it("5.1 computes correct Remaining (1,035.000 BHD) and Collected (180.000 BHD) without disbursement inflation", () => {
+      const qc = createTestQueryClient();
+      const html = renderToStaticMarkup(
+        <QueryClientProvider client={qc}>
+          <ExtraCard
+            card={{
+              key: "liabilities",
+              title: "Debts & Liabilities Payoff",
+              span: 1,
+              periodDays: 30,
+              visible: true,
+              recordLimit: 10,
+            }}
+            ctx={ctx}
+          />
+        </QueryClientProvider>,
+      );
+
+      // Remaining total across all 5 accounts: 70 + 100 + 400 + 265 + 200 = 1,035.000 BHD
+      expect(html).toContain("1,035.000");
+
+      // Collected total across all 5 accounts: (100-70=30) + 0 + 0 + (415-265=150) + 0 = 180.000 BHD
+      expect(html).toContain("180.000");
+
+      // Verify that the old inflated total of 680 (415 + 265) or 400 (200 + 200) is NOT present
+      expect(html).not.toContain("680.000");
+      expect(html).not.toContain("415.000 remaining");
+
+      // Ali Sarhan: Paid/Collected = 150.000, Remaining = 265.000 (36%)
+      expect(html).toContain("Ali Sarhan - 415");
+      expect(html).toContain("150.000");
+      expect(html).toContain("265.000");
+      expect(html).toContain("36%");
+
+      // Ali Abdulwahed: Paid/Collected = 0.000, Remaining = 200.000 (0%)
+      expect(html).toContain("Ali Abdulwahed - 200");
+      expect(html).toContain("200.000");
+
+      // Direction badge & role label
+      expect(html).toContain("Owed to me");
+      expect(html).toContain("Collected");
+
+      // No fake ~1 payment remaining when expected is 0
+      expect(html).not.toContain("Est. payoff: ~1 payment remaining");
+    });
+
+    it("5.2 treats incoming repayments (deposits from debtor) as genuine debt collection", () => {
+      // Suppose Ali Sarhan pays back 65 BHD more via deposit
+      const repaymentTx = makeMockTx({
+        id: "repay-1",
+        type: "deposit",
+        amount: "65.000",
+        sourceName: "Ali Sarhan - 415",
+        desc: "Repayment from Ali Sarhan",
+      });
+
+      const updatedTxs = [...transactions, repaymentTx];
+      // Remaining drops from 265 to 200
+      const updatedAccounts = fireflyLiabilities.map((a) =>
+        a.id === "l-4" ? { ...a, attributes: { ...a.attributes, current_balance: "-200.000" } } : a,
+      );
+
+      const updatedCtx: ExtraCardContext = {
+        ...ctx,
+        transactions: updatedTxs,
+        allTransactions: updatedTxs,
+        accounts: updatedAccounts,
+        allAccounts: updatedAccounts,
+      };
+
+      const qc = createTestQueryClient();
+      const html = renderToStaticMarkup(
+        <QueryClientProvider client={qc}>
+          <ExtraCard
+            card={{
+              key: "liabilities",
+              title: "Debts & Liabilities Payoff",
+              span: 1,
+              periodDays: 30,
+              visible: true,
+              recordLimit: 10,
+            }}
+            ctx={updatedCtx}
+          />
+        </QueryClientProvider>,
+      );
+
+      // Ali Sarhan: 415 total, remaining 200, paid 215 -> 52%
+      expect(html).toContain("215.000");
+      expect(html).toContain("52%");
+    });
+  });
 });

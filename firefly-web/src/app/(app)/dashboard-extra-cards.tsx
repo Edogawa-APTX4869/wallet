@@ -15,7 +15,7 @@ import {
 } from "recharts";
 import type { Account, Bill, PiggyBank, Resource, TransactionGroup } from "@/lib/firefly/types";
 import type { DashboardCardConfig } from "@/lib/dashboard-cards";
-import { formatDate, isoDate } from "@/lib/utils";
+import { cn, formatDate, isoDate } from "@/lib/utils";
 import { ResourceIconBadge } from "@/components/resource-icon";
 import { Badge, EmptyState, Money, Progress } from "@/components/ui";
 
@@ -487,16 +487,36 @@ export function ExtraCard({ card, ctx }: { card: DashboardCardConfig; ctx: Extra
         const code = a.currency_code || ctx.primaryCode;
         const decimals = a.currency_decimal_places ?? ctx.primaryDecimals;
         const remainingRaw = new Decimal(a.current_balance ?? 0).abs();
-
-        // Sum payments made toward this liability (transfers/deposits to this account or withdrawals referencing its name)
-        let paidRaw = new Decimal(0);
-        let paymentCount = 0;
+        const isCredit = a.liability_direction === "credit";
         const accNameLower = a.name.toLowerCase();
+
+        // 1. Determine original principal baseline (from Firefly III liability_amount, or name pattern like '- 415', '- 200')
+        let originalPrincipal: Decimal | null = null;
+        if (a.liability_amount) {
+          const parsed = new Decimal(a.liability_amount).abs();
+          if (parsed.gt(0)) originalPrincipal = parsed;
+        }
+        const nameAmountMatch = a.name.match(/(?:^|\s)[-–—]\s*(\d+(?:\.\d+)?)/);
+        if (nameAmountMatch && nameAmountMatch[1]) {
+          const fromName = new Decimal(nameAmountMatch[1]);
+          if (fromName.gt(0)) {
+            originalPrincipal = originalPrincipal ? Decimal.max(originalPrincipal, fromName) : fromName;
+          }
+        }
+
+        // 2. Scan genuine repayments from transactions (strict direction-aware matching)
+        let txRepaidRaw = new Decimal(0);
+        let paymentCount = 0;
 
         for (const g of sourceTxs) {
           for (const s of g.attributes.transactions) {
-            // Exclude non-payment events (initial balances and reconciliations)
-            if (s.type === "opening balance" || s.type === "reconciliation") {
+            // Exclude non-payment events (initial balances, opening balances, reconciliations)
+            if (
+              s.type === "opening balance" ||
+              s.type === "reconciliation" ||
+              (s.description || "").toLowerCase().includes("initial balance") ||
+              (s.description || "").toLowerCase().includes("opening balance")
+            ) {
               continue;
             }
 
@@ -504,17 +524,60 @@ export function ExtraCard({ card, ctx }: { card: DashboardCardConfig; ctx: Extra
             const isSource = String(s.source_id) === String(acc.id);
             const nameMatch =
               (s.destination_name || "").toLowerCase() === accNameLower ||
+              (s.source_name || "").toLowerCase() === accNameLower ||
               (s.description || "").toLowerCase().includes(accNameLower);
 
-            if (isDest || (s.type === "withdrawal" && nameMatch && !isSource)) {
-              const amt = new Decimal(s.amount || 0).abs();
-              paidRaw = paidRaw.plus(amt);
-              paymentCount++;
+            if (isCredit) {
+              // "Owed this debt" (Debtor owes user money):
+              // Repayment is money coming FROM debtor INTO user's account.
+              // Note: Withdrawals or transfers TO the debtor are loan disbursements, NEVER repayments!
+              const isRepaymentToUser = isSource || (s.type === "deposit" && nameMatch);
+
+              if (isRepaymentToUser) {
+                const amt = new Decimal(s.amount || 0).abs();
+                txRepaidRaw = txRepaidRaw.plus(amt);
+                paymentCount++;
+              }
+            } else {
+              // "I owe this debt" (User owes creditor money):
+              // Repayment is money going OUT of user's account TO creditor.
+              // Note: Deposits into user's account are loan drawdowns, NEVER repayments!
+              const isRepaymentToCreditor = isDest || (s.type === "withdrawal" && nameMatch && !isSource);
+
+              if (isRepaymentToCreditor) {
+                const amt = new Decimal(s.amount || 0).abs();
+                txRepaidRaw = txRepaidRaw.plus(amt);
+                paymentCount++;
+              }
             }
           }
         }
 
-        // Expected recurring payment: match active bill by name, or average payment per transaction
+        // 3. Resolve paidRaw and totalPrincipalRaw
+        let paidRaw: Decimal;
+        let totalPrincipalRaw: Decimal;
+
+        if (originalPrincipal && originalPrincipal.gt(remainingRaw)) {
+          // If original principal is known and exceeds remaining, paid is principal minus remaining
+          const calculatedPaid = originalPrincipal.minus(remainingRaw);
+          paidRaw = Decimal.max(calculatedPaid, txRepaidRaw);
+          totalPrincipalRaw = Decimal.max(originalPrincipal, remainingRaw.plus(paidRaw));
+        } else if (txRepaidRaw.gt(0)) {
+          paidRaw = txRepaidRaw;
+          totalPrincipalRaw = remainingRaw.plus(paidRaw);
+        } else if (originalPrincipal && originalPrincipal.gte(remainingRaw)) {
+          paidRaw = new Decimal(0);
+          totalPrincipalRaw = originalPrincipal;
+        } else {
+          paidRaw = new Decimal(0);
+          totalPrincipalRaw = remainingRaw;
+        }
+
+        const paidPct = totalPrincipalRaw.gt(0)
+          ? Math.min(100, Math.round(paidRaw.div(totalPrincipalRaw).mul(100).toNumber()))
+          : 0;
+
+        // 4. Expected recurring payment: match active bill by name, or average if recurring installment pattern
         let expectedRaw = new Decimal(0);
         let nextDue: string | null = null;
         for (const b of ctx.bills) {
@@ -528,14 +591,10 @@ export function ExtraCard({ card, ctx }: { card: DashboardCardConfig; ctx: Extra
             break;
           }
         }
-        if (expectedRaw.lte(0) && paymentCount > 0) {
-          expectedRaw = paidRaw.div(paymentCount);
+        if (expectedRaw.lte(0) && paymentCount >= 2 && txRepaidRaw.gt(0)) {
+          expectedRaw = txRepaidRaw.div(paymentCount);
         }
 
-        const totalPrincipalRaw = paidRaw.plus(remainingRaw);
-        const paidPct = totalPrincipalRaw.gt(0)
-          ? Math.min(100, Math.round(paidRaw.div(totalPrincipalRaw).mul(100).toNumber()))
-          : 0;
         const estMonthsLeft =
           expectedRaw.gt(0) && remainingRaw.gt(0)
             ? Math.ceil(remainingRaw.div(expectedRaw).toNumber())
@@ -546,6 +605,7 @@ export function ExtraCard({ card, ctx }: { card: DashboardCardConfig; ctx: Extra
           name: a.name,
           shortName: a.name.length > 14 ? `${a.name.slice(0, 12)}…` : a.name,
           role: a.liability_type || a.account_role || a.type,
+          isCredit,
           code,
           decimals,
           symbol: a.currency_symbol,
@@ -570,7 +630,7 @@ export function ExtraCard({ card, ctx }: { card: DashboardCardConfig; ctx: Extra
           {/* Global Debt KPI Summary Row */}
           <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
             <div className="rounded-xl border border-success/30 bg-success-soft/30 p-2 sm:p-2.5 min-w-0">
-              <p className="text-[10px] sm:text-xs text-muted truncate">Paid so far</p>
+              <p className="text-[10px] sm:text-xs text-muted truncate">Paid / Collected</p>
               <p className="tabular mt-0.5 font-mono text-[11px] sm:text-sm font-bold text-success truncate">
                 <PrimaryMoney ctx={ctx} value={totalPaidPrimary} animated />
               </p>
@@ -584,7 +644,11 @@ export function ExtraCard({ card, ctx }: { card: DashboardCardConfig; ctx: Extra
             <div className="rounded-xl border border-warning/30 bg-warning-soft/30 p-2 sm:p-2.5 min-w-0">
               <p className="text-[10px] sm:text-xs text-muted truncate">Expected / inst.</p>
               <p className="tabular mt-0.5 font-mono text-[11px] sm:text-sm font-bold text-warning truncate">
-                <PrimaryMoney ctx={ctx} value={totalExpectedPrimary} animated />
+                {totalExpectedPrimary > 0 ? (
+                  <PrimaryMoney ctx={ctx} value={totalExpectedPrimary} animated />
+                ) : (
+                  "—"
+                )}
               </p>
             </div>
           </div>
@@ -609,7 +673,7 @@ export function ExtraCard({ card, ctx }: { card: DashboardCardConfig; ctx: Extra
                     fontSize: "12px",
                   }}
                 />
-                <Bar dataKey="paidPrimary" name={`Paid (${ctx.primaryCode})`} stackId="debt" fill="var(--success)" radius={[4, 0, 0, 4]} isAnimationActive animationDuration={800} animationEasing="ease-out" />
+                <Bar dataKey="paidPrimary" name={`Paid / Collected (${ctx.primaryCode})`} stackId="debt" fill="var(--success)" radius={[4, 0, 0, 4]} isAnimationActive animationDuration={800} animationEasing="ease-out" />
                 <Bar dataKey="remainingPrimary" name={`Remaining (${ctx.primaryCode})`} stackId="debt" fill="var(--danger)" radius={[0, 4, 4, 0]} isAnimationActive animationDuration={800} animationEasing="ease-out" />
               </BarChart>
             </ResponsiveContainer>
@@ -633,7 +697,19 @@ export function ExtraCard({ card, ctx }: { card: DashboardCardConfig; ctx: Extra
                       size="sm"
                     />
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-xs font-bold text-fg">{item.name}</p>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <p className="truncate text-xs font-bold text-fg">{item.name}</p>
+                        <span
+                          className={cn(
+                            "inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-semibold",
+                            item.isCredit
+                              ? "bg-success-soft/70 text-success border border-success/30"
+                              : "bg-danger-soft/70 text-danger border border-danger/30",
+                          )}
+                        >
+                          {item.isCredit ? "Owed to me" : "I owe"}
+                        </span>
+                      </div>
                       <p className="truncate text-xs text-muted">
                         {item.role}
                         {item.nextDue ? ` · Due ${formatDate(item.nextDue)}` : ""}
@@ -652,7 +728,7 @@ export function ExtraCard({ card, ctx }: { card: DashboardCardConfig; ctx: Extra
 
                 <div className="grid grid-cols-3 gap-1 border-t border-border/60 pt-1.5 text-xs">
                   <div>
-                    <p className="text-muted">Paid</p>
+                    <p className="text-muted">{item.isCredit ? "Collected" : "Paid"}</p>
                     <p className="tabular font-mono font-semibold text-success">
                       <Money amount={item.paidRaw.toString()} code={item.code} decimals={item.decimals} symbol={item.symbol} />
                     </p>
