@@ -460,7 +460,12 @@ function AccountCard({
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap justify-end">
+            {a.liability_direction && (
+              <Badge tone={a.liability_direction === "credit" ? "success" : "danger"}>
+                {a.liability_direction === "credit" ? "Owed to me" : "I owe"}
+              </Badge>
+            )}
             {a.active === false && <Badge tone="warning">Inactive</Badge>}
             {a.currency_code && <Badge tone="neutral">{a.currency_code}</Badge>}
           </div>

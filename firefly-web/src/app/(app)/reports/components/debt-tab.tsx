@@ -12,7 +12,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import type { Resource, Account } from "@/lib/firefly/types";
-import { formatMoney } from "@/lib/utils";
+import { cn, formatMoney } from "@/lib/utils";
 import { Badge, Card, CardTitle } from "@/components/ui";
 import { ResourceIconBadge } from "@/components/resource-icon";
 import { computeCreditDebtGauge } from "./reports-math";
@@ -65,6 +65,7 @@ export function DebtTab({
         a.attributes.liability_type === "credit_card" ||
         a.attributes.liability_type === "credit card" ||
         a.attributes.account_role === "ccAsset";
+      const isCredit = a.attributes.liability_direction === "credit";
 
       return {
         id: a.id,
@@ -79,6 +80,7 @@ export function DebtTab({
         currencySymbol: a.attributes.currency_symbol || "",
         decimals: a.attributes.currency_decimal_places ?? 2,
         isCc,
+        isCredit,
       };
     });
 
@@ -294,8 +296,8 @@ export function DebtTab({
                       <span className="text-sm font-semibold text-fg truncate">
                         {item.name}
                       </span>
-                      <Badge tone={item.isCc ? "primary" : "neutral"} className="text-[10px]">
-                        {item.isCc ? "Credit Card" : item.liability_type || "Loan"}
+                      <Badge tone={item.isCc ? "primary" : item.isCredit ? "success" : "neutral"} className="text-[10px]">
+                        {item.isCc ? "Credit Card" : item.isCredit ? "Owed to me" : item.liability_type || "Loan"}
                       </Badge>
                     </div>
                     {item.isCc && Number(item.credit_limit) > 0 && (
@@ -307,12 +309,12 @@ export function DebtTab({
                 </div>
 
                 <div className="text-right shrink-0">
-                  <div className="font-mono text-sm font-bold text-danger">
-                    -{formatMoney(item.nativeBal.toFixed(item.decimals), item.currencyCode, item.decimals, item.currencySymbol)}
+                  <div className={cn("font-mono text-sm font-bold", item.isCredit ? "text-success" : "text-danger")}>
+                    {item.isCredit ? "+" : "-"}{formatMoney(item.nativeBal.toFixed(item.decimals), item.currencyCode, item.decimals, item.currencySymbol)}
                   </div>
                   {item.currencyCode !== primaryCode && (
                     <div className="font-mono text-[11px] text-muted">
-                      ≈ -{formatMoney(toPrimary(item.nativeBal, item.currencyCode).toFixed(primaryDecimals), primaryCode, primaryDecimals)}
+                      ≈ {item.isCredit ? "+" : "-"}{formatMoney(toPrimary(item.nativeBal, item.currencyCode).toFixed(primaryDecimals), primaryCode, primaryDecimals)}
                     </div>
                   )}
                 </div>
