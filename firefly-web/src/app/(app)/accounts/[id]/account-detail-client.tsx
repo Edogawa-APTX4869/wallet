@@ -5,10 +5,20 @@ import { useEffect, useMemo, useState } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Decimal from "decimal.js";
 import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import {
   ArrowDownLeft,
   ArrowLeft,
   ArrowLeftRight,
   ArrowUpRight,
+  List,
   Pencil,
   Plus,
   Receipt,
@@ -238,6 +248,85 @@ export function AccountDetailClient({ id }: { id: string }) {
   const inferred = a ? inferAccountDefaultStyle(a, Number(id) || 0) : { icon: "Landmark", color: "#6366f1" };
   const groups = txQ.data?.pages.flatMap((p) => p.data) ?? [];
 
+  // Compute 30-day percentage change & daily balance trend for Wallet Hero Chart
+  const { pctChange30d, chartPoints30d } = useMemo(() => {
+    const curBal = new Decimal(a?.current_balance || 0);
+    const prevBal = curBal.minus(stats.netChange);
+    let pct = 0;
+    if (!prevBal.isZero()) {
+      pct = Math.round(stats.netChange.div(prevBal.abs()).mul(100).toNumber());
+    } else if (!stats.netChange.isZero()) {
+      pct = stats.netChange.gt(0) ? 100 : -100;
+    }
+
+    // Build daily net changes over last 30 days
+    const dailyDelta = new Map<string, Decimal>();
+    for (const g of kpiQ.data ?? []) {
+      for (const s of g.attributes?.transactions || []) {
+        const day = (s.date || "").slice(0, 10);
+        if (!day) continue;
+        let amt = new Decimal(0);
+        try {
+          amt = new Decimal(s.amount || 0).abs();
+        } catch {
+          amt = new Decimal(0);
+        }
+        let delta = new Decimal(0);
+        if (s.type === "deposit" && (s.destination_id === id || !s.destination_id)) {
+          delta = amt;
+        } else if (s.type === "withdrawal" && s.source_id === id) {
+          delta = amt.negated();
+        } else if (s.type === "transfer") {
+          if (s.destination_id === id) {
+            let destAmt = amt;
+            if (s.foreign_amount && s.foreign_amount.trim()) {
+              try {
+                destAmt = new Decimal(s.foreign_amount.trim()).abs();
+              } catch {
+                destAmt = amt;
+              }
+            }
+            delta = delta.plus(destAmt);
+          }
+          if (s.source_id === id) {
+            delta = delta.minus(amt);
+          }
+        }
+        if (!delta.isZero()) {
+          dailyDelta.set(day, (dailyDelta.get(day) ?? new Decimal(0)).plus(delta));
+        }
+      }
+    }
+
+    const points: Array<{ label: string; Balance: number }> = [];
+    let running = curBal;
+    const now = new Date();
+    const rawDays: Array<{ label: string; balance: number; dateKey: string }> = [];
+    for (let i = 0; i <= 30; i++) {
+      const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+      const key = isoDate(d);
+      const label =
+        i === 0
+          ? "Today"
+          : d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+      rawDays.push({
+        label,
+        balance: Number(running.toFixed(a?.currency_decimal_places ?? 2)),
+        dateKey: key,
+      });
+      const dayChange = dailyDelta.get(key);
+      if (dayChange) {
+        running = running.minus(dayChange);
+      }
+    }
+    rawDays.reverse();
+    for (const item of rawDays) {
+      points.push({ label: item.label, Balance: item.balance });
+    }
+
+    return { pctChange30d: pct, chartPoints30d: points };
+  }, [a?.current_balance, a?.currency_decimal_places, stats.netChange, kpiQ.data, id]);
+
   const openingDate = a?.opening_balance_date
     ? formatDate(a.opening_balance_date)
     : (() => {
@@ -324,6 +413,96 @@ export function AccountDetailClient({ id }: { id: string }) {
       ) : null}
 
       <ErrorBox error={accQ.error || txQ.error || kpiQ.error} />
+
+      {/* BudgetBakers Wallet-Style Hero Balance & 30-Day Trend Chart Card */}
+      {a && (
+        <Card className="flex flex-col gap-4 p-4 sm:p-5">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-wider text-muted">TODAY</p>
+              <div className="mt-0.5 flex items-center gap-2">
+                <p className="tabular font-mono text-2xl sm:text-3xl font-bold tracking-tight text-fg">
+                  <Money
+                    animated
+                    amount={a.current_balance}
+                    code={a.currency_code}
+                    decimals={a.currency_decimal_places}
+                    symbol={a.currency_symbol}
+                  />
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setEditing(true)}
+                  aria-label="Edit account balance and details"
+                  title="Edit account (Shortcut: E)"
+                  className="inline-flex size-8 items-center justify-center rounded-full bg-surface-2 text-muted hover:bg-surface-3 hover:text-fg transition active:scale-95 cursor-pointer"
+                >
+                  <Pencil className="size-3.5" aria-hidden="true" />
+                </button>
+              </div>
+            </div>
+
+            <div className="text-right">
+              <p className="text-xs text-muted">Last 30 days</p>
+              <p
+                className={cn(
+                  "mt-0.5 tabular font-mono text-base sm:text-lg font-bold",
+                  pctChange30d > 0
+                    ? "text-success"
+                    : pctChange30d < 0
+                      ? "text-danger"
+                      : "text-muted",
+                )}
+              >
+                {pctChange30d > 0 ? `+${pctChange30d}%` : `${pctChange30d}%`}
+              </p>
+            </div>
+          </div>
+
+          <div className="h-44 sm:h-52 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={chartPoints30d} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+                <defs>
+                  <linearGradient id={`accGrad-${id}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor={inferred.color || "var(--primary)"} stopOpacity={0.32} />
+                    <stop offset="95%" stopColor={inferred.color || "var(--primary)"} stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                <XAxis
+                  dataKey="label"
+                  interval={9}
+                  tick={{ fontSize: 11, fill: "var(--muted)" }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis
+                  tick={{ fontSize: 11, fill: "var(--muted)" }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <Tooltip
+                  contentStyle={{
+                    background: "var(--surface)",
+                    borderColor: "var(--border)",
+                    borderRadius: "0.75rem",
+                    fontSize: "0.8125rem",
+                  }}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="Balance"
+                  stroke={inferred.color || "var(--primary)"}
+                  strokeWidth={2.5}
+                  fill={`url(#accGrad-${id})`}
+                  isAnimationActive
+                  animationDuration={700}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+      )}
 
       {/* 30-Day KPI Summary Cards */}
       {kpiQ.isLoading ? (
@@ -481,7 +660,21 @@ export function AccountDetailClient({ id }: { id: string }) {
         </Card>
       )}
 
-      <Card>
+      <Card className="flex flex-col gap-3">
+        <div className="flex items-start justify-between gap-2 border-b border-border/60 pb-3">
+          <div>
+            <h2 className="text-base font-bold text-fg">Last records overview</h2>
+            <p className="text-xs text-muted">What was the last transactions I made?</p>
+          </div>
+          <Link
+            href={`/transactions?accountId=${id}`}
+            className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-3 py-1.5 text-xs font-semibold text-fg hover:bg-surface-3 transition active:scale-95"
+          >
+            <List className="size-3.5 text-primary" aria-hidden="true" />
+            <span>Records</span>
+          </Link>
+        </div>
+
         {txQ.isLoading ? (
           <div className="flex flex-col gap-3">
             <Skeleton className="h-12" />
@@ -502,8 +695,14 @@ export function AccountDetailClient({ id }: { id: string }) {
                 />
               ))}
             </ul>
-            {txQ.hasNextPage && (
-              <div className="mt-4 flex justify-center">
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-3">
+              <Link
+                href={`/transactions?accountId=${id}`}
+                className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-3 py-1.5 text-xs font-semibold text-fg hover:bg-surface-3 transition active:scale-95"
+              >
+                <span>Show more</span>
+              </Link>
+              {txQ.hasNextPage && (
                 <Button
                   variant="secondary"
                   size="sm"
@@ -512,8 +711,8 @@ export function AccountDetailClient({ id }: { id: string }) {
                 >
                   Load more
                 </Button>
-              </div>
-            )}
+              )}
+            </div>
           </>
         )}
       </Card>

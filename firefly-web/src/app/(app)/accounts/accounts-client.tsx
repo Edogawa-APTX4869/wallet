@@ -4,7 +4,19 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import Decimal from "decimal.js";
-import { ArrowLeftRight, Building2, CreditCard, Landmark, Plus, Search, Store, Wallet, X } from "lucide-react";
+import {
+  ArrowLeftRight,
+  Building2,
+  ChevronDown,
+  ChevronUp,
+  CreditCard,
+  Landmark,
+  Plus,
+  Search,
+  Store,
+  Wallet,
+  X,
+} from "lucide-react";
 import type { Account, Resource } from "@/lib/firefly/types";
 import { useAccounts, usePrimaryCurrency, useRatesToPrimary } from "@/lib/hooks";
 import { cn, formatDate, isoDate } from "@/lib/utils";
@@ -38,12 +50,30 @@ export function AccountsClient() {
   const [search, setSearch] = useState("");
   const createFromQuery = searchParams.get("create") === "1" || searchParams.get("create") === "true";
   const [createOpen, setCreateOpen] = useState(false);
+  const [createTypeOverride, setCreateTypeOverride] = useState<string | null>(null);
+  const [createRoleOverride, setCreateRoleOverride] = useState<string | undefined>(undefined);
+  const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({
+    archived: true,
+  });
+
   const isCreateOpen = createOpen || createFromQuery;
   const handleCloseCreate = () => {
     setCreateOpen(false);
+    setCreateTypeOverride(null);
+    setCreateRoleOverride(undefined);
     if (createFromQuery) {
       router.replace(`/accounts?tab=${tab}`, { scroll: false });
     }
+  };
+
+  const openCreateWithRole = (typeStr: string, roleStr?: string) => {
+    setCreateTypeOverride(typeStr);
+    setCreateRoleOverride(roleStr);
+    setCreateOpen(true);
+  };
+
+  const toggleCategoryCollapse = (catKey: string) => {
+    setCollapsedCategories((prev) => ({ ...prev, [catKey]: !prev[catKey] }));
   };
   const today = isoDate();
 
@@ -93,6 +123,71 @@ export function AccountsClient() {
     return [...m.values()];
   }, [filtered]);
 
+  // Categorize asset accounts into Wallet-style collapsible accordion groups
+  const assetCategories = useMemo(() => {
+    if (tab !== "asset") return [];
+    const primaryCode = primary?.code || "BHD";
+
+    const groupsDef: Array<{
+      key: string;
+      label: string;
+      defaultRole?: string;
+      isArchived?: boolean;
+      items: Resource<Account>[];
+      totalPrimary: Decimal;
+    }> = [
+      { key: "cash", label: "Cash", defaultRole: "cashWalletAsset", items: [], totalPrimary: new Decimal(0) },
+      { key: "checking", label: "Checking account", defaultRole: "defaultAsset", items: [], totalPrimary: new Decimal(0) },
+      { key: "cc", label: "Credit card", defaultRole: "ccAsset", items: [], totalPrimary: new Decimal(0) },
+      { key: "savings", label: "Savings account", defaultRole: "savingAsset", items: [], totalPrimary: new Decimal(0) },
+      { key: "investments", label: "Investments", defaultRole: "savingAsset", items: [], totalPrimary: new Decimal(0) },
+      { key: "general", label: "General", defaultRole: "defaultAsset", items: [], totalPrimary: new Decimal(0) },
+      { key: "archived", label: "Archived", isArchived: true, items: [], totalPrimary: new Decimal(0) },
+    ];
+
+    const byKey = new Map(groupsDef.map((g) => [g.key, g]));
+
+    for (const acc of filtered) {
+      const a = acc.attributes;
+      const role = a.account_role || "";
+      const nameLower = (a.name || "").toLowerCase();
+      const notesLower = (a.notes || "").toLowerCase();
+      const bal = new Decimal(a.current_balance ?? 0);
+      const code = a.currency_code || primaryCode;
+      const rate = code !== primaryCode ? ratesQ.data?.[code]?.rate : undefined;
+      const balPrimary = rate ? bal.mul(rate) : bal;
+
+      let targetKey = "general";
+      if (a.active === false || a.include_net_worth === false) {
+        targetKey = "archived";
+      } else if (role === "cashWalletAsset" || a.type === "cash" || nameLower.includes("cash") || nameLower.includes("wallet")) {
+        targetKey = "cash";
+      } else if (role === "ccAsset" || nameLower.includes("credit card") || nameLower.includes("visa") || nameLower.includes("mastercard")) {
+        targetKey = "cc";
+      } else if (
+        nameLower.includes("stock") ||
+        nameLower.includes("etf") ||
+        nameLower.includes("eft") ||
+        nameLower.includes("invest") ||
+        nameLower.includes("crypto") ||
+        nameLower.includes("gold") ||
+        notesLower.includes("investment")
+      ) {
+        targetKey = "investments";
+      } else if (role === "savingAsset" || nameLower.includes("saving") || nameLower.includes("deposit")) {
+        targetKey = "savings";
+      } else if (role === "defaultAsset" || role === "sharedAsset") {
+        targetKey = "checking";
+      }
+
+      const grp = byKey.get(targetKey) ?? byKey.get("general")!;
+      grp.items.push(acc);
+      grp.totalPrimary = grp.totalPrimary.plus(balPrimary);
+    }
+
+    return groupsDef.filter((g) => g.items.length > 0);
+  }, [tab, filtered, primary?.code, ratesQ.data]);
+
   return (
     <div className="flex flex-col gap-5">
       <PageHeader
@@ -100,7 +195,7 @@ export function AccountsClient() {
         subtitle="Balances across all currencies with automatic conversion to your main currency"
         actions={
           <div className="flex items-center gap-2">
-            <Button size="sm" onClick={() => setCreateOpen(true)}>
+            <Button size="sm" onClick={() => openCreateWithRole(tab)}>
               <Plus className="size-4" aria-hidden /> New account
             </Button>
             <Link href="/new?type=transfer">
@@ -165,10 +260,106 @@ export function AccountsClient() {
       ) : filtered.length === 0 ? (
         <div key={`empty-${tab}`} className="animate-tab-enter">
           <EmptyState title={`No ${currentGroup.label.toLowerCase()} found`}>
-            <Button size="sm" onClick={() => setCreateOpen(true)} className="mt-2">
+            <Button size="sm" onClick={() => openCreateWithRole(tab)} className="mt-2">
               <Plus className="size-4" aria-hidden /> New account
             </Button>
           </EmptyState>
+        </div>
+      ) : tab === "asset" ? (
+        <div key="asset-accordions" className="animate-tab-enter flex flex-col gap-4">
+          {assetCategories.map((cat) => {
+            const isCollapsed = Boolean(collapsedCategories[cat.key]);
+            return (
+              <Card key={cat.key} className="p-0 overflow-hidden">
+                {/* Category Accordion Header */}
+                <button
+                  type="button"
+                  onClick={() => toggleCategoryCollapse(cat.key)}
+                  aria-expanded={!isCollapsed}
+                  className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left hover:bg-surface-2/60 transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <h2 className="text-sm sm:text-base font-bold text-fg truncate">
+                      {cat.label}
+                    </h2>
+                  </div>
+
+                  <div className="flex items-center gap-2.5 shrink-0 text-xs text-muted">
+                    <span>
+                      {cat.items.length} {cat.items.length === 1 ? "account" : "accounts"}
+                    </span>
+                    {!cat.isArchived && primary?.code && (
+                      <span className="hidden sm:inline font-mono font-semibold text-fg">
+                        ·{" "}
+                        <Money
+                          amount={cat.totalPrimary.toFixed(primary.decimal_places ?? 2)}
+                          code={primary.code}
+                          decimals={primary.decimal_places ?? 2}
+                        />
+                      </span>
+                    )}
+                    {isCollapsed ? (
+                      <ChevronDown className="size-4 text-muted" aria-hidden="true" />
+                    ) : (
+                      <ChevronUp className="size-4 text-muted" aria-hidden="true" />
+                    )}
+                  </div>
+                </button>
+
+                {/* Collapsible Content */}
+                {!isCollapsed && (
+                  <div className="border-t border-border/60 divide-y divide-border/60">
+                    <div className="grid gap-3 p-3 sm:p-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+                      {cat.items.map((acc) => (
+                        <AccountCard
+                          key={acc.id}
+                          acc={acc}
+                          primaryCode={primary?.code}
+                          primaryDecimals={primary?.decimal_places ?? 2}
+                          rateToPrimary={
+                            acc.attributes.currency_code
+                              ? ratesQ.data?.[acc.attributes.currency_code]?.rate?.toString()
+                              : undefined
+                          }
+                        />
+                      ))}
+                    </div>
+
+                    {!cat.isArchived && (
+                      <div className="px-4 py-2.5 bg-surface-2/30">
+                        <button
+                          type="button"
+                          onClick={() => openCreateWithRole("asset", cat.defaultRole)}
+                          className="flex w-full items-center justify-between text-xs sm:text-sm font-semibold text-primary hover: opacity-90 transition cursor-pointer py-0.5"
+                        >
+                          <span>Add account</span>
+                          <Plus className="size-4 text-primary" aria-hidden="true" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </Card>
+            );
+          })}
+
+          {/* Wallet-style "Add more accounts" -> "Other (Loan, Debt, Mortgage or anything else)" */}
+          <div className="flex flex-col gap-2 pt-2">
+            <p className="px-1 text-xs font-semibold text-muted">Add more accounts</p>
+            <Card className="p-0 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => openCreateWithRole("liability")}
+                className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left hover:bg-surface-2/60 transition-colors cursor-pointer"
+              >
+                <div>
+                  <p className="text-sm font-bold text-primary">Other</p>
+                  <p className="text-xs text-muted">Loan, Debt, Mortgage or anything else</p>
+                </div>
+                <Plus className="size-5 text-primary shrink-0" aria-hidden="true" />
+              </button>
+            </Card>
+          </div>
         </div>
       ) : (
         <div key={`grid-${tab}`} className="animate-tab-enter grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 3xl:grid-cols-5">
@@ -189,7 +380,8 @@ export function AccountsClient() {
       <CreateAccountModal
         open={isCreateOpen}
         onClose={handleCloseCreate}
-        initialType={tab}
+        initialType={createTypeOverride ?? tab}
+        initialRole={createRoleOverride}
       />
     </div>
   );

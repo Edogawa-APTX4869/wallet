@@ -64,6 +64,8 @@ import {
   ResourceIconBadge,
   useResourceMeta,
 } from "@/components/resource-icon";
+import { CreateAccountModal } from "@/components/create-account-modal";
+import { NeedleGauge } from "@/components/needle-gauge";
 import { TransactionRow } from "@/components/transaction-row";
 import {
   AnimatedMoney,
@@ -236,6 +238,7 @@ export function TwoColumnAccountGrid({
           ? inferAccountDefaultStyle(acc.attributes, idx)
           : { icon: "wallet", color: ("color" in acc && acc.color) || COLOR_PALETTE[idx % COLOR_PALETTE.length] };
         const bg = ("color" in acc && acc.color) || customMeta?.color || inferred.color || COLOR_PALETTE[idx % COLOR_PALETTE.length];
+        const isSubsetFiltered = Boolean(selectedIdSet && selectedIdSet.size > 0 && selectedIdSet.size < accounts.length);
 
         return (
           <div
@@ -248,19 +251,19 @@ export function TwoColumnAccountGrid({
             style={
               isSelected
                 ? {
-                    borderColor: `${bg}59`,
-                    backgroundColor: `${bg}18`,
+                    borderColor: `${bg}88`,
+                    backgroundColor: `${bg}24`,
                   }
                 : {
-                    borderColor: `${bg}35`,
-                    backgroundColor: `${bg}10`,
+                    borderColor: "#78909c45",
+                    backgroundColor: "#78909c18",
                   }
             }
             className={cn(
               "group relative flex cursor-pointer flex-col justify-between gap-1 rounded-xl border px-2.5 py-1.5 sm:p-2.5 transition-all duration-200 select-none min-w-0 shadow-2xs active:scale-[0.98]",
               isSelected
-                ? "shadow-xs"
-                : "border-border/80 bg-surface-2/40 opacity-60 grayscale-[25%] hover:opacity-90",
+                ? cn("shadow-xs", isSubsetFiltered && "ring-1 ring-primary/40 shadow-sm")
+                : "border-border/80 bg-surface-2/60 opacity-55 grayscale-[70%] hover:opacity-85",
             )}
           >
             {/* Top Row: Editable Category-Aware Icon + Account Name */}
@@ -859,6 +862,7 @@ export function DashboardClient() {
   }, []);
 
   const [topTab, setTopTab] = useState<"accounts" | "budgets">("accounts");
+  const [createAccountOpen, setCreateAccountOpen] = useState(false);
   const [dragKey, setDragKey] = useState<DashboardCardKey | null>(null);
   const [dragOverKey, setDragOverKey] = useState<DashboardCardKey | null>(null);
   const [configOpenKey, setConfigOpenKey] = useState<DashboardCardKey | null>(null);
@@ -1022,13 +1026,16 @@ export function DashboardClient() {
   function toggleAccountSelection(id: string) {
     let nextIds: string[];
     if (selectedIds.length === 0) {
-      // Switching from "all" to explicit multi-select: toggle this account out or solo-select it
-      const allIds = walletAccounts.map((a) => a.id);
-      nextIds = allIds.includes(id) ? allIds.filter((x) => x !== id) : [...allIds, id];
+      // Wallet behavior: tapping an account when all are active solo-selects that account
+      nextIds = [id];
     } else if (selectedIds.includes(id)) {
-      nextIds = selectedIds.filter((x) => x !== id);
+      const remaining = selectedIds.filter((x) => x !== id);
+      // If deselecting the last selected account, restore all accounts
+      nextIds = remaining.length === 0 ? [] : remaining;
     } else {
-      nextIds = [...selectedIds, id];
+      const combined = [...selectedIds, id];
+      // If all accounts are now selected, normalize back to empty array ("all non-excluded")
+      nextIds = combined.length >= walletAccounts.length ? [] : combined;
     }
     savePrefsMut.mutate({ selectedAccountIds: nextIds });
   }
@@ -1367,7 +1374,7 @@ export function DashboardClient() {
       >
         <div key={`top-${topTab}`}>
           {topTab === "accounts" ? (
-          <Card className="flex flex-col gap-2 p-2 sm:p-4 md:p-5">
+          <Card className="flex flex-col gap-2.5 p-2.5 sm:p-4 md:p-5">
             <AccountsSectionHeader
               accountCount={walletAccounts.length}
               selectedCount={selectedIds.length}
@@ -1381,72 +1388,226 @@ export function DashboardClient() {
                 <Skeleton className="h-16" />
               </div>
             ) : (
-              <TwoColumnAccountGrid
-                accounts={walletAccounts}
-                selectedIdSet={selectedIdSet}
-                onToggleAccount={toggleAccountSelection}
-                showManageLink={true}
-              />
+              <>
+                <TwoColumnAccountGrid
+                  accounts={walletAccounts}
+                  selectedIdSet={selectedIdSet}
+                  onToggleAccount={toggleAccountSelection}
+                  showManageLink={true}
+                />
+
+                {/* Wallet-style "Select all non-excluded" quick link when subset is selected */}
+                {selectedIds.length > 0 && (
+                  <div className="flex justify-center pt-0.5">
+                    <button
+                      type="button"
+                      onClick={selectAllAccounts}
+                      className="rounded-lg px-2.5 py-1 text-xs font-semibold text-primary hover:bg-primary-soft/30 transition-colors cursor-pointer"
+                    >
+                      Select all non-excluded
+                    </button>
+                  </div>
+                )}
+
+                {/* Wallet-style Context-Aware Bottom Action Bar */}
+                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {selectedIds.length > 0 && activeSelectedAccounts.length > 0 && (
+                      <Link
+                        href={`/accounts/${activeSelectedAccounts[0].id}`}
+                        className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-2 px-3 py-1.5 text-xs font-semibold text-fg hover:bg-surface-3 transition active:scale-95 shadow-2xs"
+                      >
+                        <span>Account Detail</span>
+                        {activeSelectedAccounts.length === 1 && (
+                          <span className="max-w-[110px] truncate text-muted font-normal">
+                            ({activeSelectedAccounts[0].attributes.name})
+                          </span>
+                        )}
+                      </Link>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setCreateAccountOpen(true)}
+                      className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-3 py-1.5 text-xs font-semibold text-fg hover:bg-surface-3 transition active:scale-95 cursor-pointer shadow-2xs"
+                    >
+                      <Plus className="size-3.5 text-primary" aria-hidden="true" />
+                      <span>Add account</span>
+                    </button>
+                  </div>
+
+                  <Link
+                    href={
+                      selectedIds.length === 1
+                        ? `/transactions?accountId=${selectedIds[0]}`
+                        : "/transactions"
+                    }
+                    className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-2 px-3 py-1.5 text-xs font-semibold text-fg hover:bg-surface-3 transition active:scale-95 shadow-2xs"
+                  >
+                    <List className="size-3.5 text-primary" aria-hidden="true" />
+                    <span>Records</span>
+                  </Link>
+                </div>
+              </>
             )}
           </Card>
         ) : (
-          <Card className="flex flex-col gap-3 p-2.5 sm:p-4 md:p-5">
-            <div className="flex items-center justify-between">
-              <h2 className="text-base font-bold">Budgets & Savings Goals</h2>
-              <div className="flex gap-2">
-                <Link href="/budgets">
-                  <Button variant="secondary" size="sm">Budgets</Button>
-                </Link>
-                <Link href="/piggy-banks">
-                  <Button variant="secondary" size="sm">Piggy Banks</Button>
+          <div className="flex flex-col gap-3">
+            {/* Card 1: Budget Left to Spend (Wallet Style) */}
+            <Card className="flex flex-col gap-3 p-3 sm:p-4 md:p-5">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <h2 className="text-base font-bold text-fg">Budget Left to Spend</h2>
+                  <p className="text-xs text-muted">In {primaryCode}</p>
+                </div>
+                <Link
+                  href="/budgets"
+                  className="rounded-lg p-1 text-muted hover:bg-surface-2 hover:text-fg transition-colors"
+                  aria-label="Manage budgets"
+                >
+                  <MoreVertical className="size-4" aria-hidden="true" />
                 </Link>
               </div>
-            </div>
 
-            {budgetRows.length === 0 && (piggyQ.data?.length ?? 0) === 0 ? (
-              <EmptyState title="No active budgets or piggy banks yet" />
-            ) : (
-              <div className="grid gap-3 sm:grid-cols-2">
-                {budgetRows.map((b) => {
-                  const pct = b.limit > 0 ? Math.min(100, Math.round((b.spent / b.limit) * 100)) : 0;
-                  return (
-                    <Link key={b.id} href="/budgets" className="rounded-xl border border-border p-3 hover:bg-surface-2">
-                      <div className="mb-1 flex items-center justify-between text-sm font-semibold">
-                        <span>{b.name}</span>
-                        <Badge tone={pct >= 100 ? "danger" : "primary"}>{pct}%</Badge>
-                      </div>
-                      <p className="mb-2 text-xs text-muted">
-                        <Money amount={b.spent} code={b.code} decimals={b.decimals} /> of{" "}
-                        <Money amount={b.limit} code={b.code} decimals={b.decimals} />
-                      </p>
-                      <Progress value={pct} tone={pct >= 100 ? "danger" : pct >= 80 ? "warning" : "primary"} />
-                    </Link>
-                  );
-                })}
-                {(piggyQ.data ?? []).map((p) => {
-                  const a = p.attributes;
-                  const cur = Number(a.current_amount || 0);
-                  const target = Number(a.target_amount || 0);
-                  const pct = target > 0 ? Math.min(100, Math.round((cur / target) * 100)) : 0;
-                  return (
-                    <Link key={p.id} href="/piggy-banks" className="rounded-xl border border-border p-3 hover:bg-surface-2">
-                      <div className="mb-1 flex items-center justify-between text-sm font-semibold">
-                        <span className="flex items-center gap-2">
-                          <ResourceIconBadge entityType="piggy" entityId={p.id} defaultIcon="PiggyBank" size="sm" />
-                          <span>{a.name}</span>
-                        </span>
-                        <Badge tone="success">{pct}%</Badge>
-                      </div>
-                      <p className="mb-2 text-xs text-muted">
-                        Saved <Money amount={cur} code={a.currency_code} decimals={a.currency_decimal_places} />
-                      </p>
-                      <Progress value={pct} tone="success" />
-                    </Link>
-                  );
-                })}
+              {budgetRows.length === 0 ? (
+                <p className="py-2 text-xs text-muted">
+                  No active monthly budgets configured yet. Create a budget to track how much you have left to spend.
+                </p>
+              ) : (
+                <div className="flex flex-col divide-y divide-border/60">
+                  {budgetRows.map((b) => {
+                    const pct = b.limit > 0 ? Math.min(100, Math.round((b.spent / b.limit) * 100)) : 0;
+                    const isTrendingOver = pct >= 80;
+                    return (
+                      <Link
+                        key={b.id}
+                        href="/budgets"
+                        className="group flex flex-col gap-1.5 py-2.5 first:pt-0 last:pb-0 hover:opacity-90 transition-opacity"
+                      >
+                        <div className="flex items-center justify-between text-xs sm:text-sm">
+                          <span className="font-semibold text-fg group-hover:text-primary transition-colors">
+                            {b.name}
+                          </span>
+                          <span className="inline-flex items-center gap-1 font-mono text-xs text-muted">
+                            <Money amount={b.spent} code={b.code} decimals={b.decimals} skipCurrency />
+                            <span>/</span>
+                            <Money amount={b.limit} code={b.code} decimals={b.decimals} skipCurrency />
+                            <ChevronRight className="size-3.5 text-muted" aria-hidden="true" />
+                          </span>
+                        </div>
+                        <div className="h-2.5 w-full overflow-hidden rounded-full bg-surface-2">
+                          <div
+                            className={cn(
+                              "h-full rounded-full transition-all duration-500",
+                              isTrendingOver ? "bg-warning" : "bg-success",
+                            )}
+                            style={{ width: `${Math.max(4, pct)}%` }}
+                          />
+                        </div>
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Status Legend */}
+              <div className="flex items-center gap-4 pt-1 text-xs text-muted">
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="size-2.5 rounded-xs bg-success" aria-hidden="true" />
+                  <span>On Track</span>
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="size-2.5 rounded-xs bg-warning" aria-hidden="true" />
+                  <span>Trending Over</span>
+                </span>
               </div>
-            )}
-          </Card>
+
+              {/* Action Pills */}
+              <div className="flex items-center justify-between gap-2 border-t border-border/60 pt-2.5">
+                <Link
+                  href="/budgets"
+                  className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-3 py-1.5 text-xs font-semibold text-fg hover:bg-surface-3 transition active:scale-95"
+                >
+                  <span>Show more</span>
+                </Link>
+                <Link
+                  href="/budgets"
+                  className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-3 py-1.5 text-xs font-semibold text-fg hover:bg-surface-3 transition active:scale-95"
+                >
+                  <span>Create budget</span>
+                </Link>
+              </div>
+            </Card>
+
+            {/* Card 2: Savings Goals / Piggy Banks (Wallet Style) */}
+            <Card className="flex flex-col gap-3 p-3 sm:p-4 md:p-5">
+              <div className="flex items-start gap-3">
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-success/15 text-success">
+                  <PiggyBank className="size-5" aria-hidden="true" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h2 className="text-base font-bold text-fg">Goals</h2>
+                  <p className="text-xs text-muted">
+                    {(piggyQ.data?.length ?? 0) === 0
+                      ? "Set your first goal and have a quick overview of your progress."
+                      : "Track your active savings goals and piggy banks."}
+                  </p>
+                </div>
+              </div>
+
+              {(piggyQ.data?.length ?? 0) > 0 && (
+                <div className="flex flex-col divide-y divide-border/60">
+                  {(piggyQ.data ?? []).map((p) => {
+                    const a = p.attributes;
+                    const cur = Number(a.current_amount || 0);
+                    const target = Number(a.target_amount || 0);
+                    const pct = target > 0 ? Math.min(100, Math.round((cur / target) * 100)) : 0;
+                    return (
+                      <Link
+                        key={p.id}
+                        href="/piggy-banks"
+                        className="group flex flex-col gap-1.5 py-2.5 first:pt-0 last:pb-0 hover:opacity-90 transition-opacity"
+                      >
+                        <div className="flex items-center justify-between text-xs sm:text-sm">
+                          <span className="flex items-center gap-2 font-semibold text-fg group-hover:text-primary transition-colors">
+                            <ResourceIconBadge entityType="piggy" entityId={p.id} defaultIcon="PiggyBank" size="xs" />
+                            <span>{a.name}</span>
+                          </span>
+                          <span className="inline-flex items-center gap-1 font-mono text-xs text-muted">
+                            <Money amount={cur} code={a.currency_code} decimals={a.currency_decimal_places} />
+                            {target > 0 && (
+                              <>
+                                <span>/</span>
+                                <Money amount={target} code={a.currency_code} decimals={a.currency_decimal_places} />
+                              </>
+                            )}
+                            <ChevronRight className="size-3.5 text-muted" aria-hidden="true" />
+                          </span>
+                        </div>
+                        <Progress value={pct} tone="success" />
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 border-t border-border/60 pt-2.5">
+                {(piggyQ.data?.length ?? 0) > 0 && (
+                  <Link
+                    href="/piggy-banks"
+                    className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-3 py-1.5 text-xs font-semibold text-fg hover:bg-surface-3 transition active:scale-95 mr-auto"
+                  >
+                    <span>Show more</span>
+                  </Link>
+                )}
+                <Link
+                  href="/piggy-banks"
+                  className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-3 py-1.5 text-xs font-semibold text-fg hover:bg-surface-3 transition active:scale-95"
+                >
+                  <span>Create goal</span>
+                </Link>
+              </div>
+            </Card>
+          </div>
         )}
         </div>
       </SwipeableWidget>
@@ -1789,6 +1950,12 @@ export function DashboardClient() {
           </div>
         )}
       </ModalSheet>
+
+      <CreateAccountModal
+        open={createAccountOpen}
+        onClose={() => setCreateAccountOpen(false)}
+        initialType="asset"
+      />
     </div>
   );
 }
@@ -2455,6 +2622,24 @@ const WalletGaugesCard = React.memo(function WalletGaugesCard({
       ? 100
       : 0;
 
+  // Compute dynamic needle positions (0 = far-left Red, 50 = center Yellow, 100 = far-right Green)
+  const balanceNeedlePct = balance.gt(0)
+    ? Math.min(96, 62 + Math.min(34, Math.log10(balance.toNumber() + 1) * 10))
+    : balance.eq(0)
+      ? 50
+      : Math.max(8, 35 - Math.min(27, Math.log10(balance.abs().toNumber() + 1) * 10));
+
+  const cashflowNeedlePct = cashflow.gt(0)
+    ? Math.min(95, 55 + Math.min(40, Math.max(8, savingsPct * 0.4)))
+    : cashflow.eq(0)
+      ? 50
+      : Math.max(8, 45 - Math.min(37, Math.max(10, Math.abs(savingsPct) * 0.35)));
+
+  const outlookNeedlePct = outlook.gte(0) ? 78 : 28;
+  const spendingNeedlePct = spendingAmt.eq(0) ? 85 : Math.max(12, 90 - spendingRatio * 0.75);
+  const creditNeedlePct = Math.max(8, 92 - creditPct * 0.85);
+  const debtNeedlePct = Math.max(8, 92 - debtPct * 0.85);
+
   // Proportional breakdown widths
   const totalFlow = Decimal.max(income, spendingAmt).toNumber() || 1;
   const incomeBarWidth = Math.min(100, Math.max(8, Math.round((income.toNumber() / totalFlow) * 100)));
@@ -2462,9 +2647,13 @@ const WalletGaugesCard = React.memo(function WalletGaugesCard({
 
   return (
     <div className="flex flex-1 flex-col justify-between gap-4">
-      {/* 2 Primary Modern KPI Cards: BALANCE & NET CASH FLOW */}
+      <p className="text-[11px] text-muted -mt-1">
+        Showing all amounts in base currency.
+      </p>
+
+      {/* 2 Primary Speedometer Needle Gauges: BALANCE & CASH-FLOW */}
       <div className="grid grid-cols-1 gap-3 @[720px]:grid-cols-2">
-        {/* Liquid Balance Card */}
+        {/* Liquid Balance Gauge Card */}
         <div className="flex items-center justify-between gap-3 rounded-2xl border border-border/80 bg-surface-2/40 p-3 sm:p-4">
           <div className="flex min-w-0 flex-1 flex-col">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-muted whitespace-nowrap">
@@ -2483,17 +2672,15 @@ const WalletGaugesCard = React.memo(function WalletGaugesCard({
             </span>
           </div>
           <div className="shrink-0 pl-1">
-            <RadialArcMeter
-              size="md"
-              pct={balance.gt(0) ? 85 : 15}
-              tone={balance.gt(0) ? "success" : "danger"}
-              value={balance.gt(0) ? "Active" : "Low"}
-              label="Asset Pool"
+            <NeedleGauge
+              size="lg"
+              pct={balanceNeedlePct}
+              label="BALANCE"
             />
           </div>
         </div>
 
-        {/* Net Cash Flow Card */}
+        {/* Net Cash Flow Gauge Card */}
         <div className="flex items-center justify-between gap-3 rounded-2xl border border-border/80 bg-surface-2/40 p-3 sm:p-4">
           <div className="flex min-w-0 flex-1 flex-col">
             <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
@@ -2518,15 +2705,59 @@ const WalletGaugesCard = React.memo(function WalletGaugesCard({
             </span>
           </div>
           <div className="shrink-0 pl-1">
-            <RadialArcMeter
-              size="md"
-              pct={Math.max(0, Math.min(100, savingsPct))}
-              tone={cashflow.gte(0) ? "success" : "danger"}
-              value={cashflow.gte(0) ? `+${savingsPct}%` : `${savingsPct}%`}
-              label="Savings Rate"
+            <NeedleGauge
+              size="lg"
+              pct={cashflowNeedlePct}
+              label="CASH-FLOW"
             />
           </div>
         </div>
+      </div>
+
+      {/* 4 Secondary Speedometer Needle Gauges (OUTLOOK, SPENDING, CREDIT, DEBT) */}
+      <div className="grid grid-cols-2 gap-2.5 rounded-xl border border-border/80 bg-surface-2/20 p-3 sm:grid-cols-4">
+        <NeedleGauge
+          size="sm"
+          pct={outlookNeedlePct}
+          label="OUTLOOK"
+          value={
+            <AnimatedMoney
+              amount={outlook.toNumber()}
+              code={primaryCode}
+              decimals={primaryDecimals}
+              symbol={primarySymbol}
+            />
+          }
+        />
+
+        <NeedleGauge
+          size="sm"
+          pct={spendingNeedlePct}
+          label="SPENDING"
+          value={
+            <AnimatedMoney
+              amount={spendingAmt.negated().toNumber()}
+              code={primaryCode}
+              decimals={primaryDecimals}
+              symbol={primarySymbol}
+              signed
+            />
+          }
+        />
+
+        <NeedleGauge
+          size="sm"
+          pct={creditNeedlePct}
+          label="CREDIT"
+          value={<AnimatedNumber value={creditPct} suffix="%" />}
+        />
+
+        <NeedleGauge
+          size="sm"
+          pct={debtNeedlePct}
+          label="DEBT"
+          value={<AnimatedNumber value={debtPct} suffix="%" />}
+        />
       </div>
 
       {/* Cash Flow Visual Proportional Bar */}
@@ -2576,60 +2807,9 @@ const WalletGaugesCard = React.memo(function WalletGaugesCard({
         </div>
       </div>
 
-      {/* 4 Modern Radial Metric Gauges (Outlook, Spending, Credit, Debt) */}
-      <div className="grid grid-cols-2 gap-2.5 rounded-xl border border-border/80 bg-surface-2/20 p-3 sm:grid-cols-4">
-        {/* Outlook */}
-        <RadialArcMeter
-          pct={outlook.gte(0) ? 80 : 35}
-          tone={outlook.gte(0) ? "success" : "warning"}
-          value={
-            <AnimatedMoney
-              amount={outlook.toNumber()}
-              code={primaryCode}
-              decimals={primaryDecimals}
-              symbol={primarySymbol}
-              skipCurrency
-            />
-          }
-          label="Outlook (7d)"
-        />
-
-        {/* Spending */}
-        <RadialArcMeter
-          pct={spendingRatio}
-          tone={spendingRatio <= 50 ? "success" : spendingRatio <= 80 ? "warning" : "danger"}
-          value={
-            <AnimatedMoney
-              amount={spendingAmt.toNumber()}
-              code={primaryCode}
-              decimals={primaryDecimals}
-              symbol={primarySymbol}
-              skipCurrency
-            />
-          }
-          label="Spending"
-        />
-
-        {/* Credit Utilization */}
-        <RadialArcMeter
-          pct={creditPct}
-          tone={creditPct <= 30 ? "success" : creditPct <= 50 ? "warning" : "danger"}
-          value={<AnimatedNumber value={creditPct} suffix="%" />}
-          label="Credit Use"
-        />
-
-        {/* Debt-to-Asset */}
-        <RadialArcMeter
-          pct={debtPct}
-          tone={debtPct <= 20 ? "success" : debtPct <= 40 ? "warning" : "danger"}
-          value={<AnimatedNumber value={debtPct} suffix="%" />}
-          label="Debt Ratio"
-        />
-      </div>
-
       <div className="flex items-center justify-between text-xs pt-0.5">
         <Link href="/transactions" className="font-semibold text-primary hover:underline flex items-center gap-1">
-          View all transactions <ArrowRight className="size-3" aria-hidden />
+          Show more <ArrowRight className="size-3" aria-hidden />
         </Link>
         <span className="text-[11px] text-muted">
           Base: {primaryCode} · {primaryDecimals} decimals

@@ -26,11 +26,13 @@ export function CreateAccountModal({
   open,
   onClose,
   initialType = "asset",
+  initialRole,
   onCreated,
 }: {
   open: boolean;
   onClose: () => void;
   initialType?: string;
+  initialRole?: string;
   onCreated?: (account: Account) => void;
 }) {
   const [rendered, setRendered] = useState(open);
@@ -53,6 +55,7 @@ export function CreateAccountModal({
       open={open}
       onClose={onClose}
       initialType={initialType}
+      initialRole={initialRole}
       onCreated={onCreated}
     />
   );
@@ -62,11 +65,13 @@ function CreateAccountModalContent({
   open,
   onClose,
   initialType = "asset",
+  initialRole,
   onCreated,
 }: {
   open: boolean;
   onClose: () => void;
   initialType?: string;
+  initialRole?: string;
   onCreated?: (account: Account) => void;
 }) {
   const qc = useQueryClient();
@@ -80,7 +85,7 @@ function CreateAccountModalContent({
   const primaryCode = primaryQ.data?.code;
   const [selectedCurrency, setSelectedCurrency] = useState<string | null>(null);
   const currencyCode = selectedCurrency ?? primaryCode ?? currencies?.[0]?.attributes.code ?? "USD";
-  const [accountRole, setAccountRole] = useState("defaultAsset");
+  const [accountRole, setAccountRole] = useState(initialRole || "defaultAsset");
   const [liabilityType, setLiabilityType] = useState("loan");
   const [liabilityDirection, setLiabilityDirection] = useState("debit");
   const [openingBalance, setOpeningBalance] = useState("");
@@ -100,9 +105,9 @@ function CreateAccountModalContent({
       setNotes("");
       setLiabilityType("loan");
       setLiabilityDirection("debit");
-      setAccountRole("defaultAsset");
+      setAccountRole(initialRole || "defaultAsset");
     }
-  }, [open, initialType]);
+  }, [open, initialType, initialRole]);
 
   const createMut = useMutation({
     mutationFn: async () => {

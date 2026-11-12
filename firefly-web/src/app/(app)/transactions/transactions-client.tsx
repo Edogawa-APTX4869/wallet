@@ -4,11 +4,12 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Filter, Plus, RotateCcw, Search } from "lucide-react";
+import Decimal from "decimal.js";
+import { Check, ChevronLeft, ChevronRight, Filter, Plus, RotateCcw, Search, X } from "lucide-react";
 import { api } from "@/lib/firefly/api";
 import type { Resource, TransactionGroup } from "@/lib/firefly/types";
-import { ASSET_LIKE, useAccounts } from "@/lib/hooks";
-import { monthRange, parseAmount } from "@/lib/utils";
+import { ASSET_LIKE, useAccounts, usePrimaryCurrency } from "@/lib/hooks";
+import { cn, monthRange, parseAmount } from "@/lib/utils";
 import { CategoryCascadeSelect } from "@/components/category-cascade";
 import { TransactionRow } from "@/components/transaction-row";
 import {
@@ -19,6 +20,7 @@ import {
   Field,
   Input,
   ModalSheet,
+  Money,
   PageHeader,
   Select,
   Skeleton,
@@ -27,6 +29,7 @@ import { useToast } from "@/components/providers";
 import { DesktopStickyFilterBar } from "@/components/filter-bar-desktop";
 import { MobileFilterDock } from "@/components/filter-dock-mobile";
 import { useUniversalFilter, type AccountFilterMode } from "@/lib/filter-context";
+import { type PeriodPreset } from "@/lib/filter-presets";
 import { useEscapeDismiss } from "@/lib/use-escape-dismiss";
 
 export interface Filters {
@@ -228,6 +231,106 @@ export function TransactionsClient() {
     () => (accountsQ.data ?? []).filter((a) => ASSET_LIKE.has(a.attributes.type)),
     [accountsQ.data],
   );
+  const primaryQ = usePrimaryCurrency();
+  const primaryCode = primaryQ.data?.code ?? "BHD";
+  const primaryDecimals = primaryQ.data?.decimal_places ?? 3;
+
+  const perspectiveAccountId = useMemo(() => {
+    if (filters.accountId) return filters.accountId;
+    if (universalFilter.accountFilter === "custom" && universalFilter.selectedAccountIds.length === 1) {
+      return universalFilter.selectedAccountIds[0];
+    }
+    return undefined;
+  }, [filters.accountId, universalFilter.accountFilter, universalFilter.selectedAccountIds]);
+
+  const activeAccountObj = useMemo(() => {
+    if (!perspectiveAccountId) return null;
+    return (accountsQ.data ?? []).find((a) => a.id === perspectiveAccountId) ?? null;
+  }, [accountsQ.data, perspectiveAccountId]);
+
+  const summaryCurrencyCode = activeAccountObj?.attributes.currency_code || primaryCode;
+  const summaryDecimals = activeAccountObj?.attributes.currency_decimal_places ?? primaryDecimals;
+
+  // Compute signed net impact of a transaction group (from perspectiveAccountId or overall cash flow)
+  const { monthlySections, periodTotalSum } = useMemo(() => {
+    const sectionsMap = new Map<
+      string,
+      { key: string; label: string; sum: Decimal; items: Array<Resource<TransactionGroup>> }
+    >();
+    let grandTotal = new Decimal(0);
+
+    for (const g of groups) {
+      const s = g.attributes.transactions[0];
+      const rawDate = (s?.date || "").slice(0, 10);
+      const ymKey = rawDate.length >= 7 ? rawDate.slice(0, 7) : "unknown";
+      let monthLabel = "RECENT";
+      if (ymKey !== "unknown") {
+        const [yStr, mStr] = ymKey.split("-");
+        const dObj = new Date(Number(yStr), Math.max(0, Number(mStr) - 1), 1);
+        monthLabel = dObj
+          .toLocaleDateString("en-US", { month: "short", year: "numeric" })
+          .toUpperCase();
+      }
+
+      let groupDelta = new Decimal(0);
+      for (const split of g.attributes.transactions) {
+        let amt = new Decimal(0);
+        try {
+          amt = new Decimal(split.amount || 0).abs();
+        } catch {
+          amt = new Decimal(0);
+        }
+
+        if (perspectiveAccountId) {
+          if (split.type === "deposit" && (split.destination_id === perspectiveAccountId || !split.destination_id)) {
+            groupDelta = groupDelta.plus(amt);
+          } else if (split.type === "withdrawal" && split.source_id === perspectiveAccountId) {
+            groupDelta = groupDelta.minus(amt);
+          } else if (split.type === "transfer") {
+            if (split.destination_id === perspectiveAccountId) {
+              let destAmt = amt;
+              if (split.foreign_amount && split.foreign_amount.trim()) {
+                try {
+                  destAmt = new Decimal(split.foreign_amount.trim()).abs();
+                } catch {
+                  destAmt = amt;
+                }
+              }
+              groupDelta = groupDelta.plus(destAmt);
+            }
+            if (split.source_id === perspectiveAccountId) {
+              groupDelta = groupDelta.minus(amt);
+            }
+          }
+        } else {
+          if (split.type === "deposit") {
+            groupDelta = groupDelta.plus(amt);
+          } else if (split.type === "withdrawal") {
+            groupDelta = groupDelta.minus(amt);
+          }
+        }
+      }
+
+      grandTotal = grandTotal.plus(groupDelta);
+      const existing = sectionsMap.get(ymKey);
+      if (existing) {
+        existing.sum = existing.sum.plus(groupDelta);
+        existing.items.push(g);
+      } else {
+        sectionsMap.set(ymKey, {
+          key: ymKey,
+          label: monthLabel,
+          sum: groupDelta,
+          items: [g],
+        });
+      }
+    }
+
+    return {
+      monthlySections: [...sectionsMap.values()],
+      periodTotalSum: grandTotal,
+    };
+  }, [groups, perspectiveAccountId]);
 
   return (
     <div className="flex flex-col gap-5">
@@ -408,31 +511,118 @@ export function TransactionsClient() {
 
       <ErrorBox error={txQ.error} />
 
-      <Card>
+      {/* Active Account Filter Pill (when navigated from Home or filtered by a single account) */}
+      {activeAccountObj && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-primary/30 bg-primary-soft/15 px-3.5 py-2 text-xs">
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-muted">Account filter:</span>
+            <Link
+              href={`/accounts/${activeAccountObj.id}`}
+              className="font-bold text-primary hover:underline"
+            >
+              {activeAccountObj.attributes.name}
+            </Link>
+            <span className="text-muted">({activeAccountObj.attributes.currency_code})</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setFilters((f) => ({ ...f, accountId: "" }));
+              if (universalFilter.accountFilter === "custom") {
+                universalFilter.setAccountFilter("all_stats", []);
+              }
+            }}
+            className="inline-flex items-center gap-1 rounded-full bg-surface px-2.5 py-1 text-xs font-semibold text-fg hover:bg-surface-2 transition cursor-pointer"
+          >
+            <X className="size-3" aria-hidden="true" />
+            <span>Show all accounts</span>
+          </button>
+        </div>
+      )}
+
+      {/* BudgetBakers Wallet-Style Top Period Summary Strip */}
+      <div className="flex items-center justify-between rounded-xl border border-border bg-surface-2/60 px-4 py-2.5 text-xs sm:text-sm">
+        <span className="font-bold uppercase tracking-wider text-muted">
+          {universalFilter.displayLabel}
+        </span>
+        <span
+          className={cn(
+            "tabular font-mono font-bold",
+            periodTotalSum.gt(0)
+              ? "text-success"
+              : periodTotalSum.lt(0)
+                ? "text-danger"
+                : "text-fg",
+          )}
+        >
+          <span className="mr-1.5 text-muted font-sans">Σ</span>
+          <Money
+            amount={periodTotalSum.toString()}
+            code={summaryCurrencyCode}
+            decimals={summaryDecimals}
+            signed
+          />
+        </span>
+      </div>
+
+      <Card className="p-0 overflow-hidden">
         {txQ.isLoading ? (
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-3 p-4">
             <Skeleton className="h-12" />
             <Skeleton className="h-12" />
             <Skeleton className="h-12" />
             <Skeleton className="h-12" />
           </div>
         ) : groups.length === 0 ? (
-          <EmptyState title="No matching transactions">
-            {hasActiveFilters ? "Try adjusting or resetting your filters." : "Create your first transaction to get started."}
-          </EmptyState>
+          <div className="p-6">
+            <EmptyState title="No matching transactions">
+              {hasActiveFilters ? "Try adjusting or resetting your filters." : "Create your first transaction to get started."}
+            </EmptyState>
+          </div>
         ) : (
           <>
-            <ul className="divide-y divide-border">
-              {groups.map((g) => (
-                <TransactionRow
-                  key={g.id}
-                  group={g}
-                  onEdit={(item) => setEditingGroup(item)}
-                  onDelete={(id) => delMut.mutate(id)}
-                />
+            <div className="flex flex-col divide-y divide-border">
+              {monthlySections.map((sec) => (
+                <div key={sec.key} className="flex flex-col">
+                  {/* Monthly Section Header (e.g., NOV 2026 | -BHD 1,110.00) */}
+                  <div className="flex items-center justify-between bg-surface-2/70 px-4 py-2 text-xs border-b border-border/60">
+                    <span className="font-bold uppercase tracking-wider text-muted">
+                      {sec.label}
+                    </span>
+                    <span
+                      className={cn(
+                        "tabular font-mono font-semibold",
+                        sec.sum.gt(0)
+                          ? "text-success"
+                          : sec.sum.lt(0)
+                            ? "text-danger"
+                            : "text-muted",
+                      )}
+                    >
+                      <Money
+                        amount={sec.sum.toString()}
+                        code={summaryCurrencyCode}
+                        decimals={summaryDecimals}
+                        signed
+                      />
+                    </span>
+                  </div>
+
+                  <ul className="divide-y divide-border px-3 sm:px-4">
+                    {sec.items.map((g) => (
+                      <TransactionRow
+                        key={g.id}
+                        group={g}
+                        perspectiveAccountId={perspectiveAccountId}
+                        onEdit={(item) => setEditingGroup(item)}
+                        onDelete={(id) => delMut.mutate(id)}
+                      />
+                    ))}
+                  </ul>
+                </div>
               ))}
-            </ul>
-            <div ref={sentinelRef} className="mt-4 flex justify-center">
+            </div>
+            <div ref={sentinelRef} className="p-4 flex justify-center">
               {txQ.hasNextPage && (
                 <Button
                   variant="secondary"
@@ -447,6 +637,46 @@ export function TransactionsClient() {
           </>
         )}
       </Card>
+
+      {/* BudgetBakers Wallet-Style Bottom Period Navigator Bar (◀ [ This month / This year ▼ ] ▶) */}
+      <div className="sticky bottom-[calc(4.25rem+env(safe-area-inset-bottom))] md:bottom-4 z-20 flex items-center justify-between gap-2 rounded-2xl border border-border bg-surface/95 px-3 py-2 shadow-lg backdrop-blur">
+        <button
+          type="button"
+          onClick={() => universalFilter.stepPeriod(-1)}
+          aria-label="Previous period"
+          className="inline-flex size-9 items-center justify-center rounded-xl border border-border bg-surface-2 text-fg hover:bg-surface-3 transition active:scale-95 cursor-pointer"
+        >
+          <ChevronLeft className="size-4" aria-hidden="true" />
+        </button>
+
+        <div className="flex items-center gap-2">
+          <Select
+            aria-label="Select period preset"
+            value={universalFilter.preset}
+            onChange={(e) => universalFilter.setPreset(e.target.value as PeriodPreset)}
+            className="h-9 min-w-[155px] rounded-xl border-border bg-surface-2 px-3 text-center text-xs sm:text-sm font-semibold"
+          >
+            <option value="this_month">This month</option>
+            <option value="last_month">Last month</option>
+            <option value="30D">Last 30 days</option>
+            <option value="6M">Last 6 months</option>
+            <option value="this_year">This year</option>
+            <option value="1Y">Last 12 months</option>
+            {universalFilter.preset === "custom" && (
+              <option value="custom">{universalFilter.displayLabel}</option>
+            )}
+          </Select>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => universalFilter.stepPeriod(1)}
+          aria-label="Next period"
+          className="inline-flex size-9 items-center justify-center rounded-xl border border-border bg-surface-2 text-fg hover:bg-surface-3 transition active:scale-95 cursor-pointer"
+        >
+          <ChevronRight className="size-4" aria-hidden="true" />
+        </button>
+      </div>
 
       {editingGroup && (
         <EditTransactionModal
