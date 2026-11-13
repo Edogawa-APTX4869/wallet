@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Decimal from "decimal.js";
-import { ArrowDown, ArrowUp, Check, ChevronRight, GripVertical, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, GripVertical, Pencil, Plus, Trash2, X } from "lucide-react";
 import { api } from "@/lib/firefly/api";
 import type { Category, SpentEntry } from "@/lib/firefly/types";
 import { buildCategoryTree, formatCategoryName, type CategoryTreeGroup } from "@/components/category-cascade";
@@ -80,6 +80,7 @@ export function CategoriesClient() {
   const [parentOrder, setParentOrder] = useState<string[]>(() => getStoredCategoryOrder());
   const [draggingParent, setDraggingParent] = useState<string | null>(null);
   const [dragOverParent, setDragOverParent] = useState<string | null>(null);
+  const [collapsedParents, setCollapsedParents] = useState<Set<string>>(() => new Set());
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["categories"] });
@@ -148,17 +149,23 @@ export function CategoriesClient() {
     toast(`Reordered "${fromParent}"`);
   };
 
-  const stepCategory = (parent: string, delta: -1 | 1) => {
-    const allParents = tree.map((g) => g.parent);
-    const idx = allParents.indexOf(parent);
-    if (idx === -1) return;
-    const targetIdx = idx + delta;
-    if (targetIdx < 0 || targetIdx >= allParents.length) return;
-    const newOrder = [...allParents];
-    const [moved] = newOrder.splice(idx, 1);
-    newOrder.splice(targetIdx, 0, moved);
-    setParentOrder(newOrder);
-    saveStoredCategoryOrder(newOrder);
+  const allCollapsed = tree.length > 0 && tree.every((g) => collapsedParents.has(g.parent));
+
+  const toggleCollapse = (parent: string) => {
+    setCollapsedParents((prev) => {
+      const next = new Set(prev);
+      if (next.has(parent)) next.delete(parent);
+      else next.add(parent);
+      return next;
+    });
+  };
+
+  const toggleCollapseAll = () => {
+    if (allCollapsed) {
+      setCollapsedParents(new Set());
+    } else {
+      setCollapsedParents(new Set(tree.map((g) => g.parent)));
+    }
   };
 
   return (
@@ -166,6 +173,21 @@ export function CategoriesClient() {
       <PageHeader
         title="Categories & Sub-categories"
         subtitle={`Hierarchical categories (Category → Sub-category) · Totals for ${range.label}`}
+        actions={
+          tree.length > 0 ? (
+            <Button variant="secondary" size="sm" onClick={toggleCollapseAll}>
+              {allCollapsed ? (
+                <>
+                  <ChevronsUpDown className="size-4" aria-hidden /> Expand all
+                </>
+              ) : (
+                <>
+                  <ChevronsDownUp className="size-4" aria-hidden /> Collapse all
+                </>
+              )}
+            </Button>
+          ) : undefined
+        }
       />
 
       <div className="rounded-xl border border-border bg-surface p-3.5 sm:p-4 shadow-2xs">
@@ -239,7 +261,7 @@ export function CategoriesClient() {
         </Card>
       ) : (
         <div className="flex flex-col gap-4">
-          {tree.map((group, idx) => {
+          {tree.map((group) => {
             const parentRes = group.parentResource;
             const allSpent = mergeTotals([
               parentRes?.attributes.spent ?? [],
@@ -250,8 +272,7 @@ export function CategoriesClient() {
               ...group.subcategories.map((s) => s.resource.attributes.earned ?? []),
             ]);
             const isEditingParent = parentRes && editId === parentRes.id;
-            const isFirst = idx === 0;
-            const isLast = idx === tree.length - 1;
+            const isCollapsed = collapsedParents.has(group.parent);
             const isDropTarget = dragOverParent === group.parent && draggingParent !== group.parent;
 
             return (
@@ -284,7 +305,12 @@ export function CategoriesClient() {
                 }}
               >
                 {/* Parent Category Header */}
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
+                <div
+                  className={cn(
+                    "flex items-center justify-between gap-2",
+                    (!isCollapsed || quickAddUnderParent === group.parent) && "border-b border-border pb-3",
+                  )}
+                >
                   {isEditingParent ? (
                     <form
                       onSubmit={(e) => {
@@ -307,7 +333,7 @@ export function CategoriesClient() {
                       </Button>
                     </form>
                   ) : (
-                    <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                    <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
                       {/* Drag handle */}
                       <button
                         type="button"
@@ -323,9 +349,25 @@ export function CategoriesClient() {
                         }}
                         aria-label={`Drag to reorder ${group.parent}`}
                         title="Drag to reorder category"
-                        className="flex size-7 shrink-0 cursor-grab items-center justify-center rounded-lg text-muted/70 hover:bg-surface-2 hover:text-fg active:cursor-grabbing"
+                        className="flex size-6 shrink-0 cursor-grab items-center justify-center rounded-md text-muted/70 hover:bg-surface-2 hover:text-fg active:cursor-grabbing"
                       >
                         <GripVertical className="size-4" />
+                      </button>
+
+                      {/* Collapse / Expand toggle */}
+                      <button
+                        type="button"
+                        onClick={() => toggleCollapse(group.parent)}
+                        aria-label={isCollapsed ? `Expand ${group.parent}` : `Collapse ${group.parent}`}
+                        aria-expanded={!isCollapsed}
+                        title={isCollapsed ? "Expand category" : "Collapse category"}
+                        className="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-2 hover:text-fg"
+                      >
+                        {isCollapsed ? (
+                          <ChevronRight className="size-4" aria-hidden />
+                        ) : (
+                          <ChevronDown className="size-4" aria-hidden />
+                        )}
                       </button>
 
                       <ResourceIconBadge
@@ -334,57 +376,40 @@ export function CategoriesClient() {
                         defaultIcon={inferCategoryDefaultStyle(group.parent).icon}
                         defaultColor={inferCategoryDefaultStyle(group.parent).color}
                       />
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h2 className="truncate font-semibold">{group.parent}</h2>
-                          <Badge tone="neutral">
-                            {group.subcategories.length} sub-categor{group.subcategories.length === 1 ? "y" : "ies"}
+
+                      <button
+                        type="button"
+                        onClick={() => toggleCollapse(group.parent)}
+                        className="min-w-0 flex-1 text-left cursor-pointer"
+                      >
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                          <h2 className="truncate font-semibold text-sm sm:text-base text-fg">{group.parent}</h2>
+                          <Badge tone="neutral" className="text-[11px] px-1.5 py-0">
+                            {group.subcategories.length}
                           </Badge>
                         </div>
                         <TotalsInline spent={allSpent} earned={allEarned} labelPrefix="Total " />
-                      </div>
+                      </button>
                     </div>
                   )}
 
                   {!isEditingParent && (
-                    <div className="flex items-center gap-1.5">
-                      {/* Order Up / Down buttons */}
-                      <div className="flex items-center rounded-lg border border-border/80 bg-surface-2/40 p-0.5">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          disabled={isFirst}
-                          onClick={() => stepCategory(group.parent, -1)}
-                          aria-label={`Move ${group.parent} up`}
-                          title="Move up"
-                          className="size-7 min-h-7 min-w-7 rounded-md p-0"
-                        >
-                          <ArrowUp className="size-3.5" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          disabled={isLast}
-                          onClick={() => stepCategory(group.parent, 1)}
-                          aria-label={`Move ${group.parent} down`}
-                          title="Move down"
-                          className="size-7 min-h-7 min-w-7 rounded-md p-0"
-                        >
-                          <ArrowDown className="size-3.5" />
-                        </Button>
-                      </div>
-
+                    <div className="flex items-center gap-0.5 shrink-0">
                       <Button
                         variant="secondary"
-                        size="sm"
+                        size="icon"
                         onClick={() => {
+                          if (isCollapsed) toggleCollapse(group.parent);
                           setQuickAddUnderParent(
                             quickAddUnderParent === group.parent ? null : group.parent,
                           );
                           setQuickSubName("");
                         }}
+                        aria-label={`Add sub-category under ${group.parent}`}
+                        title="Add sub-category"
+                        className="size-8 min-h-8 min-w-8 rounded-lg p-0"
                       >
-                        <Plus className="size-3.5" aria-hidden /> Add sub-category
+                        <Plus className="size-4" aria-hidden />
                       </Button>
                       {parentRes && (
                         <>
@@ -396,16 +421,20 @@ export function CategoriesClient() {
                               setEditName(parentRes.attributes.name);
                             }}
                             aria-label={`Rename ${group.parent}`}
+                            title="Rename category"
+                            className="size-8 min-h-8 min-w-8 rounded-lg p-0"
                           >
-                            <Pencil className="size-4" />
+                            <Pencil className="size-3.5" />
                           </Button>
                           <Button
                             variant="ghost"
                             size="icon"
                             onClick={() => delMut.mutate(parentRes.id)}
                             aria-label={`Delete ${group.parent}`}
+                            title="Delete category"
+                            className="size-8 min-h-8 min-w-8 rounded-lg p-0"
                           >
-                            <Trash2 className="size-4 text-danger" />
+                            <Trash2 className="size-3.5 text-danger" />
                           </Button>
                         </>
                       )}
@@ -440,95 +469,98 @@ export function CategoriesClient() {
                   </form>
                 )}
 
-                {/* Sub-categories list */}
-                {group.subcategories.length === 0 ? (
-                  <p className="pl-2 text-xs text-muted">
-                    No sub-categories under <strong>{group.parent}</strong> yet. Click <em>+ Add sub-category</em> to create
-                    one.
-                  </p>
-                ) : (
-                  <ul className="divide-y divide-border pl-4">
-                    {group.subcategories.map(({ sub, full, resource }) => {
-                      const isEditingSub = editId === resource.id;
-                      const spent = resource.attributes.spent ?? [];
-                      const earned = resource.attributes.earned ?? [];
-                      return (
-                        <li key={resource.id} className="flex flex-wrap items-center justify-between gap-3 py-2.5">
-                          {isEditingSub ? (
-                            <form
-                              onSubmit={(e) => {
-                                e.preventDefault();
-                                updateMut.mutate({ id: resource.id, name: formatCategoryName(group.parent, editName) });
-                              }}
-                              className="flex flex-1 items-center gap-2"
-                            >
-                              <span className="text-xs font-medium text-muted">{group.parent} :</span>
-                              <Input
-                                value={editName}
-                                onChange={(e) => setEditName(e.target.value)}
-                                aria-label="Sub-category name"
-                                autoFocus
-                              />
-                              <Button type="submit" size="icon" variant="primary" aria-label="Save">
-                                <Check className="size-4" />
-                              </Button>
-                              <Button
-                                type="button"
-                                size="icon"
-                                variant="ghost"
-                                onClick={() => setEditId(null)}
-                                aria-label="Cancel"
-                              >
-                                <X className="size-4" />
-                              </Button>
-                            </form>
-                          ) : (
-                            <div className="flex min-w-0 flex-1 items-center gap-2.5">
-                              <ResourceIconBadge
-                                entityType="category"
-                                entityId={resource.id}
-                                defaultIcon={inferCategoryDefaultStyle(full).icon}
-                                defaultColor={inferCategoryDefaultStyle(full).color}
-                                size="sm"
-                              />
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-center gap-1.5 text-sm">
-                                  <span className="text-muted">{group.parent}</span>
-                                  <ChevronRight className="size-3.5 text-muted" aria-hidden />
-                                  <span className="truncate font-medium">{sub}</span>
-                                </div>
-                                <TotalsInline spent={spent} earned={earned} />
-                              </div>
-                            </div>
-                          )}
-
-                          {!isEditingSub && (
-                            <div className="flex items-center gap-1">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => {
-                                  setEditId(resource.id);
-                                  setEditName(sub);
+                {/* Sub-categories list (hidden when collapsed) */}
+                {!isCollapsed && (
+                  group.subcategories.length === 0 ? (
+                    <p className="pl-2 text-xs text-muted">
+                      No sub-categories under <strong>{group.parent}</strong> yet. Tap <strong>+</strong> to create one.
+                    </p>
+                  ) : (
+                    <ul className="divide-y divide-border pl-4">
+                      {group.subcategories.map(({ sub, full, resource }) => {
+                        const isEditingSub = editId === resource.id;
+                        const spent = resource.attributes.spent ?? [];
+                        const earned = resource.attributes.earned ?? [];
+                        return (
+                          <li key={resource.id} className="flex items-center justify-between gap-2 py-2.5">
+                            {isEditingSub ? (
+                              <form
+                                onSubmit={(e) => {
+                                  e.preventDefault();
+                                  updateMut.mutate({ id: resource.id, name: formatCategoryName(group.parent, editName) });
                                 }}
-                                aria-label={`Rename ${full}`}
+                                className="flex flex-1 items-center gap-2"
                               >
-                                <Pencil className="size-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => delMut.mutate(resource.id)}
-                                aria-label={`Delete ${full}`}
-                              >
-                                <Trash2 className="size-4 text-danger" />
-                              </Button>
-                            </div>
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ul>
+                                <span className="text-xs font-medium text-muted">{group.parent} :</span>
+                                <Input
+                                  value={editName}
+                                  onChange={(e) => setEditName(e.target.value)}
+                                  aria-label="Sub-category name"
+                                  autoFocus
+                                />
+                                <Button type="submit" size="icon" variant="primary" aria-label="Save">
+                                  <Check className="size-4" />
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  variant="ghost"
+                                  onClick={() => setEditId(null)}
+                                  aria-label="Cancel"
+                                >
+                                  <X className="size-4" />
+                                </Button>
+                              </form>
+                            ) : (
+                              <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                                <ResourceIconBadge
+                                  entityType="category"
+                                  entityId={resource.id}
+                                  defaultIcon={inferCategoryDefaultStyle(full).icon}
+                                  defaultColor={inferCategoryDefaultStyle(full).color}
+                                  size="sm"
+                                />
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-1.5 text-sm">
+                                    <span className="hidden sm:inline text-muted">{group.parent}</span>
+                                    <ChevronRight className="hidden sm:inline size-3.5 text-muted" aria-hidden />
+                                    <span className="truncate font-medium">{sub}</span>
+                                  </div>
+                                  <TotalsInline spent={spent} earned={earned} />
+                                </div>
+                              </div>
+                            )}
+
+                            {!isEditingSub && (
+                              <div className="flex items-center gap-0.5 shrink-0">
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => {
+                                    setEditId(resource.id);
+                                    setEditName(sub);
+                                  }}
+                                  aria-label={`Rename ${full}`}
+                                  className="size-8 min-h-8 min-w-8 rounded-lg p-0"
+                                >
+                                  <Pencil className="size-3.5" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => delMut.mutate(resource.id)}
+                                  aria-label={`Delete ${full}`}
+                                  className="size-8 min-h-8 min-w-8 rounded-lg p-0"
+                                >
+                                  <Trash2 className="size-3.5 text-danger" />
+                                </Button>
+                              </div>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )
                 )}
               </Card>
             );
