@@ -823,7 +823,17 @@ function WalletCalculatorForm({
             - On Desktop (>= lg): Keyboard-first financial core */}
         <div className={cn("flex-1 flex-col lg:col-span-5 lg:flex", detailsOpen ? "hidden" : "flex")}>
           {/* MOBILE ONLY (< lg) KEYPAD VIEW */}
-          <div className="flex flex-1 flex-col justify-between lg:hidden">
+          <div className="relative flex flex-1 flex-col justify-between lg:hidden">
+            {/* Right-edge pull-tab: tap or swipe left for more details */}
+            <button
+              type="button"
+              onClick={() => setDetailsOpen(true)}
+              aria-label="More details"
+              title="Swipe left or tap for more details"
+              className="fixed top-1/2 right-0 z-20 flex h-12 w-7 -translate-y-1/2 items-center justify-center rounded-l-full border border-r-0 border-border bg-surface text-muted shadow-md hover:text-fg active:scale-95"
+            >
+              <ChevronLeft className="size-4" />
+            </button>
             <div className="flex flex-col gap-3 border-b border-border p-3 sm:p-4">
               {(billName || billId) && (
                 <div className="flex items-center justify-between gap-2 rounded-xl border border-primary/25 bg-primary/10 px-3 py-2 text-xs font-semibold text-primary">
@@ -970,21 +980,14 @@ function WalletCalculatorForm({
             )}
 
             {/* Quick Description Bar above keypad (Mobile) */}
-            <div className="flex items-center justify-between gap-2 border-b border-border bg-surface px-4 py-2 text-xs">
+            <div className="flex items-center border-b border-border bg-surface px-4 py-2.5 text-xs">
               <input
                 type="text"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder={defaultDescription() + " (tap to add note / description)…"}
-                className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted"
+                className="w-full bg-transparent text-sm outline-none placeholder:text-muted"
               />
-              <button
-                type="button"
-                onClick={() => setDetailsOpen(true)}
-                className="shrink-0 rounded-lg bg-primary-soft px-2.5 py-1 font-semibold text-primary"
-              >
-                {type === "transfer" ? "More details →" : "Details & Category →"}
-              </button>
             </div>
 
             {/* 4x4 Calculator Keypad (Mobile only) */}

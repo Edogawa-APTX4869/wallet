@@ -41,8 +41,9 @@ describe("NewTransaction regression guards", () => {
     expect(APP_SHELL_SRC).toContain("isFullBleedOverlayRoute\n            ? \"p-0 md:px-8 md:pt-7 md:pb-24\"");
     expect(NEW_TX_SRC).toContain("min-h-dvh w-full flex-col overflow-hidden bg-surface lg:min-h-0 lg:max-w-5xl lg:rounded-2xl");
     expect(NEW_TX_SRC).toContain("<ArrowLeft className=\"size-5\" />");
+    expect(NEW_TX_SRC).toContain("right-0 z-20 flex h-12 w-7 -translate-y-1/2 items-center justify-center rounded-l-full");
     expect(NEW_TX_SRC).not.toContain("More details (Category, Budget, Tags)");
-    expect(NEW_TX_SRC).not.toContain("Open in-depth details");
+    expect(NEW_TX_SRC).not.toContain("Details & Category →");
     expect(NEW_TX_SRC).toContain("className=\"hidden lg:flex items-center gap-2\"");
   });
 });
