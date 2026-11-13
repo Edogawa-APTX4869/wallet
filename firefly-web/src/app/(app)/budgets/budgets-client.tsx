@@ -3,11 +3,13 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Decimal from "decimal.js";
-import { ChevronLeft, ChevronRight, Pencil, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Pencil, Plus, Settings2, SlidersHorizontal } from "lucide-react";
 import { api } from "@/lib/firefly/api";
+import type { Budget, Resource } from "@/lib/firefly/types";
 import { usePrimaryCurrency } from "@/lib/hooks";
 import { monthRange, parseAmount, sumDecimal } from "@/lib/utils";
 import { ResourceIconBadge } from "@/components/resource-icon";
+import { BudgetConfigModal } from "@/components/budget-config-modal";
 import {
   Badge,
   Button,
@@ -43,6 +45,9 @@ export function BudgetsClient() {
   const [newName, setNewName] = useState("");
   const [editingLimitId, setEditingLimitId] = useState<string | null>(null);
   const [limitAmount, setLimitAmount] = useState("");
+  const [configOpen, setConfigOpen] = useState(false);
+  const [configBudget, setConfigBudget] = useState<Resource<Budget> | null>(null);
+  const [configInitialName, setConfigInitialName] = useState("");
 
   useEscapeDismiss(editingLimitId !== null, () => setEditingLimitId(null), "budget-edit-limit");
 
@@ -98,9 +103,14 @@ export function BudgetsClient() {
         spentEntries[0]?.currency_decimal_places ??
         defaultDecimals;
       return {
+        raw: b,
         id: b.id,
         name: b.attributes.name,
         active: b.attributes.active,
+        autoBudgetType: b.attributes.auto_budget_type,
+        autoBudgetAmount: b.attributes.auto_budget_amount,
+        autoBudgetPeriod: b.attributes.auto_budget_period,
+        autoBudgetCurrencyCode: b.attributes.auto_budget_currency_code,
         limit: limitVal,
         spent: spentVal,
         left: leftVal,
@@ -110,22 +120,39 @@ export function BudgetsClient() {
     });
   }, [budgetsQ.data, limitsQ.data, defaultCode, defaultDecimals]);
 
+  const openCreateModal = (seedName = "") => {
+    setConfigBudget(null);
+    setConfigInitialName(seedName);
+    setConfigOpen(true);
+  };
+
+  const openEditModal = (b: Resource<Budget>) => {
+    setConfigBudget(b);
+    setConfigInitialName("");
+    setConfigOpen(true);
+  };
+
   return (
     <div className="flex flex-col gap-5">
       <PageHeader
         title="Budgets"
         subtitle={`${range.start} → ${range.end}`}
         actions={
-          <div className="flex items-center gap-1">
-            <Button variant="secondary" size="icon" onClick={() => setMonthOffset((m) => m - 1)} aria-label="Previous month">
-              <ChevronLeft className="size-4" />
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" onClick={() => openCreateModal("")}>
+              <Plus className="size-4" aria-hidden /> New budget
             </Button>
-            <Button variant="secondary" size="sm" onClick={() => setMonthOffset(0)}>
-              {range.label}
-            </Button>
-            <Button variant="secondary" size="icon" onClick={() => setMonthOffset((m) => m + 1)} aria-label="Next month">
-              <ChevronRight className="size-4" />
-            </Button>
+            <div className="flex items-center gap-1">
+              <Button variant="secondary" size="icon" onClick={() => setMonthOffset((m) => m - 1)} aria-label="Previous month">
+                <ChevronLeft className="size-4" />
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => setMonthOffset(0)}>
+                {range.label}
+              </Button>
+              <Button variant="secondary" size="icon" onClick={() => setMonthOffset((m) => m + 1)} aria-label="Next month">
+                <ChevronRight className="size-4" />
+              </Button>
+            </div>
           </div>
         }
       />
@@ -138,7 +165,7 @@ export function BudgetsClient() {
           }}
           className="flex flex-wrap items-end gap-3"
         >
-          <Field label="Create a new budget" className="min-w-56 flex-1">
+          <Field label="Quick add budget" className="min-w-56 flex-1">
             {(id) => (
               <Input
                 id={id}
@@ -151,6 +178,13 @@ export function BudgetsClient() {
           </Field>
           <Button type="submit" loading={createMut.isPending}>
             <Plus className="size-4" aria-hidden /> Add budget
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => openCreateModal(newName.trim())}
+          >
+            <SlidersHorizontal className="size-4" aria-hidden /> Full configuration
           </Button>
         </form>
       </div>
@@ -188,8 +222,17 @@ export function BudgetsClient() {
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1">
                     {!r.active && <Badge tone="warning">Inactive</Badge>}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => openEditModal(r.raw)}
+                      title="Configure budget"
+                      aria-label={`Configure ${r.name}`}
+                    >
+                      <Settings2 className="size-3.5" aria-hidden />
+                    </Button>
                     <Button
                       variant="ghost"
                       size="sm"
@@ -202,6 +245,20 @@ export function BudgetsClient() {
                     </Button>
                   </div>
                 </div>
+
+                {r.autoBudgetType && r.autoBudgetType !== "none" && r.autoBudgetAmount && (
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <Badge tone="neutral" className="text-[11px]">
+                      Auto: {r.autoBudgetType} ·{" "}
+                      <Money
+                        amount={r.autoBudgetAmount}
+                        code={r.autoBudgetCurrencyCode || r.code}
+                        decimals={r.decimals}
+                      />{" "}
+                      / {r.autoBudgetPeriod || "monthly"}
+                    </Badge>
+                  </div>
+                )}
 
                 {isEditing && (
                   <form
@@ -251,6 +308,13 @@ export function BudgetsClient() {
           })}
         </div>
       )}
+
+      <BudgetConfigModal
+        open={configOpen}
+        onClose={() => setConfigOpen(false)}
+        budget={configBudget}
+        initialName={configInitialName}
+      />
     </div>
   );
 }

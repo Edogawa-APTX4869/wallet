@@ -120,14 +120,20 @@ export interface SpentEntry {
   currency_decimal_places?: number;
 }
 
+export type AutoBudgetType = "none" | "reset" | "rollover" | "adjusted";
+export type AutoBudgetPeriod = "daily" | "weekly" | "monthly" | "quarterly" | "half-year" | "yearly";
+
 export interface Budget {
   name: string;
   active: boolean;
   order?: number;
+  notes?: string | null;
   spent?: SpentEntry[];
-  auto_budget_type?: string | null;
+  auto_budget_type?: AutoBudgetType | string | null;
   auto_budget_amount?: string | null;
+  auto_budget_currency_id?: string | null;
   auto_budget_currency_code?: string | null;
+  auto_budget_period?: AutoBudgetPeriod | string | null;
 }
 
 export interface BudgetLimit {

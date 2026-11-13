@@ -2,6 +2,8 @@ import type {
   About,
   AboutUser,
   Account,
+  AutoBudgetPeriod,
+  AutoBudgetType,
   BasicSummary,
   Bill,
   Budget,
@@ -116,6 +118,48 @@ export async function getAll<T>(path: string, params: Params = {}, maxPages = 20
 
 // ---------- Domain helpers ----------
 
+export interface BudgetPayload {
+  name: string;
+  active?: boolean;
+  order?: number;
+  notes?: string | null;
+  auto_budget_type?: AutoBudgetType | null;
+  auto_budget_currency_id?: string | null;
+  auto_budget_currency_code?: string | null;
+  auto_budget_amount?: string | null;
+  auto_budget_period?: AutoBudgetPeriod | null;
+}
+
+async function uploadAttachment(
+  attachableType: "TransactionJournal" | "Budget",
+  attachableId: string,
+  file: { name: string; type: string; dataUrl: string },
+) {
+  const created = await ff.post<SingleResponse<{ filename: string }>>("attachments", {
+    filename: file.name,
+    attachable_type: attachableType,
+    attachable_id: String(attachableId),
+    title: file.name,
+    notes: "Uploaded via FireFly Companion",
+  });
+  const attachmentId = created.data.id;
+  const base64Part = file.dataUrl.includes(",") ? file.dataUrl.split(",")[1] : file.dataUrl;
+  const binaryStr = atob(base64Part);
+  const bytes = new Uint8Array(binaryStr.length);
+  for (let i = 0; i < binaryStr.length; i++) {
+    bytes[i] = binaryStr.charCodeAt(i);
+  }
+  const uploadRes = await fetch(`/api/ff/attachments/${encodeURIComponent(attachmentId)}/upload`, {
+    method: "POST",
+    headers: { "Content-Type": "application/octet-stream" },
+    body: bytes,
+  });
+  if (!uploadRes.ok) {
+    throw new Error(`Failed to upload binary for attachment ${file.name} (HTTP ${uploadRes.status})`);
+  }
+  return attachmentId;
+}
+
 export const api = {
   about: () => ff.get<{ data: About }>("about").then((r) => r.data),
   user: () => ff.get<{ data: { attributes: AboutUser } }>("about/user").then((r) => r.data.attributes),
@@ -154,34 +198,14 @@ export const api = {
       group_title: groupTitle,
       transactions: splits,
     }),
-  uploadTransactionAttachment: async (
+  uploadTransactionAttachment: (
     journalId: string,
     file: { name: string; type: string; dataUrl: string },
-  ) => {
-    const created = await ff.post<SingleResponse<{ filename: string }>>("attachments", {
-      filename: file.name,
-      attachable_type: "TransactionJournal",
-      attachable_id: String(journalId),
-      title: file.name,
-      notes: "Uploaded via FireFly Companion",
-    });
-    const attachmentId = created.data.id;
-    const base64Part = file.dataUrl.includes(",") ? file.dataUrl.split(",")[1] : file.dataUrl;
-    const binaryStr = atob(base64Part);
-    const bytes = new Uint8Array(binaryStr.length);
-    for (let i = 0; i < binaryStr.length; i++) {
-      bytes[i] = binaryStr.charCodeAt(i);
-    }
-    const uploadRes = await fetch(`/api/ff/attachments/${encodeURIComponent(attachmentId)}/upload`, {
-      method: "POST",
-      headers: { "Content-Type": "application/octet-stream" },
-      body: bytes,
-    });
-    if (!uploadRes.ok) {
-      throw new Error(`Failed to upload binary for attachment ${file.name} (HTTP ${uploadRes.status})`);
-    }
-    return attachmentId;
-  },
+  ) => uploadAttachment("TransactionJournal", journalId, file),
+  uploadBudgetAttachment: (
+    budgetId: string,
+    file: { name: string; type: string; dataUrl: string },
+  ) => uploadAttachment("Budget", budgetId, file),
   updateTransaction: (id: string, splits: Partial<NewSplit>[], groupTitle?: string) =>
     ff.put<SingleResponse<TransactionGroup>>(`transactions/${id}`, {
       apply_rules: true,
@@ -285,7 +309,14 @@ export const api = {
 
   budgets: (start: string, end: string) => getAll<Budget>("budgets", { start, end }),
   budgetLimits: (start: string, end: string) => getAll<BudgetLimit>("budget-limits", { start, end }),
-  createBudget: (name: string) => ff.post("budgets", { name, active: true }),
+  createBudget: (payload: string | BudgetPayload) =>
+    ff.post<SingleResponse<Budget>>(
+      "budgets",
+      typeof payload === "string" ? { name: payload, active: true } : { active: true, ...payload },
+    ),
+  updateBudget: (id: string, payload: Partial<BudgetPayload>) =>
+    ff.put<SingleResponse<Budget>>(`budgets/${encodeURIComponent(id)}`, payload),
+  deleteBudget: (id: string) => ff.del(`budgets/${encodeURIComponent(id)}`),
   setBudgetLimit: (budgetId: string, amount: string, start: string, end: string, currency_code?: string) =>
     ff.post(`budgets/${budgetId}/limits`, { amount, start, end, currency_code }),
 
