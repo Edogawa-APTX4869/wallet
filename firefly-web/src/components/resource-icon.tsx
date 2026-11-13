@@ -1,51 +1,157 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEscapeDismiss } from "@/lib/use-escape-dismiss";
 import {
+  Activity,
+  AlarmClock,
+  AlertTriangle,
+  Anchor,
+  Apple,
+  ArrowLeftRight,
+  Award,
   Baby,
+  Bandage,
   Banknote,
+  BarChart3,
+  Barcode,
+  Bed,
+  Beef,
+  Beer,
+  Bell,
+  Bike,
+  Book,
+  Bookmark,
+  BookOpen,
   Briefcase,
+  Building,
   Building2,
   Bus,
+  Cake,
+  Calculator,
+  Calendar,
+  Camera,
   Car,
+  Cat,
+  CheckCircle2,
+  ChefHat,
+  Clapperboard,
+  Clock,
+  Cloud,
   Coffee,
   Coins,
+  Compass,
+  Cookie,
+  Cpu,
   CreditCard,
+  Crown,
+  CupSoda,
+  Dice5,
+  Dog,
+  DollarSign,
+  Droplet,
   Dumbbell,
+  FileSpreadsheet,
   Film,
+  Fish,
+  Flag,
   Flame,
+  Flower2,
+  Folder,
   FolderTree,
   Fuel,
   Gamepad2,
+  Gem,
   Gift,
+  Glasses,
+  Globe,
   GraduationCap,
+  Hammer,
+  Headphones,
+  Heart,
   HeartPulse,
+  HelpCircle,
   Home,
+  Hotel,
+  IceCreamCone,
+  Joystick,
+  Key,
+  Lamp,
   Landmark,
   Laptop,
+  Leaf,
+  Lock,
+  Luggage,
+  MapPin,
+  Medal,
+  Mic,
+  Monitor,
+  Mountain,
+  Music,
+  Navigation,
+  Newspaper,
+  Package,
+  Paintbrush,
+  Palmtree,
   PawPrint,
+  PenTool,
+  Percent,
   Phone,
+  PieChart,
   PiggyBank,
+  Pill,
   Pizza,
   Plane,
+  Printer,
+  Radio,
   Receipt,
   Repeat,
+  Router,
+  Salad,
+  Scale,
+  Scissors,
+  Search,
+  Shield,
+  ShieldCheck,
+  Ship,
   Shirt,
   ShoppingBag,
   ShoppingCart,
   Smartphone,
+  Smile,
+  Sofa,
+  Soup,
   Sparkles,
-  Store,
+  Star,
   Stethoscope,
+  Store,
+  Sun,
+  Syringe,
+  Tag,
   Tags,
+  Tent,
+  Thermometer,
+  Ticket,
+  Train,
+  TramFront,
+  Trash2,
+  Trees,
+  TrendingDown,
   TrendingUp,
+  Trophy,
   Tv,
+  Umbrella,
+  User,
+  Users,
   Utensils,
+  Video,
   Wallet,
+  WashingMachine,
+  Watch,
   Wifi,
+  Wine,
   Wrench,
   Zap,
   type LucideIcon,
@@ -54,6 +160,7 @@ import type { Account } from "@/lib/firefly/types";
 import { cn } from "@/lib/utils";
 
 export const ICON_CATALOG: Record<string, LucideIcon> = {
+  // Finance, Banking & Investing
   Wallet,
   Landmark,
   CreditCard,
@@ -61,53 +168,170 @@ export const ICON_CATALOG: Record<string, LucideIcon> = {
   Coins,
   PiggyBank,
   TrendingUp,
+  TrendingDown,
+  BarChart3,
+  PieChart,
+  DollarSign,
+  Percent,
+  Gem,
+  Award,
+  Crown,
+  Scale,
+  Calculator,
+  Receipt,
+  FileSpreadsheet,
+  ArrowLeftRight,
+  Repeat,
+  // Shopping & Retail
   Building2,
+  Building,
   Store,
   ShoppingCart,
   ShoppingBag,
+  Tag,
+  Tags,
+  Barcode,
+  Package,
+  Gift,
+  Shirt,
+  Watch,
+  Glasses,
+  Scissors,
+  Sparkles,
+  // Food & Dining
   Utensils,
   Coffee,
   Pizza,
+  CupSoda,
+  Wine,
+  Beer,
+  Cake,
+  Cookie,
+  Apple,
+  Beef,
+  Fish,
+  IceCreamCone,
+  ChefHat,
+  Soup,
+  Salad,
+  // Home & Utilities
   Home,
+  Bed,
+  Sofa,
+  Lamp,
+  Key,
+  Lock,
+  Shield,
+  ShieldCheck,
   Zap,
+  Flame,
+  Droplet,
+  Thermometer,
   Wifi,
+  Router,
   Phone,
   Smartphone,
+  Wrench,
+  Hammer,
+  Paintbrush,
+  Trash2,
+  WashingMachine,
+  // Transport & Travel
   Car,
   Fuel,
   Bus,
+  Train,
+  TramFront,
+  Bike,
   Plane,
+  Ship,
+  Anchor,
+  Navigation,
+  MapPin,
+  Compass,
+  Luggage,
+  Hotel,
+  Tent,
+  Palmtree,
+  Sun,
+  Umbrella,
+  Mountain,
+  Ticket,
+  // Health & Fitness
+  Heart,
   HeartPulse,
   Stethoscope,
+  Pill,
+  Syringe,
+  Bandage,
+  Activity,
   Dumbbell,
-  GraduationCap,
-  Briefcase,
-  Laptop,
+  Trophy,
+  Medal,
+  Smile,
+  // Entertainment, Media & Tech
   Gamepad2,
+  Joystick,
+  Dice5,
   Film,
+  Clapperboard,
   Tv,
-  Shirt,
-  Gift,
+  Radio,
+  Music,
+  Headphones,
+  Mic,
+  Camera,
+  Video,
+  BookOpen,
+  Newspaper,
+  Laptop,
+  Monitor,
+  Cpu,
+  Printer,
+  Cloud,
+  Globe,
+  // Work, Education, Family & Nature
+  Briefcase,
+  GraduationCap,
+  Book,
+  PenTool,
+  Calendar,
+  Clock,
+  AlarmClock,
+  Users,
+  User,
   Baby,
   PawPrint,
-  Wrench,
-  Receipt,
-  Repeat,
-  Tags,
+  Dog,
+  Cat,
+  Flower2,
+  Trees,
+  Leaf,
+  // Organization
+  Folder,
   FolderTree,
-  Sparkles,
-  Flame,
+  Star,
+  Bookmark,
+  Bell,
+  Flag,
+  AlertTriangle,
+  CheckCircle2,
+  HelpCircle,
 };
 
 export const COLOR_PALETTE = [
   "#6366f1", // Indigo
   "#3b82f6", // Blue
   "#0ea5e9", // Sky
+  "#06b6d4", // Cyan
   "#10b981", // Emerald
   "#22c55e", // Green
+  "#84cc16", // Lime
   "#eab308", // Yellow
+  "#f59e0b", // Amber
   "#f97316", // Orange
   "#ef4444", // Red
+  "#f43f5e", // Rose
   "#ec4899", // Pink
   "#a855f7", // Purple
   "#14b8a6", // Teal
@@ -275,6 +499,7 @@ export function ResourceIconBadge({
   const updateMut = useUpdateResourceMeta();
   const [open, setOpen] = useState(false);
   const [rendered, setRendered] = useState(open);
+  const [iconQuery, setIconQuery] = useState("");
 
   if (open && !rendered) {
     setRendered(true);
@@ -285,7 +510,17 @@ export function ResourceIconBadge({
       const timer = window.setTimeout(() => setRendered(false), 200);
       return () => window.clearTimeout(timer);
     }
+    if (open) {
+      setIconQuery("");
+    }
   }, [open, rendered]);
+
+  const filteredIcons = useMemo(() => {
+    const q = iconQuery.trim().toLowerCase();
+    const entries = Object.entries(ICON_CATALOG);
+    if (!q) return entries;
+    return entries.filter(([name]) => name.toLowerCase().includes(q));
+  }, [iconQuery]);
 
   const isClosing = !open && rendered;
   const showPicker = open || isClosing;
@@ -402,26 +637,46 @@ export function ResourceIconBadge({
               ))}
             </div>
 
+            {/* Icon search */}
+            <div className="relative mb-2.5">
+              <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted" aria-hidden />
+              <input
+                type="search"
+                value={iconQuery}
+                onChange={(e) => setIconQuery(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                placeholder={`Search ${Object.keys(ICON_CATALOG).length} icons…`}
+                aria-label="Search icons"
+                className="h-9 w-full rounded-xl border border-border bg-surface-2/60 pl-8 pr-3 text-xs text-fg outline-none transition-colors placeholder:text-muted focus:border-primary focus:ring-2 focus:ring-primary/25"
+              />
+            </div>
+
             {/* Icon grid */}
-            <div className="grid max-h-56 grid-cols-7 gap-1.5 overflow-y-auto p-1.5 rounded-xl bg-surface-2/40 border border-border/50">
-              {Object.entries(ICON_CATALOG).map(([name, Comp]) => (
-                <button
-                  key={name}
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    updateMut.mutate({ entity_type: entityType, entity_id: entityId, icon: name });
-                    setOpen(false);
-                  }}
-                  title={name}
-                  className={cn(
-                    "flex size-9 cursor-pointer items-center justify-center rounded-xl transition-all hover:bg-surface hover:shadow-xs active:scale-90",
-                    iconName === name && "bg-primary text-primary-fg ring-2 ring-primary/40 shadow-xs font-bold",
-                  )}
-                >
-                  <Comp className="size-4" />
-                </button>
-              ))}
+            <div className="grid max-h-60 grid-cols-7 gap-1.5 overflow-y-auto p-1.5 rounded-xl bg-surface-2/40 border border-border/50">
+              {filteredIcons.length === 0 ? (
+                <p className="col-span-7 py-6 text-center text-xs text-muted">
+                  No icons match &ldquo;{iconQuery}&rdquo;
+                </p>
+              ) : (
+                filteredIcons.map(([name, Comp]) => (
+                  <button
+                    key={name}
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      updateMut.mutate({ entity_type: entityType, entity_id: entityId, icon: name });
+                      setOpen(false);
+                    }}
+                    title={name}
+                    className={cn(
+                      "flex size-9 cursor-pointer items-center justify-center rounded-xl transition-all hover:bg-surface hover:shadow-xs active:scale-90",
+                      iconName === name && "bg-primary text-primary-fg ring-2 ring-primary/40 shadow-xs font-bold",
+                    )}
+                  >
+                    <Comp className="size-4" />
+                  </button>
+                ))
+              )}
             </div>
           </div>
         </div>,
