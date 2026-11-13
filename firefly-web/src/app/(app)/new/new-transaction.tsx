@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Decimal from "decimal.js";
 import {
+  ArrowLeft,
   ArrowLeftRight,
   BookmarkPlus,
   Calculator,
@@ -483,11 +484,19 @@ function WalletCalculatorForm({
     linked.controls.setFrom(val === "0" && !next ? "" : val);
   }
 
+  function resetFxKeepAmount() {
+    const currentFrom = state.fromAmount || (expr ? parseAmount(evaluateCalcExpression(expr)) : "");
+    linked.controls.reset(Boolean(currentFrom));
+    if (currentFrom && !state.fromAmount) {
+      linked.controls.setFrom(currentFrom);
+    }
+  }
+
   function swapTransferAccounts() {
     if (type !== "transfer" || !assetId || !effectiveDestId) return;
     setAssetId(effectiveDestId);
     setDestId(assetId);
-    linked.controls.reset();
+    resetFxKeepAmount();
   }
 
   function openSetupCurrencyModal() {
@@ -581,7 +590,7 @@ function WalletCalculatorForm({
   const mutation = useMutation({
     mutationFn: async () => {
       if (!asset) throw new Error("Choose an account.");
-      const amount = state.fromAmount;
+      const amount = state.fromAmount || (expr ? parseAmount(evaluateCalcExpression(expr)) : "");
       if (!amount || new Decimal(amount).lte(0)) throw new Error("Enter an amount greater than zero.");
       if (state.isCross && (!state.toAmount || new Decimal(state.toAmount).lte(0))) {
         throw new Error(`Enter the ${otherCur?.code} amount.`);
@@ -593,7 +602,7 @@ function WalletCalculatorForm({
         amount,
         description: description.trim() || defaultDescription(),
         currency_code: assetCur?.code || undefined,
-        category_name: category.trim() || undefined,
+        category_name: type === "transfer" ? undefined : category.trim() || undefined,
         tags: tags
           .split(",")
           .map((t) => t.trim())
@@ -728,7 +737,7 @@ function WalletCalculatorForm({
 
   return (
     <div
-      className="relative mx-auto w-full max-w-xl overflow-hidden rounded-2xl border border-border bg-surface shadow-sm lg:max-w-5xl"
+      className="relative mx-auto flex min-h-dvh w-full flex-col overflow-hidden bg-surface lg:min-h-0 lg:max-w-5xl lg:rounded-2xl lg:border lg:border-border lg:shadow-sm"
       onTouchStart={(e) => setTouchStartX(e.touches[0]?.clientX ?? null)}
       onTouchEnd={(e) => {
         if (touchStartX === null) return;
@@ -748,9 +757,9 @@ function WalletCalculatorForm({
             variant="ghost"
             size="icon"
             onClick={handleCancelOrBack}
-            aria-label={detailsOpen ? "Back to calculator" : "Cancel"}
+            aria-label={detailsOpen ? "Back to calculator" : "Back"}
           >
-            {detailsOpen ? <ChevronLeft className="size-5" /> : <X className="size-5" />}
+            <ArrowLeft className="size-5" />
           </Button>
           <span className="text-sm font-semibold">
             {detailsOpen ? "Transaction details" : "New transaction"}
@@ -808,13 +817,13 @@ function WalletCalculatorForm({
           - Desktop (>= lg): ergonomic keyboard-first 2-column form
             - Left Column (5 cols): Amount input with live math evaluation preview, denomination chips (+10, +50, +100), dual-currency preview with in-place rate editing
             - Right Column (7 cols): Description, Source/Destination Accounts, Category cascade select, Date/Budget, Tags, Notes, Attachments, Submit */}
-      <div className="lg:grid lg:grid-cols-12 lg:divide-x lg:divide-border">
+      <div className="flex flex-1 flex-col lg:grid lg:grid-cols-12 lg:divide-x lg:divide-border">
         {/* LEFT PANE:
             - On Mobile (< lg): Keypad view with Giant Amount card, inline account select, and 4x4 keypad
             - On Desktop (>= lg): Keyboard-first financial core */}
-        <div className={cn("flex-col lg:col-span-5 lg:flex", detailsOpen ? "hidden" : "flex")}>
+        <div className={cn("flex-1 flex-col lg:col-span-5 lg:flex", detailsOpen ? "hidden" : "flex")}>
           {/* MOBILE ONLY (< lg) KEYPAD VIEW */}
-          <div className="flex flex-col lg:hidden">
+          <div className="flex flex-1 flex-col justify-between lg:hidden">
             <div className="flex flex-col gap-3 border-b border-border p-3 sm:p-4">
               {(billName || billId) && (
                 <div className="flex items-center justify-between gap-2 rounded-xl border border-primary/25 bg-primary/10 px-3 py-2 text-xs font-semibold text-primary">
@@ -848,18 +857,9 @@ function WalletCalculatorForm({
                     = {evaluateCalcExpression(expr)} {assetCur?.code}
                   </span>
                 )}
-                {category && <Badge className="mt-2">{category.replace(/\s*:\s*/g, " › ")}</Badge>}
-
-                {/* Mobile pull-tab to flip to details */}
-                <button
-                  type="button"
-                  onClick={() => setDetailsOpen((o) => !o)}
-                  aria-label={detailsOpen ? "Back to calculator" : "Open in-depth details"}
-                  title="Swipe or tap for in-depth details"
-                  className="absolute top-1/2 right-2 flex size-8 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-surface text-muted shadow-sm hover:text-fg"
-                >
-                  {detailsOpen ? <ChevronRight className="size-4" /> : <ChevronLeft className="size-4" />}
-                </button>
+                {type !== "transfer" && category && (
+                  <Badge className="mt-2">{category.replace(/\s*:\s*/g, " › ")}</Badge>
+                )}
               </div>
 
               {/* Inline From → To / Category bar */}
@@ -870,7 +870,7 @@ function WalletCalculatorForm({
                     value={assetId ?? ""}
                     onChange={(e) => {
                       setAssetId(e.target.value);
-                      linked.controls.reset();
+                      resetFxKeepAmount();
                     }}
                     aria-label="Select primary account"
                   >
@@ -903,7 +903,7 @@ function WalletCalculatorForm({
                       value={effectiveDestId ?? ""}
                       onChange={(e) => {
                         setDestId(e.target.value);
-                        linked.controls.reset();
+                        resetFxKeepAmount();
                       }}
                       aria-label="Select destination account"
                     >
@@ -983,19 +983,19 @@ function WalletCalculatorForm({
                 onClick={() => setDetailsOpen(true)}
                 className="shrink-0 rounded-lg bg-primary-soft px-2.5 py-1 font-semibold text-primary"
               >
-                Details & Category →
+                {type === "transfer" ? "More details →" : "Details & Category →"}
               </button>
             </div>
 
             {/* 4x4 Calculator Keypad (Mobile only) */}
-            <div className="grid flex-1 grid-cols-4 select-none bg-surface">
-              <div className="col-span-3 grid grid-cols-3 divide-x divide-y divide-border">
+            <div className="grid flex-1 grid-cols-4 select-none bg-surface pb-[env(safe-area-inset-bottom)]">
+              <div className="col-span-3 grid grid-cols-3 grid-rows-4 divide-x divide-y divide-border">
                 {["7", "8", "9", "4", "5", "6", "1", "2", "3"].map((digit) => (
                   <button
                     key={digit}
                     type="button"
                     onClick={() => onCalcPress(digit)}
-                    className="flex h-16 items-center justify-center text-2xl font-normal text-fg hover:bg-surface-2/60 active:bg-surface-2 sm:h-18"
+                    className="flex min-h-16 items-center justify-center text-2xl font-normal text-fg hover:bg-surface-2/60 active:bg-surface-2"
                   >
                     {digit}
                   </button>
@@ -1003,14 +1003,14 @@ function WalletCalculatorForm({
                 <button
                   type="button"
                   onClick={() => onCalcPress(".")}
-                  className="flex h-16 items-center justify-center text-2xl font-normal text-fg hover:bg-surface-2/60 active:bg-surface-2 sm:h-18"
+                  className="flex min-h-16 items-center justify-center text-2xl font-normal text-fg hover:bg-surface-2/60 active:bg-surface-2"
                 >
                   .
                 </button>
                 <button
                   type="button"
                   onClick={() => onCalcPress("0")}
-                  className="flex h-16 items-center justify-center text-2xl font-normal text-fg hover:bg-surface-2/60 active:bg-surface-2 sm:h-18"
+                  className="flex min-h-16 items-center justify-center text-2xl font-normal text-fg hover:bg-surface-2/60 active:bg-surface-2"
                 >
                   0
                 </button>
@@ -1018,7 +1018,7 @@ function WalletCalculatorForm({
                   type="button"
                   onClick={() => onCalcPress("BACK")}
                   aria-label="Backspace"
-                  className="flex h-16 items-center justify-center text-muted hover:bg-surface-2/60 active:bg-surface-2 sm:h-18"
+                  className="flex min-h-16 items-center justify-center text-muted hover:bg-surface-2/60 active:bg-surface-2"
                 >
                   <Delete className="size-5" />
                 </button>
@@ -1043,15 +1043,6 @@ function WalletCalculatorForm({
                   </button>
                 ))}
               </div>
-            </div>
-
-            <div className="flex items-center justify-between gap-2 border-t border-border bg-surface-2 px-4 py-3">
-              <Button type="button" variant="secondary" size="sm" onClick={() => setDetailsOpen(true)}>
-                More details (Category, Budget, Tags)
-              </Button>
-              <Button type="button" onClick={() => mutation.mutate()} loading={mutation.isPending}>
-                <Check className="size-4" aria-hidden /> Save {TABS.find((t) => t.type === type)?.label.toLowerCase()}
-              </Button>
             </div>
           </div>
 
@@ -1176,7 +1167,7 @@ function WalletCalculatorForm({
                     value={foreignCode}
                     onChange={(e) => {
                       setForeignCode(e.target.value === assetCur?.code ? "" : e.target.value);
-                      linked.controls.reset();
+                      resetFxKeepAmount();
                     }}
                   >
                     <option value="">{assetCur ? `${assetCur.code} (Account currency)` : "Account currency"}</option>
@@ -1311,7 +1302,7 @@ function WalletCalculatorForm({
                       onClick={() => {
                         setAssetId(p.s);
                         setDestId(p.d);
-                        linked.controls.reset();
+                        resetFxKeepAmount();
                       }}
                       className="rounded-full border border-border px-2.5 py-0.5 text-xs font-medium hover:border-primary hover:bg-surface-2 transition"
                     >
@@ -1358,7 +1349,7 @@ function WalletCalculatorForm({
               value={assetId}
               onChange={(id) => {
                 setAssetId(id);
-                linked.controls.reset();
+                resetFxKeepAmount();
               }}
             />
             {type === "transfer" ? (
@@ -1369,7 +1360,7 @@ function WalletCalculatorForm({
                 excludeId={assetId}
                 onChange={(id) => {
                   setDestId(id);
-                  linked.controls.reset();
+                  resetFxKeepAmount();
                 }}
               />
             ) : (
@@ -1404,7 +1395,7 @@ function WalletCalculatorForm({
                     value={foreignCode}
                     onChange={(e) => {
                       setForeignCode(e.target.value === assetCur?.code ? "" : e.target.value);
-                      linked.controls.reset();
+                      resetFxKeepAmount();
                     }}
                   >
                     <option value="">{assetCur ? `${assetCur.code} (account currency)` : "Account currency"}</option>
@@ -1429,9 +1420,11 @@ function WalletCalculatorForm({
             />
           </div>
 
-          <div className="sm:col-span-2">
-            <CategoryCascadeSelect categories={categoriesQ.data} value={category} onChange={setCategory} />
-          </div>
+          {type !== "transfer" && (
+            <div className="sm:col-span-2">
+              <CategoryCascadeSelect categories={categoriesQ.data} value={category} onChange={setCategory} />
+            </div>
+          )}
 
           <div className={cn("grid gap-3", type === "withdrawal" ? "sm:grid-cols-2" : "grid-cols-1")}>
             <Field label="Date">
@@ -1564,7 +1557,7 @@ function WalletCalculatorForm({
               </div>
             )}
 
-            <div className="flex items-center gap-2">
+            <div className="hidden lg:flex items-center gap-2">
               <Button type="button" variant="ghost" onClick={() => router.back()}>
                 Cancel
               </Button>

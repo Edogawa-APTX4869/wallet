@@ -852,10 +852,15 @@ export function AppShellInner({ children, serverUrl }: { children: React.ReactNo
 
       <main
         className={cn(
-          "min-w-0 flex-1 px-3.5 pt-4 sm:px-6 sm:pt-6 md:px-8 md:pt-7 md:pb-24 pl-[max(0.875rem,env(safe-area-inset-left))] pr-[max(0.875rem,env(safe-area-inset-right))]",
-          isOverlayRoute
-            ? "pb-[calc(2rem+env(safe-area-inset-bottom))]"
-            : "pb-[calc(8rem+env(safe-area-inset-bottom))]",
+          "min-w-0 flex-1",
+          isFullBleedOverlayRoute
+            ? "p-0 md:px-8 md:pt-7 md:pb-24"
+            : cn(
+                "px-3.5 pt-4 sm:px-6 sm:pt-6 md:px-8 md:pt-7 md:pb-24 pl-[max(0.875rem,env(safe-area-inset-left))] pr-[max(0.875rem,env(safe-area-inset-right))]",
+                isOverlayRoute
+                  ? "pb-[calc(2rem+env(safe-area-inset-bottom))]"
+                  : "pb-[calc(8rem+env(safe-area-inset-bottom))]",
+              ),
         )}
       >
         <div className="mx-auto w-full max-w-6xl xl:max-w-7xl 2xl:max-w-[1720px] 3xl:max-w-[2400px] transition-all duration-150">

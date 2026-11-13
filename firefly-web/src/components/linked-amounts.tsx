@@ -100,8 +100,8 @@ export function useLinkedAmounts(from: CurrencyInfo | null, to: CurrencyInfo | n
     rateOverride,
     setRateOverride,
     stored,
-    reset: () => {
-      setFromInput("");
+    reset: (keepFrom?: boolean) => {
+      if (!keepFrom) setFromInput("");
       setToInput("");
       setLead("from");
       setRateOverride(null);
