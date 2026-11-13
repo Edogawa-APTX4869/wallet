@@ -574,7 +574,7 @@ export function ResourceIconBadge({
       {showPicker && typeof document !== "undefined" && createPortal(
         <div
           className={cn(
-            "fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs",
+            "fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs overscroll-none touch-none",
             isClosing ? "drawer-backdrop-out pointer-events-none" : "drawer-backdrop-in",
           )}
           onMouseDown={(e) => {
@@ -599,7 +599,7 @@ export function ResourceIconBadge({
               e.stopPropagation();
             }}
             className={cn(
-              "w-full max-w-xs rounded-2xl border border-border bg-surface p-4 shadow-2xl sm:max-w-sm relative z-10",
+              "w-full max-w-xs rounded-2xl border border-border bg-surface p-4 shadow-2xl touch-auto sm:max-w-sm relative z-10",
               isClosing ? "animate-pop-out pointer-events-none" : "animate-pop-in",
             )}
           >
@@ -652,7 +652,7 @@ export function ResourceIconBadge({
             </div>
 
             {/* Icon grid */}
-            <div className="grid max-h-60 grid-cols-7 gap-1.5 overflow-y-auto p-1.5 rounded-xl bg-surface-2/40 border border-border/50">
+            <div className="grid max-h-60 grid-cols-7 gap-1.5 overflow-y-auto overscroll-contain touch-pan-y p-1.5 rounded-xl bg-surface-2/40 border border-border/50">
               {filteredIcons.length === 0 ? (
                 <p className="col-span-7 py-6 text-center text-xs text-muted">
                   No icons match &ldquo;{iconQuery}&rdquo;

@@ -57,6 +57,8 @@ describe("ModalSheet Smooth Transitions", () => {
     );
     expect(html).toContain("sheet-up");
     expect(html).toContain("drawer-backdrop-in");
+    expect(html).toContain("overscroll-none touch-none");
+    expect(html).toContain("overscroll-contain touch-pan-y");
     expect(html).toContain("role=\"dialog\"");
     expect(html).toContain("aria-modal=\"true\"");
     expect(html).toContain("Test Modal");

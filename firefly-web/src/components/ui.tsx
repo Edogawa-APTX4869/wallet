@@ -310,15 +310,6 @@ export function ModalSheet({
     }
   }, [open, rendered]);
 
-  useEffect(() => {
-    if (!open || typeof document === "undefined") return;
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prevOverflow;
-    };
-  }, [open]);
-
   if (!open && !rendered) return null;
 
   const isClosing = !open && rendered;
@@ -326,7 +317,7 @@ export function ModalSheet({
   const modalNode = (
     <div
       className={cn(
-        "fixed inset-0 z-[100] flex items-end justify-center bg-black/65 p-0 backdrop-blur-md sm:items-center sm:p-4",
+        "fixed inset-0 z-[100] flex items-end justify-center bg-black/65 p-0 backdrop-blur-md overscroll-none touch-none sm:items-center sm:p-4",
         isClosing ? "drawer-backdrop-out pointer-events-none" : "drawer-backdrop-in",
       )}
       onClick={onClose}
@@ -336,7 +327,7 @@ export function ModalSheet({
       <div
         onClick={(e) => e.stopPropagation()}
         className={cn(
-          "flex max-h-[90dvh] w-full flex-col overflow-hidden rounded-t-3xl border border-border bg-surface shadow-2xl sm:rounded-3xl",
+          "flex max-h-[90dvh] w-full flex-col overflow-hidden rounded-t-3xl border border-border bg-surface shadow-2xl touch-auto sm:rounded-3xl",
           maxWidth,
           isClosing ? "sheet-down pointer-events-none" : "sheet-up",
         )}
@@ -361,7 +352,7 @@ export function ModalSheet({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:pb-5">
+        <div className="flex-1 overflow-y-auto overscroll-contain touch-pan-y p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] sm:pb-5">
           {children}
         </div>
       </div>

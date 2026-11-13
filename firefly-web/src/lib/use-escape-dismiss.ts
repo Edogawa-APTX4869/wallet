@@ -17,9 +17,41 @@ export class EscapeStackManager {
   private stack: Dismissible[] = [];
   private listeners: Set<() => void> = new Set();
   private chromeCount = 0;
+  private scrollLocked = false;
+  private savedHtmlOverflow = "";
+  private savedBodyOverflow = "";
+  private savedHtmlOverscroll = "";
+  private savedBodyOverscroll = "";
+
+  private syncScrollLock() {
+    if (typeof document === "undefined") return;
+    const shouldLock = this.chromeCount > 0;
+    const html = document.documentElement;
+    const body = document.body;
+    if (!html || !body) return;
+
+    if (shouldLock && !this.scrollLocked) {
+      this.savedHtmlOverflow = html.style.overflow;
+      this.savedBodyOverflow = body.style.overflow;
+      this.savedHtmlOverscroll = html.style.overscrollBehavior;
+      this.savedBodyOverscroll = body.style.overscrollBehavior;
+      html.style.overflow = "hidden";
+      body.style.overflow = "hidden";
+      html.style.overscrollBehavior = "none";
+      body.style.overscrollBehavior = "none";
+      this.scrollLocked = true;
+    } else if (!shouldLock && this.scrollLocked) {
+      html.style.overflow = this.savedHtmlOverflow;
+      body.style.overflow = this.savedBodyOverflow;
+      html.style.overscrollBehavior = this.savedHtmlOverscroll;
+      body.style.overscrollBehavior = this.savedBodyOverscroll;
+      this.scrollLocked = false;
+    }
+  }
 
   private recount() {
     this.chromeCount = this.stack.filter((i) => i.hidesChrome).length;
+    this.syncScrollLock();
     for (const listener of this.listeners) listener();
   }
 
