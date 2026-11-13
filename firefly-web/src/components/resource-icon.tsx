@@ -532,44 +532,58 @@ export function ResourceIconBadge({
   const color = item?.color || defaultColor || "";
   const IconComp = ICON_CATALOG[iconName] ?? Wallet;
 
+  const badgeClassName = cn(
+    "flex items-center justify-center transition-transform",
+    size === "xs"
+      ? "size-5 rounded-md"
+      : size === "sm"
+        ? "size-6 rounded-lg"
+        : size === "lg"
+          ? "size-11 rounded-2xl"
+          : "size-8 sm:size-9 rounded-xl",
+    !color && "bg-primary-soft text-primary",
+    editable && "hover:scale-105 cursor-pointer",
+  );
+
+  const iconNode = (
+    <IconComp
+      className={
+        size === "xs"
+          ? "size-3"
+          : size === "sm"
+            ? "size-3.5"
+            : size === "lg"
+              ? "size-5"
+              : "size-4"
+      }
+      aria-hidden
+    />
+  );
+
   return (
     <div className="relative inline-flex shrink-0">
-      <button
-        type="button"
-        disabled={!editable}
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          if (editable) setOpen((o) => !o);
-        }}
-        title={editable ? "Click to customize icon & color (saved to database)" : undefined}
-        style={color ? { backgroundColor: `${color}22`, color } : undefined}
-        className={cn(
-          "flex items-center justify-center transition-transform",
-          size === "xs"
-            ? "size-5 rounded-md"
-            : size === "sm"
-              ? "size-6 rounded-lg"
-              : size === "lg"
-                ? "size-11 rounded-2xl"
-                : "size-8 sm:size-9 rounded-xl",
-          !color && "bg-primary-soft text-primary",
-          editable && "hover:scale-105 cursor-pointer",
-        )}
-      >
-        <IconComp
-          className={
-            size === "xs"
-              ? "size-3"
-              : size === "sm"
-                ? "size-3.5"
-                : size === "lg"
-                  ? "size-5"
-                  : "size-4"
-          }
-          aria-hidden
-        />
-      </button>
+      {editable ? (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setOpen((o) => !o);
+          }}
+          title="Click to customize icon & color (saved to database)"
+          style={color ? { backgroundColor: `${color}22`, color } : undefined}
+          className={badgeClassName}
+        >
+          {iconNode}
+        </button>
+      ) : (
+        <span
+          style={color ? { backgroundColor: `${color}22`, color } : undefined}
+          className={badgeClassName}
+        >
+          {iconNode}
+        </span>
+      )}
 
       {showPicker && typeof document !== "undefined" && createPortal(
         <div

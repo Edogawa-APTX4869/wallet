@@ -321,15 +321,27 @@ export function TwoColumnAccountGrid({
                 : "border-border/80 bg-surface-2/60 opacity-55 grayscale-[70%] hover:opacity-85",
             )}
           >
-            {/* Top Row: Editable Category-Aware Icon + Account Name */}
+            {/* Top Row: Compact non-editable icon on mobile, editable icon on desktop + Account Name */}
             <div className="flex items-center gap-1.5 min-w-0">
-              <ResourceIconBadge
-                entityType="account"
-                entityId={id}
-                defaultIcon={inferred.icon}
-                defaultColor={bg}
-                size="xs"
-              />
+              <span className="inline-flex shrink-0 sm:hidden">
+                <ResourceIconBadge
+                  entityType="account"
+                  entityId={id}
+                  defaultIcon={inferred.icon}
+                  defaultColor={bg}
+                  size="sm"
+                  editable={false}
+                />
+              </span>
+              <span className="hidden shrink-0 sm:inline-flex">
+                <ResourceIconBadge
+                  entityType="account"
+                  entityId={id}
+                  defaultIcon={inferred.icon}
+                  defaultColor={bg}
+                  size="xs"
+                />
+              </span>
               <p className="truncate text-xs font-semibold text-fg leading-tight" title={name}>
                 {name}
               </p>
