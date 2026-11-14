@@ -145,6 +145,19 @@ export interface BudgetLimit {
   currency_symbol?: string;
   currency_decimal_places?: number;
   spent?: string | SpentEntry[] | null;
+  notes?: string | null;
+}
+
+export interface AvailableBudget {
+  currency_id?: string;
+  currency_code: string;
+  currency_symbol?: string;
+  currency_decimal_places?: number;
+  amount: string;
+  start: string;
+  end: string;
+  spent_in_budgets?: SpentEntry[];
+  spent_outside_budget?: SpentEntry[];
 }
 
 export interface Category {

@@ -4,6 +4,7 @@ import type {
   Account,
   AutoBudgetPeriod,
   AutoBudgetType,
+  AvailableBudget,
   BasicSummary,
   Bill,
   Budget,
@@ -317,8 +318,88 @@ export const api = {
   updateBudget: (id: string, payload: Partial<BudgetPayload>) =>
     ff.put<SingleResponse<Budget>>(`budgets/${encodeURIComponent(id)}`, payload),
   deleteBudget: (id: string) => ff.del(`budgets/${encodeURIComponent(id)}`),
-  setBudgetLimit: (budgetId: string, amount: string, start: string, end: string, currency_code?: string) =>
-    ff.post(`budgets/${budgetId}/limits`, { amount, start, end, currency_code }),
+  setBudgetLimit: (
+    budgetId: string,
+    amount: string,
+    start: string,
+    end: string,
+    currency_code?: string,
+    notes?: string | null,
+  ) =>
+    ff.post<SingleResponse<BudgetLimit>>(`budgets/${encodeURIComponent(budgetId)}/limits`, {
+      amount,
+      start,
+      end,
+      currency_code,
+      ...(notes !== undefined ? { notes } : {}),
+    }),
+  updateBudgetLimit: (
+    budgetId: string,
+    limitId: string,
+    amount: string,
+    start: string,
+    end: string,
+    currency_code?: string,
+    notes?: string | null,
+  ) =>
+    ff.put<SingleResponse<BudgetLimit>>(
+      `budgets/${encodeURIComponent(budgetId)}/limits/${encodeURIComponent(limitId)}`,
+      {
+        amount,
+        start,
+        end,
+        currency_code,
+        ...(notes !== undefined ? { notes } : {}),
+      },
+    ),
+  deleteBudgetLimit: (budgetId: string, limitId: string) =>
+    ff.del(`budgets/${encodeURIComponent(budgetId)}/limits/${encodeURIComponent(limitId)}`),
+  upsertBudgetLimit: (params: {
+    budgetId: string;
+    limitId?: string | null;
+    amount: string;
+    start: string;
+    end: string;
+    currency_code?: string;
+    notes?: string | null;
+  }) =>
+    params.limitId
+      ? ff.put<SingleResponse<BudgetLimit>>(
+          `budgets/${encodeURIComponent(params.budgetId)}/limits/${encodeURIComponent(params.limitId)}`,
+          {
+            amount: params.amount,
+            start: params.start,
+            end: params.end,
+            currency_code: params.currency_code,
+            ...(params.notes !== undefined ? { notes: params.notes } : {}),
+          },
+        )
+      : ff.post<SingleResponse<BudgetLimit>>(`budgets/${encodeURIComponent(params.budgetId)}/limits`, {
+          amount: params.amount,
+          start: params.start,
+          end: params.end,
+          currency_code: params.currency_code,
+          ...(params.notes !== undefined ? { notes: params.notes } : {}),
+        }),
+
+  availableBudgets: async (start: string, end: string): Promise<Resource<AvailableBudget>[]> => {
+    try {
+      return await getAll<AvailableBudget>("available-budgets", { start, end });
+    } catch {
+      return [];
+    }
+  },
+  setAvailableBudget: (payload: {
+    amount: string;
+    start: string;
+    end: string;
+    currency_code?: string;
+  }) => ff.post<SingleResponse<AvailableBudget>>("available-budgets", payload),
+  updateAvailableBudget: (
+    id: string,
+    payload: { amount: string; start: string; end: string; currency_code?: string },
+  ) => ff.put<SingleResponse<AvailableBudget>>(`available-budgets/${encodeURIComponent(id)}`, payload),
+  deleteAvailableBudget: (id: string) => ff.del(`available-budgets/${encodeURIComponent(id)}`),
 
   categories: (start?: string, end?: string) => getAll<Category>("categories", { start, end }),
   createCategory: (name: string) => ff.post<SingleResponse<Category>>("categories", { name }),
