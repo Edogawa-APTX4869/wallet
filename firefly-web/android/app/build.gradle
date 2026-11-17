@@ -7,8 +7,8 @@ android {
         applicationId "com.alqubaiti.wallet"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 7
-        versionName "1.0.6"
+        versionCode 8
+        versionName "1.0.7"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,10 +16,29 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        release {
+            def ksPath = System.getenv("WALLET_KEYSTORE_FILE")
+            if (ksPath) {
+                storeFile file(ksPath)
+                storePassword System.getenv("WALLET_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("WALLET_KEY_ALIAS")
+                keyPassword System.getenv("WALLET_KEY_PASSWORD")
+            }
+        }
+    }
     buildTypes {
+        debug {
+            if (signingConfigs.release.storeFile != null) {
+                signingConfig signingConfigs.release
+            }
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (signingConfigs.release.storeFile != null) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 }
