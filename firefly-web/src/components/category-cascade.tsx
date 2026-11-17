@@ -1,7 +1,13 @@
 "use client";
 
+import { useState } from "react";
+import { createPortal } from "react-dom";
+import { ChevronRight } from "lucide-react";
 import type { Category, Resource } from "@/lib/firefly/types";
 import { inferCategoryDefaultStyle, ResourceIconBadge } from "@/components/resource-icon";
+import { FullScreenCategorySelectView } from "@/components/wallet-selection-views";
+import { getMostFrequentCategories, recordCategoryUsage } from "@/lib/recent-selections";
+import { useEscapeDismiss } from "@/lib/use-escape-dismiss";
 import { cn } from "@/lib/utils";
 import { Field, Input, Select } from "@/components/ui";
 
@@ -112,6 +118,18 @@ export function CategoryCascadeSelect({
   const currentGroup = tree.find((g) => g.parent.toLowerCase() === parsed.parent.toLowerCase());
   const subs = currentGroup?.subcategories ?? [];
 
+  const [mobileViewOpen, setMobileViewOpen] = useState(false);
+  useEscapeDismiss(
+    mobileViewOpen,
+    () => setMobileViewOpen(false),
+    "category-fullscreen-view",
+    { hidesChrome: true },
+  );
+  const frequentCategories = getMostFrequentCategories(
+    categories.map((c) => c.attributes.name),
+    8,
+  );
+
   // Resolve entityId for the currently selected category so its icon can be customized right next to the input
   const matchedFullResource = categories.find(
     (c) => c.attributes.name.toLowerCase() === (parsed.full || parsed.parent).toLowerCase(),
@@ -142,9 +160,60 @@ export function CategoryCascadeSelect({
     onChange(formatCategoryName(parsed.parent, cleanSub));
   };
 
+  const mobileTrigger = (
+    <div className={cn("flex flex-col gap-1.5 lg:hidden", compact && "flex-1")}>
+      {!compact && <span className="text-sm font-medium">Category</span>}
+      <button
+        type="button"
+        onClick={() => setMobileViewOpen(true)}
+        className="flex min-h-11 w-full items-center gap-2.5 rounded-xl border border-border bg-surface px-3 py-2 text-left text-sm transition hover:bg-surface-2 active:scale-[0.98]"
+      >
+        {parsed.parent && (
+          <ResourceIconBadge
+            entityType="category"
+            entityId={activeEntityId}
+            defaultIcon={activeDefaultStyle.icon}
+            defaultColor={activeDefaultStyle.color}
+            size="sm"
+            editable={false}
+          />
+        )}
+        <span className={cn("min-w-0 flex-1 truncate font-medium", !parsed.full && "text-muted font-normal")}>
+          {parsed.full
+            ? parsed.full.replace(/\s*:\s*/g, " › ")
+            : allowCreate
+              ? "Choose category…"
+              : "Any category"}
+        </span>
+        <ChevronRight className="size-4 shrink-0 text-muted" aria-hidden />
+      </button>
+
+      {mobileViewOpen &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div className="fixed inset-0 z-[10000] flex flex-col overflow-hidden bg-surface">
+            <FullScreenCategorySelectView
+              categories={categories}
+              selectedCategory={value}
+              frequentCategories={frequentCategories}
+              onSelect={(nextCat) => {
+                if (nextCat) recordCategoryUsage(nextCat);
+                onChange(nextCat);
+                setMobileViewOpen(false);
+              }}
+              onBack={() => setMobileViewOpen(false)}
+            />
+          </div>,
+          document.body,
+        )}
+    </div>
+  );
+
   if (compact) {
     return (
-      <div className="flex flex-1 flex-wrap items-center gap-2">
+      <>
+        {mobileTrigger}
+        <div className="hidden lg:flex flex-1 flex-wrap items-center gap-2">
         {parsed.parent && (
           <ResourceIconBadge
             entityType="category"
@@ -213,12 +282,15 @@ export function CategoryCascadeSelect({
             </Select>
           </>
         )}
-      </div>
+        </div>
+      </>
     );
   }
 
   return (
-    <div className="flex flex-col gap-3">
+    <>
+      {mobileTrigger}
+      <div className="hidden lg:flex flex-col gap-3">
       {/* Visual Expense/Income Category Menu with Editable Icons */}
       {tree.length > 0 && (
         <div className="flex flex-col gap-1.5">
@@ -411,5 +483,6 @@ export function CategoryCascadeSelect({
         </Field>
       </div>
     </div>
+    </>
   );
 }

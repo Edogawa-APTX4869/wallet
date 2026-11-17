@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { usePathname } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Check,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   FileText,
   Mic,
@@ -25,7 +27,16 @@ import type {
   ParsedTransactionDraft,
 } from "@/app/api/companion/ramble/route";
 import { ASSET_LIKE, useAccounts, usePrimaryCurrency } from "@/lib/hooks";
+import { useOptionalUniversalFilter } from "@/lib/filter-context";
+import {
+  getMostFrequentCategories,
+  loadRecentAccountIds,
+  pushRecentAccountId,
+  recordCategoryUsage,
+  resolveDefaultAccountForList,
+} from "@/lib/recent-selections";
 import { cn, isoDate, monthRange } from "@/lib/utils";
+import { FullScreenAccountSelectView, FullScreenCategorySelectView } from "@/components/wallet-selection-views";
 import { Badge, Button, Input, ModalSheet, Select } from "@/components/ui";
 import { useToast } from "@/components/providers";
 import { useEscapeDismiss } from "@/lib/use-escape-dismiss";
@@ -100,6 +111,7 @@ export function MagicChatPanel({
 }) {
   const qc = useQueryClient();
   const toast = useToast();
+  const filterCtx = useOptionalUniversalFilter();
   const accountsQ = useAccounts("all");
   const primaryQ = usePrimaryCurrency();
   const aiConfigQ = useAiAssistantConfig();
@@ -126,6 +138,13 @@ export function MagicChatPanel({
   const [listening, setListening] = useState(false);
   const [expanded, setExpanded] = useState(mode === "inline");
   useEscapeDismiss(mode === "dock" && expanded, () => setExpanded(false), "magic-chat-dock", { hidesChrome: true });
+  const [pickerTarget, setPickerTarget] = useState<null | {
+    msgId: string;
+    draftId: string;
+    kind: "account" | "category";
+    currentVal: string;
+  }>(null);
+  useEscapeDismiss(pickerTarget !== null, () => setPickerTarget(null), "magic-chat-picker", { hidesChrome: true });
   const [messages, setMessages] = useState<MagicChatMessage[]>([]);
 
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -137,7 +156,10 @@ export function MagicChatPanel({
   const assetAccounts = (accountsQ.data ?? []).filter(
     (a) => ASSET_LIKE.has(a.attributes.type) && a.attributes.active !== false,
   );
-  const defaultAsset = assetAccounts[0];
+  const defaultAssetId = resolveDefaultAccountForList(assetAccounts, {
+    filterSelectedIds: filterCtx?.selectedAccountIds,
+  });
+  const defaultAsset = assetAccounts.find((a) => a.id === defaultAssetId) ?? assetAccounts[0];
   const defaultCurrency = primaryQ.data?.code || defaultAsset?.attributes.currency_code || "BHD";
 
   useEffect(() => {
@@ -272,6 +294,12 @@ export function MagicChatPanel({
     }
 
     const createdGroup = await api.createTransaction([split]);
+    if (matchedAcc?.id) {
+      pushRecentAccountId(matchedAcc.id);
+    }
+    if (d.category_name) {
+      recordCategoryUsage(d.category_name);
+    }
     const journalId =
       createdGroup.data.attributes.transactions?.[0]?.transaction_journal_id ||
       createdGroup.data.id;
@@ -661,16 +689,27 @@ export function MagicChatPanel({
                                 className="col-span-2 h-7 px-2 text-xs"
                                 aria-label="Description"
                               />
-                              <Input
+                              <button
+                                type="button"
                                 disabled={d.saved}
-                                value={d.category_name}
-                                onChange={(e) =>
-                                  updateDraftField(m.id, d.id, { category_name: e.target.value })
+                                onClick={() =>
+                                  setPickerTarget({
+                                    msgId: m.id,
+                                    draftId: d.id,
+                                    kind: "category",
+                                    currentVal: d.category_name,
+                                  })
                                 }
-                                placeholder="Category"
-                                className="h-7 px-2 text-xs"
                                 aria-label="Category"
-                              />
+                                className="flex h-7 items-center justify-between gap-1 rounded-lg border border-border bg-surface px-2 text-left text-xs text-fg disabled:opacity-60"
+                              >
+                                <span className={cn("truncate", !d.category_name && "text-muted")}>
+                                  {d.category_name
+                                    ? d.category_name.replace(/\s*:\s*/g, " › ")
+                                    : "Category"}
+                                </span>
+                                <ChevronRight className="size-3 shrink-0 text-muted" aria-hidden />
+                              </button>
                               <Input
                                 type="date"
                                 disabled={d.saved}
@@ -696,9 +735,29 @@ export function MagicChatPanel({
 
                             {/* Footer Actions */}
                             <div className="flex items-center justify-between border-t border-border/60 pt-1.5">
-                              <span className="truncate text-xs text-muted">
-                                {d.source_name || defaultAsset?.attributes.name || "Account"}
-                              </span>
+                              <button
+                                type="button"
+                                disabled={d.saved}
+                                onClick={() => {
+                                  const matched = assetAccounts.find(
+                                    (a) =>
+                                      a.attributes.name.toLowerCase() ===
+                                      (d.source_name || "").toLowerCase(),
+                                  );
+                                  setPickerTarget({
+                                    msgId: m.id,
+                                    draftId: d.id,
+                                    kind: "account",
+                                    currentVal: matched?.id || defaultAsset?.id || "",
+                                  });
+                                }}
+                                className="inline-flex min-w-0 items-center gap-1 truncate text-xs text-muted hover:text-fg disabled:opacity-60"
+                              >
+                                <span className="truncate">
+                                  {d.source_name || defaultAsset?.attributes.name || "Account"}
+                                </span>
+                                {!d.saved && <ChevronRight className="size-3 shrink-0" aria-hidden />}
+                              </button>
                               <div className="flex items-center gap-1">
                                 {d.saved ? (
                                   <span className="inline-flex items-center gap-1 text-xs font-semibold text-success">
@@ -880,6 +939,50 @@ export function MagicChatPanel({
           </button>
         )}
       </form>
+
+      {pickerTarget !== null &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div className="fixed inset-0 z-[10000] flex flex-col overflow-hidden bg-surface">
+            {pickerTarget.kind === "account" ? (
+              <FullScreenAccountSelectView
+                title="Select account"
+                accounts={assetAccounts}
+                selectedId={pickerTarget.currentVal || null}
+                recentIds={loadRecentAccountIds()}
+                onSelect={(accId) => {
+                  const chosen = assetAccounts.find((a) => a.id === accId);
+                  if (chosen) {
+                    pushRecentAccountId(chosen.id);
+                    updateDraftField(pickerTarget.msgId, pickerTarget.draftId, {
+                      source_name: chosen.attributes.name,
+                    });
+                  }
+                  setPickerTarget(null);
+                }}
+                onBack={() => setPickerTarget(null)}
+              />
+            ) : (
+              <FullScreenCategorySelectView
+                categories={categoriesQ.data ?? []}
+                selectedCategory={pickerTarget.currentVal}
+                frequentCategories={getMostFrequentCategories(
+                  (categoriesQ.data ?? []).map((c) => c.attributes.name),
+                  8,
+                )}
+                onSelect={(catName) => {
+                  if (catName) recordCategoryUsage(catName);
+                  updateDraftField(pickerTarget.msgId, pickerTarget.draftId, {
+                    category_name: catName,
+                  });
+                  setPickerTarget(null);
+                }}
+                onBack={() => setPickerTarget(null)}
+              />
+            )}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

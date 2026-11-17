@@ -55,6 +55,8 @@ export function FullScreenAccountSelectView({
   selectedId,
   excludeId,
   recentIds = [],
+  allowEmpty = false,
+  emptyLabel = "Any account",
   onSelect,
   onBack,
 }: {
@@ -63,6 +65,8 @@ export function FullScreenAccountSelectView({
   selectedId: string | null;
   excludeId?: string | null;
   recentIds?: string[];
+  allowEmpty?: boolean;
+  emptyLabel?: string;
   onSelect: (accountId: string) => void;
   onBack: () => void;
 }) {
@@ -118,6 +122,15 @@ export function FullScreenAccountSelectView({
           <h1 className="truncate text-base font-semibold">{title}</h1>
         </div>
         <div className="flex items-center gap-1">
+          {allowEmpty && selectedId && (
+            <button
+              type="button"
+              onClick={() => onSelect("")}
+              className="rounded-full bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25 transition"
+            >
+              Clear
+            </button>
+          )}
           <button
             type="button"
             onClick={() => {
@@ -204,6 +217,24 @@ export function FullScreenAccountSelectView({
           ALL ACCOUNTS
         </div>
         <div className="divide-y divide-border bg-surface">
+          {allowEmpty && !query.trim() && (
+            <button
+              type="button"
+              onClick={() => onSelect("")}
+              className={cn(
+                "flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-surface-2/70 active:bg-surface-2",
+                !selectedId && "bg-primary-soft/20",
+              )}
+            >
+              <div className="flex min-w-0 items-center gap-3.5">
+                <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-surface-2 text-muted">
+                  <Wallet className="size-5" aria-hidden />
+                </span>
+                <span className="truncate text-sm font-medium text-fg">{emptyLabel}</span>
+              </div>
+              {!selectedId && <Check className="size-4 text-primary shrink-0" aria-hidden />}
+            </button>
+          )}
           {filtered.length === 0 ? (
             <p className="px-4 py-8 text-center text-sm text-muted">No matching accounts found.</p>
           ) : (

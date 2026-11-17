@@ -10,6 +10,7 @@ import { api } from "@/lib/firefly/api";
 import type { Resource, TransactionGroup } from "@/lib/firefly/types";
 import { ASSET_LIKE, useAccounts, usePrimaryCurrency } from "@/lib/hooks";
 import { cn, monthRange, parseAmount } from "@/lib/utils";
+import { AccountPicker } from "@/components/account-picker";
 import { CategoryCascadeSelect } from "@/components/category-cascade";
 import { TransactionRow } from "@/components/transaction-row";
 import {
@@ -401,22 +402,15 @@ export function TransactionsClient() {
 
       {showFilters && (
         <div className="grid gap-3 rounded-xl border border-border bg-surface p-3.5 sm:grid-cols-2 lg:grid-cols-4 shadow-2xs">
-          <Field label="Account">
-            {(id) => (
-              <Select
-                id={id}
-                value={filters.accountId}
-                onChange={(e) => setFilters((f) => ({ ...f, accountId: e.target.value }))}
-              >
-                <option value="">Any account</option>
-                {assetAccounts.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.attributes.name} ({a.attributes.currency_code})
-                  </option>
-                ))}
-              </Select>
-            )}
-          </Field>
+          <AccountPicker
+            label="Account"
+            accounts={assetAccounts}
+            value={filters.accountId || null}
+            onChange={(accountId) => setFilters((f) => ({ ...f, accountId }))}
+            allowEmpty
+            emptyLabel="Any account"
+            placeholder="Any account"
+          />
 
           <div className="sm:col-span-2">
             <CategoryCascadeSelect

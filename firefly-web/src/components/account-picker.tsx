@@ -1,8 +1,12 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, Search } from "lucide-react";
+import { createPortal } from "react-dom";
+import { Check, ChevronDown, ChevronRight, Search } from "lucide-react";
 import type { Account, Resource } from "@/lib/firefly/types";
+import { inferAccountDefaultStyle, ResourceIconBadge } from "@/components/resource-icon";
+import { FullScreenAccountSelectView } from "@/components/wallet-selection-views";
+import { loadRecentAccountIds, pushRecentAccountId } from "@/lib/recent-selections";
 import { cn } from "@/lib/utils";
 import { Money } from "@/components/ui";
 import { useEscapeDismiss } from "@/lib/use-escape-dismiss";
@@ -23,6 +27,8 @@ export function AccountPicker({
   onChange,
   excludeId,
   placeholder = "Choose account",
+  allowEmpty = false,
+  emptyLabel = "Any account",
 }: {
   label: string;
   accounts: Resource<Account>[];
@@ -30,9 +36,12 @@ export function AccountPicker({
   onChange: (id: string) => void;
   excludeId?: string | null;
   placeholder?: string;
+  allowEmpty?: boolean;
+  emptyLabel?: string;
 }) {
   const id = useId();
   const [open, setOpen] = useState(false);
+  const [mobileViewOpen, setMobileViewOpen] = useState(false);
   const [q, setQ] = useState("");
   const [active, setActive] = useState(0);
   const root = useRef<HTMLDivElement>(null);
@@ -52,6 +61,12 @@ export function AccountPicker({
   }, [accounts, q, excludeId]);
 
   useEscapeDismiss(open, () => setOpen(false), "account-picker");
+  useEscapeDismiss(
+    mobileViewOpen,
+    () => setMobileViewOpen(false),
+    "account-fullscreen-view",
+    { hidesChrome: true },
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -64,6 +79,7 @@ export function AccountPicker({
   }, [open]);
 
   function choose(a: Resource<Account>) {
+    if (a.id) pushRecentAccountId(a.id);
     onChange(a.id);
     setOpen(false);
     setQ("");
@@ -84,10 +100,81 @@ export function AccountPicker({
   }
 
   return (
-    <div ref={root} className="relative flex flex-col gap-1.5" onKeyDown={open ? onKeyDown : undefined}>
-      <span id={`${id}-label`} className="text-sm font-medium">
-        {label}
-      </span>
+    <>
+      {/* Mobile full-screen drill-down trigger (no pop-up dropdown) */}
+      <div className="flex flex-col gap-1.5 lg:hidden">
+        {label && <span className="text-sm font-medium">{label}</span>}
+        <button
+          type="button"
+          onClick={() => setMobileViewOpen(true)}
+          className={cn(
+            "interactive-tap flex min-h-14 w-full items-center gap-3 rounded-xl border border-border bg-surface px-3 py-2 text-left transition-all duration-150 active:scale-[0.98]",
+            "hover:bg-surface-2 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/25 focus-visible:outline-none",
+          )}
+        >
+          {selected && (
+            <ResourceIconBadge
+              entityType="account"
+              entityId={selected.id}
+              defaultIcon={inferAccountDefaultStyle(selected.attributes).icon}
+              defaultColor={inferAccountDefaultStyle(selected.attributes).color}
+              size="sm"
+              editable={false}
+            />
+          )}
+          <span className="min-w-0 flex-1">
+            {selected ? (
+              <>
+                <span className="block truncate font-medium">{selected.attributes.name}</span>
+                <span className="block text-xs text-muted">
+                  <Money
+                    amount={selected.attributes.current_balance}
+                    code={selected.attributes.currency_code}
+                    decimals={selected.attributes.currency_decimal_places}
+                    symbol={selected.attributes.currency_symbol}
+                  />
+                </span>
+              </>
+            ) : (
+              <span className="text-muted">{allowEmpty ? emptyLabel : placeholder}</span>
+            )}
+          </span>
+          <ChevronRight className="size-4 shrink-0 text-muted" aria-hidden />
+        </button>
+
+        {mobileViewOpen &&
+          typeof document !== "undefined" &&
+          createPortal(
+            <div className="fixed inset-0 z-[10000] flex flex-col overflow-hidden bg-surface">
+              <FullScreenAccountSelectView
+                title={label || "Select account"}
+                accounts={accounts}
+                selectedId={value}
+                excludeId={excludeId}
+                recentIds={loadRecentAccountIds()}
+                allowEmpty={allowEmpty}
+                emptyLabel={emptyLabel}
+                onSelect={(nextId) => {
+                  if (nextId) pushRecentAccountId(nextId);
+                  onChange(nextId);
+                  setMobileViewOpen(false);
+                }}
+                onBack={() => setMobileViewOpen(false)}
+              />
+            </div>,
+            document.body,
+          )}
+      </div>
+
+      {/* Desktop accessible dropdown listbox */}
+      <div
+        ref={root}
+        className="relative hidden lg:flex lg:flex-col lg:gap-1.5"
+        onKeyDown={open ? onKeyDown : undefined}
+      >
+        <span id={`${id}-label`} className="text-sm font-medium">
+          {label}
+        </span>
       <button
         type="button"
         aria-haspopup="listbox"
@@ -145,6 +232,26 @@ export function AccountPicker({
             />
           </div>
           <ul id={`${id}-list`} role="listbox" aria-labelledby={`${id}-label`} className="max-h-72 overflow-y-auto py-1">
+            {allowEmpty && !q.trim() && (
+              <li role="presentation">
+                <div
+                  role="option"
+                  aria-selected={!value}
+                  onClick={() => {
+                    onChange("");
+                    setOpen(false);
+                    setQ("");
+                  }}
+                  className={cn(
+                    "flex cursor-pointer items-center justify-between gap-3 px-3 py-2 text-sm",
+                    !value && "bg-surface-2 font-medium",
+                  )}
+                >
+                  <span>{emptyLabel}</span>
+                  {!value && <Check className="size-4 text-primary" aria-hidden />}
+                </div>
+              </li>
+            )}
             {options.length === 0 && <li className="px-3 py-4 text-center text-sm text-muted">No accounts found</li>}
             {options.map((a, i) => {
               const group = GROUP_LABEL[a.attributes.type] ?? a.attributes.type;
@@ -187,6 +294,7 @@ export function AccountPicker({
           </ul>
         </div>
       )}
-    </div>
+      </div>
+    </>
   );
 }

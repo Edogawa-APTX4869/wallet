@@ -529,3 +529,7 @@ export function useUniversalFilter(): UniversalFilterContextValue {
   }
   return ctx;
 }
+
+export function useOptionalUniversalFilter(): UniversalFilterContextValue | null {
+  return useContext(UniversalFilterContext);
+}

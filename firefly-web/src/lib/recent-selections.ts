@@ -96,6 +96,39 @@ export function resolveDefaultAccountId(params: {
   return eligible[0];
 }
 
+export function getOutsideSelectedAccountIds(
+  filterContextSelectedIds?: string[],
+  dashboardPrefSelectedIds?: string[],
+): string[] {
+  if (dashboardPrefSelectedIds && dashboardPrefSelectedIds.length > 0) {
+    return dashboardPrefSelectedIds;
+  }
+  if (filterContextSelectedIds && filterContextSelectedIds.length > 0) {
+    return filterContextSelectedIds;
+  }
+  return loadOutsideSelectedAccountIds();
+}
+
+export function resolveDefaultAccountForList(
+  eligibleAccounts: Array<{ id: string }>,
+  options?: {
+    urlSourceId?: string | null;
+    filterSelectedIds?: string[];
+    dashboardSelectedIds?: string[];
+  },
+): string | null {
+  const outsideSelectedIds = getOutsideSelectedAccountIds(
+    options?.filterSelectedIds,
+    options?.dashboardSelectedIds,
+  );
+  return resolveDefaultAccountId({
+    urlSourceId: options?.urlSourceId,
+    outsideSelectedIds,
+    recentAccountIds: loadRecentAccountIds(),
+    eligibleAccountIds: eligibleAccounts.map((a) => a.id),
+  });
+}
+
 interface CategoryFreqEntry {
   count: number;
   lastUsed: number;

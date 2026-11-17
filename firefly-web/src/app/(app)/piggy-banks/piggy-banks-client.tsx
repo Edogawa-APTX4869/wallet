@@ -7,7 +7,10 @@ import { Minus, Plus, Trash2 } from "lucide-react";
 import { api } from "@/lib/firefly/api";
 import type { PiggyBank, Resource } from "@/lib/firefly/types";
 import { useAccounts } from "@/lib/hooks";
+import { useOptionalUniversalFilter } from "@/lib/filter-context";
+import { pushRecentAccountId, resolveDefaultAccountForList } from "@/lib/recent-selections";
 import { formatDate, parseAmount } from "@/lib/utils";
+import { AccountPicker } from "@/components/account-picker";
 import { ResourceIconBadge } from "@/components/resource-icon";
 import {
   Badge,
@@ -20,7 +23,6 @@ import {
   Money,
   PageHeader,
   Progress,
-  Select,
   Skeleton,
 } from "@/components/ui";
 import { useToast } from "@/components/providers";
@@ -29,6 +31,7 @@ import { useEscapeDismiss } from "@/lib/use-escape-dismiss";
 export function PiggyBanksClient() {
   const qc = useQueryClient();
   const toast = useToast();
+  const filterCtx = useOptionalUniversalFilter();
 
   const piggyQ = useQuery({ queryKey: ["piggy-banks"], queryFn: api.piggyBanks });
   const accountsQ = useAccounts("all");
@@ -46,7 +49,12 @@ export function PiggyBanksClient() {
   const [targetDate, setTargetDate] = useState("");
   const [adjustDelta, setAdjustDelta] = useState<Record<string, string>>({});
 
-  const defaultAccountId = accountId || assetAccounts[0]?.id || "";
+  const defaultAccountId =
+    accountId ||
+    resolveDefaultAccountForList(assetAccounts, {
+      filterSelectedIds: filterCtx?.selectedAccountIds,
+    }) ||
+    "";
 
   const createMut = useMutation({
     mutationFn: async () => {
@@ -143,17 +151,15 @@ export function PiggyBanksClient() {
                 />
               )}
             </Field>
-            <Field label="Linked Asset Account">
-              {(id) => (
-                <Select id={id} value={defaultAccountId} onChange={(e) => setAccountId(e.target.value)}>
-                  {assetAccounts.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.attributes.name} ({a.attributes.currency_code})
-                    </option>
-                  ))}
-                </Select>
-              )}
-            </Field>
+            <AccountPicker
+              label="Linked Asset Account"
+              accounts={assetAccounts}
+              value={defaultAccountId || null}
+              onChange={(id) => {
+                setAccountId(id);
+                if (id) pushRecentAccountId(id);
+              }}
+            />
             <Field label="Target amount">
               {(id) => (
                 <Input

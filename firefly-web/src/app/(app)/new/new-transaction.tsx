@@ -28,7 +28,7 @@ import type { NewSplit } from "@/lib/firefly/types";
 import type { TransactionTemplateRow } from "@/lib/server/db";
 import { accountCurrency, ASSET_LIKE, useAccounts, useCurrencies } from "@/lib/hooks";
 import { formatRate } from "@/lib/fx/resolve";
-import { useUniversalFilter } from "@/lib/filter-context";
+import { useOptionalUniversalFilter } from "@/lib/filter-context";
 import {
   getMostFrequentCategories,
   loadOutsideSelectedAccountIds,
@@ -330,7 +330,7 @@ function WalletCalculatorForm({
   const searchParams = useSearchParams();
   const qc = useQueryClient();
   const toast = useToast();
-  const filterCtx = useUniversalFilter();
+  const filterCtx = useOptionalUniversalFilter();
 
   const accountsQ = useAccounts("all");
   const dashboardPrefsQ = useQuery({
@@ -433,8 +433,8 @@ function WalletCalculatorForm({
   const outsideSelectedIds =
     (dashboardPrefsQ.data?.selectedAccountIds?.length ?? 0) > 0
       ? dashboardPrefsQ.data!.selectedAccountIds!
-      : filterCtx.selectedAccountIds.length > 0
-        ? filterCtx.selectedAccountIds
+      : (filterCtx?.selectedAccountIds.length ?? 0) > 0
+        ? filterCtx!.selectedAccountIds
         : loadOutsideSelectedAccountIds();
   const recentAccountIds = loadRecentAccountIds();
   const defaultAssetId = resolveDefaultAccountId({

@@ -4,7 +4,9 @@ import path from "node:path";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { resolveDefaultAccountId } from "@/lib/recent-selections";
+import { resolveDefaultAccountForList, resolveDefaultAccountId } from "@/lib/recent-selections";
+import { AccountPicker } from "@/components/account-picker";
+import { CategoryCascadeSelect } from "@/components/category-cascade";
 import {
   FullScreenAccountSelectView,
   FullScreenCategorySelectView,
@@ -228,5 +230,133 @@ describe("FullScreenAccountSelectView & FullScreenCategorySelectView", () => {
     expect(level2Html).toContain("SUBCATEGORIES");
     expect(level2Html).toContain("Fuel");
     expect(level2Html).toContain("Parking");
+  });
+
+  it("supports allowEmpty and Clear in FullScreenAccountSelectView for filter views", () => {
+    const qc = createTestQueryClient();
+    const html = renderToStaticMarkup(
+      React.createElement(
+        QueryClientProvider,
+        { client: qc },
+        React.createElement(FullScreenAccountSelectView, {
+          title: "Filter by account",
+          accounts: [
+            {
+              id: "acc-1",
+              type: "accounts",
+              attributes: {
+                name: "ila White",
+                type: "asset",
+                active: true,
+                currency_code: "BHD",
+                current_balance: "100.000",
+              },
+            },
+          ],
+          selectedId: "acc-1",
+          allowEmpty: true,
+          emptyLabel: "Any account",
+          onSelect: () => {},
+          onBack: () => {},
+        }),
+      ),
+    );
+
+    expect(html).toContain("Any account");
+    expect(html).toContain("Clear");
+    expect(html).toContain("Filter by account");
+  });
+
+  it("renders mobile full-screen drill-down triggers inside AccountPicker and CategoryCascadeSelect", () => {
+    const qc = createTestQueryClient();
+    const accounts = [
+      {
+        id: "acc-1",
+        type: "accounts",
+        attributes: {
+          name: "ila White",
+          type: "asset",
+          active: true,
+          currency_code: "BHD",
+          current_balance: "100.000",
+        },
+      },
+    ];
+    const categories = [
+      { id: "c-1", type: "categories", attributes: { name: "Vehicle" } },
+      { id: "c-2", type: "categories", attributes: { name: "Vehicle: Fuel" } },
+    ];
+
+    const accHtml = renderToStaticMarkup(
+      React.createElement(
+        QueryClientProvider,
+        { client: qc },
+        React.createElement(AccountPicker, {
+          label: "Account",
+          accounts,
+          value: null,
+          allowEmpty: true,
+          emptyLabel: "Any account",
+          onChange: () => {},
+        }),
+      ),
+    );
+    expect(accHtml).toContain("lg:hidden");
+    expect(accHtml).toContain("hidden lg:flex");
+    expect(accHtml).toContain("Any account");
+
+    const catHtml = renderToStaticMarkup(
+      React.createElement(
+        QueryClientProvider,
+        { client: qc },
+        React.createElement(CategoryCascadeSelect, {
+          categories,
+          value: "Vehicle: Fuel",
+          onChange: () => {},
+        }),
+      ),
+    );
+    expect(catHtml).toContain("lg:hidden");
+    expect(catHtml).toContain("Vehicle › Fuel");
+  });
+
+  it("resolves default account across Piggy Banks, Rules/Bills, Transactions, and AI Magic", () => {
+    const eligible = [{ id: "acc-1" }, { id: "acc-2" }, { id: "acc-3" }];
+    expect(
+      resolveDefaultAccountForList(eligible, {
+        filterSelectedIds: ["acc-2"],
+      }),
+    ).toBe("acc-2");
+    expect(
+      resolveDefaultAccountForList(eligible, {
+        dashboardSelectedIds: ["acc-1", "acc-3"],
+      }),
+    ).toBe("acc-3");
+
+    const piggySrc = readFileSync(
+      path.resolve(__dirname, "../piggy-banks/piggy-banks-client.tsx"),
+      "utf8",
+    );
+    const rulesSrc = readFileSync(
+      path.resolve(__dirname, "../rules/rules-client.tsx"),
+      "utf8",
+    );
+    const txSrc = readFileSync(
+      path.resolve(__dirname, "../transactions/transactions-client.tsx"),
+      "utf8",
+    );
+    const chatSrc = readFileSync(
+      path.resolve(__dirname, "../../../components/magic-chatbar.tsx"),
+      "utf8",
+    );
+
+    expect(piggySrc).toContain("resolveDefaultAccountForList");
+    expect(piggySrc).toContain("<AccountPicker");
+    expect(rulesSrc).toContain("resolveDefaultAccountForList");
+    expect(rulesSrc).toContain("<AccountPicker");
+    expect(txSrc).toContain("<AccountPicker");
+    expect(chatSrc).toContain("resolveDefaultAccountForList");
+    expect(chatSrc).toContain("FullScreenAccountSelectView");
+    expect(chatSrc).toContain("FullScreenCategorySelectView");
   });
 });

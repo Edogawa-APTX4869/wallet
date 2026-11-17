@@ -34,6 +34,8 @@ import type {
   TransactionGroup,
 } from "@/lib/firefly/types";
 import { ASSET_LIKE, useAccounts, useCurrencies, usePrimaryCurrency } from "@/lib/hooks";
+import { useOptionalUniversalFilter } from "@/lib/filter-context";
+import { pushRecentAccountId, resolveDefaultAccountForList } from "@/lib/recent-selections";
 import { cn, formatDate, isoDate, monthRange, parseAmount } from "@/lib/utils";
 import {
   buildBillRulePayload,
@@ -41,6 +43,7 @@ import {
   buildQuickPaySplit,
   findMatchingRuleForBill,
 } from "@/lib/bill-automation";
+import { AccountPicker } from "@/components/account-picker";
 import { ResourceIconBadge } from "@/components/resource-icon";
 import { CategoryCascadeSelect } from "@/components/category-cascade";
 import { TransactionRow } from "@/components/transaction-row";
@@ -918,6 +921,7 @@ function RuleBuilderCard({
 function RecurrencesSection() {
   const qc = useQueryClient();
   const toast = useToast();
+  const filterCtx = useOptionalUniversalFilter();
   const recQ = useQuery({ queryKey: ["recurrences"], queryFn: api.recurrences });
   const accountsQ = useAccounts("all");
   const categoriesQ = useQuery({ queryKey: ["categories-list"], queryFn: () => api.categories(), staleTime: 5 * 60_000 });
@@ -943,8 +947,15 @@ function RecurrencesSection() {
     () => (accountsQ.data ?? []).filter((a) => ASSET_LIKE.has(a.attributes.type) && a.attributes.active !== false),
     [accountsQ.data],
   );
-  const defaultSourceId = sourceId || assetAccounts[0]?.id || "";
-  const defaultDestId = destId || assetAccounts[1]?.id || assetAccounts[0]?.id || "";
+  const defaultSourceId =
+    sourceId ||
+    resolveDefaultAccountForList(assetAccounts, { filterSelectedIds: filterCtx?.selectedAccountIds }) ||
+    "";
+  const defaultDestId =
+    destId ||
+    assetAccounts.find((a) => a.id !== defaultSourceId)?.id ||
+    assetAccounts[0]?.id ||
+    "";
 
   const createMut = useMutation({
     mutationFn: async () => {
@@ -1052,30 +1063,27 @@ function RecurrencesSection() {
               {(id) => <Input id={id} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.000" required />}
             </Field>
 
-            <Field label={txType === "deposit" ? "Destination account" : "Source account"}>
-              {(id) => (
-                <Select id={id} value={defaultSourceId} onChange={(e) => setSourceId(e.target.value)}>
-                  {assetAccounts.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.attributes.name} ({a.attributes.currency_code})
-                    </option>
-                  ))}
-                </Select>
-              )}
-            </Field>
+            <AccountPicker
+              label={txType === "deposit" ? "Destination account" : "Source account"}
+              accounts={assetAccounts}
+              value={defaultSourceId || null}
+              onChange={(id) => {
+                setSourceId(id);
+                if (id) pushRecentAccountId(id);
+              }}
+            />
 
             {txType === "transfer" ? (
-              <Field label="Destination account">
-                {(id) => (
-                  <Select id={id} value={defaultDestId} onChange={(e) => setDestId(e.target.value)}>
-                    {assetAccounts.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.attributes.name} ({a.attributes.currency_code})
-                      </option>
-                    ))}
-                  </Select>
-                )}
-              </Field>
+              <AccountPicker
+                label="Destination account"
+                accounts={assetAccounts}
+                value={defaultDestId || null}
+                excludeId={defaultSourceId || null}
+                onChange={(id) => {
+                  setDestId(id);
+                  if (id) pushRecentAccountId(id);
+                }}
+              />
             ) : (
               <Field label={txType === "withdrawal" ? "Merchant / Payee" : "Payer"}>
                 {(id) => <Input id={id} value={counterparty} onChange={(e) => setCounterparty(e.target.value)} placeholder="Optional" />}
@@ -1215,6 +1223,7 @@ function QuickPayModal({
   const qc = useQueryClient();
   const toast = useToast();
   const router = useRouter();
+  const filterCtx = useOptionalUniversalFilter();
   const [open, setOpen] = useState(true);
   const handleClose = () => {
     setOpen(false);
@@ -1225,7 +1234,14 @@ function QuickPayModal({
   const initialAmount = a.amount_min || a.amount_max || "";
 
   const [amount, setAmount] = useState(initialAmount);
-  const [sourceId, setSourceId] = useState(accounts[0]?.id || "");
+  const [sourceId, setSourceId] = useState(
+    () =>
+      resolveDefaultAccountForList(accounts, {
+        filterSelectedIds: filterCtx?.selectedAccountIds,
+      }) ||
+      accounts[0]?.id ||
+      "",
+  );
   const [date, setDate] = useState(isoDate());
   const [category, setCategory] = useState("");
   const [notes, setNotes] = useState("");
@@ -1374,20 +1390,15 @@ function QuickPayModal({
           )}
         </Field>
 
-        <Field label="Pay From Account">
-          {(id) => (
-            <Select id={id} value={sourceId} onChange={(e) => setSourceId(e.target.value)} required>
-              {accounts.map((acc) => (
-                <option key={acc.id} value={acc.id}>
-                  {acc.attributes.name}
-                  {acc.attributes.current_balance
-                    ? ` (${acc.attributes.currency_code ?? ""} ${acc.attributes.current_balance})`
-                    : ""}
-                </option>
-              ))}
-            </Select>
-          )}
-        </Field>
+        <AccountPicker
+          label="Pay From Account"
+          accounts={accounts}
+          value={sourceId || null}
+          onChange={(id) => {
+            setSourceId(id);
+            if (id) pushRecentAccountId(id);
+          }}
+        />
 
         <div className="flex flex-col gap-3">
           <Field label="Payment Date">
