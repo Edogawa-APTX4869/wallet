@@ -82,7 +82,6 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/new?type=transfer", label: "New transfer", matchPath: "/new", matchQuery: { type: "transfer" } },
       { href: "/new?type=withdrawal", label: "New expense", matchPath: "/new", matchQuery: { type: "withdrawal" } },
       { href: "/new?type=deposit", label: "New income", matchPath: "/new", matchQuery: { type: "deposit" } },
-      { href: "/new?type=ramble", label: "Magic assistant (AI)", matchPath: "/new", matchQuery: { type: "ramble" } },
     ],
   },
   {

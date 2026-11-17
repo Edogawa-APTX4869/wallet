@@ -13,6 +13,7 @@ import {
   useResourceMeta,
 } from "@/components/resource-icon";
 import { Money } from "@/components/ui";
+import { SwipePaginationDots } from "@/components/swipeable-widget";
 
 function CircularEntityIcon({
   entityType,
@@ -111,13 +112,13 @@ export function FullScreenAccountSelectView({
   return (
     <div className="flex flex-1 flex-col bg-surface min-h-dvh lg:min-h-[560px]">
       {/* Top App Header */}
-      <div className="flex items-center justify-between gap-2 bg-primary px-2 py-2.5 pt-[max(0.625rem,env(safe-area-inset-top))] text-primary-fg shadow-xs">
+      <div className="flex items-center justify-between gap-2 border-b border-border bg-surface px-2 py-2.5 pt-[max(0.625rem,env(safe-area-inset-top))] text-fg">
         <div className="flex min-w-0 items-center gap-2">
           <button
             type="button"
             onClick={onBack}
             aria-label="Back"
-            className="flex size-10 items-center justify-center rounded-full hover:bg-white/15 active:scale-95 transition"
+            className="flex size-10 items-center justify-center rounded-full text-fg hover:bg-surface-2 active:scale-95 transition"
           >
             <ArrowLeft className="size-5" />
           </button>
@@ -128,7 +129,7 @@ export function FullScreenAccountSelectView({
             <button
               type="button"
               onClick={() => onSelect("")}
-              className="rounded-full bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25 transition"
+              className="!min-h-0 !min-w-0 rounded-full bg-primary-soft px-3 py-1 text-xs font-medium text-primary hover:bg-primary-soft/80 transition"
             >
               Clear
             </button>
@@ -140,14 +141,14 @@ export function FullScreenAccountSelectView({
               if (searchOpen) setQuery("");
             }}
             aria-label="Search accounts"
-            className="flex size-10 items-center justify-center rounded-full hover:bg-white/15 active:scale-95 transition"
+            className="flex size-10 items-center justify-center rounded-full text-fg hover:bg-surface-2 active:scale-95 transition"
           >
             <Search className="size-5" />
           </button>
           <Link
             href="/accounts"
             aria-label="Manage accounts"
-            className="flex size-10 items-center justify-center rounded-full hover:bg-white/15 active:scale-95 transition"
+            className="flex size-10 items-center justify-center rounded-full text-fg hover:bg-surface-2 active:scale-95 transition"
           >
             <Settings className="size-5" />
           </Link>
@@ -318,6 +319,8 @@ export function FullScreenCategorySelectView({
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [freqPage, setFreqPage] = useState(0);
+  const [freqAnimDir, setFreqAnimDir] = useState<"none" | "next" | "prev">("none");
+  const [freqTouchX, setFreqTouchX] = useState<number | null>(null);
 
   const tree = useMemo(
     () => buildCategoryTree(categories, categoryOrder),
@@ -384,13 +387,13 @@ export function FullScreenCategorySelectView({
   return (
     <div className="flex flex-1 flex-col bg-surface min-h-dvh lg:min-h-[560px]">
       {/* Top App Header */}
-      <div className="flex items-center justify-between gap-2 bg-primary px-2 py-2.5 pt-[max(0.625rem,env(safe-area-inset-top))] text-primary-fg shadow-xs">
+      <div className="flex items-center justify-between gap-2 border-b border-border bg-surface px-2 py-2.5 pt-[max(0.625rem,env(safe-area-inset-top))] text-fg">
         <div className="flex min-w-0 items-center gap-2">
           <button
             type="button"
             onClick={handleHeaderBack}
             aria-label="Back"
-            className="flex size-10 items-center justify-center rounded-full hover:bg-white/15 active:scale-95 transition"
+            className="flex size-10 items-center justify-center rounded-full text-fg hover:bg-surface-2 active:scale-95 transition"
           >
             <ArrowLeft className="size-5" />
           </button>
@@ -403,7 +406,7 @@ export function FullScreenCategorySelectView({
             <button
               type="button"
               onClick={() => onSelect("")}
-              className="rounded-full bg-white/15 px-2.5 py-1 text-xs font-medium hover:bg-white/25 transition"
+              className="!min-h-0 !min-w-0 rounded-full bg-primary-soft px-3 py-1 text-xs font-medium text-primary hover:bg-primary-soft/80 transition"
             >
               Clear
             </button>
@@ -415,14 +418,14 @@ export function FullScreenCategorySelectView({
               if (searchOpen) setQuery("");
             }}
             aria-label="Search categories"
-            className="flex size-10 items-center justify-center rounded-full hover:bg-white/15 active:scale-95 transition"
+            className="flex size-10 items-center justify-center rounded-full text-fg hover:bg-surface-2 active:scale-95 transition"
           >
             <Search className="size-5" />
           </button>
           <Link
             href="/categories"
             aria-label="Manage categories"
-            className="flex size-10 items-center justify-center rounded-full hover:bg-white/15 active:scale-95 transition"
+            className="flex size-10 items-center justify-center rounded-full text-fg hover:bg-surface-2 active:scale-95 transition"
           >
             <Settings className="size-5" />
           </Link>
@@ -589,8 +592,34 @@ export function FullScreenCategorySelectView({
                 <div className="bg-surface-2/80 px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-muted">
                   MOST FREQUENT
                 </div>
-                <div className="border-b border-border bg-surface px-3 py-4">
-                  <div className="grid grid-cols-4 gap-2">
+                <div
+                  className="border-b border-border bg-surface px-3 py-4 overflow-hidden"
+                  onTouchStart={(e) => {
+                    if (freqPages <= 1) return;
+                    setFreqTouchX(e.touches[0]?.clientX ?? null);
+                  }}
+                  onTouchEnd={(e) => {
+                    if (freqTouchX === null || freqPages <= 1) return;
+                    const deltaX = (e.changedTouches[0]?.clientX ?? freqTouchX) - freqTouchX;
+                    setFreqTouchX(null);
+                    if (Math.abs(deltaX) > 40) {
+                      const nextIdx =
+                        deltaX < 0
+                          ? (safeFreqPage + 1) % freqPages
+                          : (safeFreqPage - 1 + freqPages) % freqPages;
+                      setFreqAnimDir(deltaX < 0 ? "next" : "prev");
+                      setFreqPage(nextIdx);
+                    }
+                  }}
+                >
+                  <div
+                    key={safeFreqPage}
+                    className={cn(
+                      "grid grid-cols-4 gap-2",
+                      freqAnimDir === "next" && "animate-swipe-next",
+                      freqAnimDir === "prev" && "animate-swipe-prev",
+                    )}
+                  >
                     {visibleFrequent.map((fullName) => {
                       const parsed = parseCategoryName(fullName);
                       const style = inferCategoryDefaultStyle(fullName);
@@ -622,20 +651,16 @@ export function FullScreenCategorySelectView({
                   </div>
 
                   {freqPages > 1 && (
-                    <div className="mt-3 flex items-center justify-center gap-1.5">
-                      {Array.from({ length: freqPages }).map((_, idx) => (
-                        <button
-                          key={idx}
-                          type="button"
-                          onClick={() => setFreqPage(idx)}
-                          aria-label={`Frequent page ${idx + 1}`}
-                          className={cn(
-                            "size-2 rounded-full transition",
-                            idx === safeFreqPage ? "bg-primary" : "bg-border hover:bg-muted",
-                          )}
-                        />
-                      ))}
-                    </div>
+                    <SwipePaginationDots
+                      total={freqPages}
+                      activeIndex={safeFreqPage}
+                      onSelect={(idx) => {
+                        if (idx === safeFreqPage) return;
+                        setFreqAnimDir(idx > safeFreqPage ? "next" : "prev");
+                        setFreqPage(idx);
+                      }}
+                      className="mt-2.5"
+                    />
                   )}
                 </div>
               </div>

@@ -57,11 +57,19 @@ describe("NewTransaction regression guards", () => {
     expect(NEW_TX_SRC).toContain("{type !== \"transfer\" && category && (");
   });
 
-  it("uses edge-to-edge BudgetBakers-style mobile layout with a single Save button and Back arrow", () => {
+  it("uses edge-to-edge BudgetBakers-style mobile layout with a single Save button, Back arrow, and no duplicate back or AI Magic tab", () => {
     expect(APP_SHELL_SRC).toContain("isFullBleedOverlayRoute\n            ? \"p-0 md:px-8 md:pt-7 md:pb-24\"");
     expect(NEW_TX_SRC).toContain("min-h-dvh w-full flex-col overflow-hidden bg-surface lg:min-h-0 lg:max-w-5xl lg:rounded-2xl");
     expect(NEW_TX_SRC).toContain("<ArrowLeft className=\"size-5\" />");
-    expect(NEW_TX_SRC).toContain("right-0 z-20 flex h-12 w-7 -translate-y-1/2 items-center justify-center rounded-l-full");
+    expect(NEW_TX_SRC).toContain("!min-h-0 !min-w-0 absolute top-1/2 right-0 z-10 flex h-11 w-7 -translate-y-1/2 items-center justify-center rounded-l-full");
+    expect(NEW_TX_SRC).not.toContain("fixed top-1/2 right-0");
+    expect(NEW_TX_SRC).not.toContain("fixed top-1/2 left-0");
+    expect(NEW_TX_SRC).not.toContain("← Back to Calculator");
+    expect(NEW_TX_SRC).not.toContain("AI MAGIC");
+    expect(NEW_TX_SRC).not.toContain("(tap to add note / description)");
+    expect(NEW_TX_SRC).toContain("className=\"grid grid-cols-3\"");
+    expect(NEW_TX_SRC).toContain("animate-swipe-next");
+    expect(NEW_TX_SRC).toContain("animate-swipe-prev");
     expect(NEW_TX_SRC).not.toContain("More details (Category, Budget, Tags)");
     expect(NEW_TX_SRC).not.toContain("Details & Category →");
     expect(NEW_TX_SRC).toContain("className=\"hidden lg:flex items-center gap-2\"");
@@ -381,11 +389,46 @@ describe("FullScreenAccountSelectView & FullScreenCategorySelectView", () => {
     expect(chatSrc).toContain("FullScreenAccountSelectView");
     expect(chatSrc).toContain("FullScreenCategorySelectView");
 
-    // /new has symmetrical right-edge & left-edge pull tabs plus quick date/budget controls
-    expect(NEW_TX_SRC).toContain("left-0 z-20 flex h-12 w-7 -translate-y-1/2 items-center justify-center rounded-r-full");
+    // /new has an aligned amount-card details trigger, swipe animation, and quick date/budget controls (no floating duplicate back buttons)
     expect(NEW_TX_SRC).toContain("aria-label=\"Transaction date\"");
     expect(NEW_TX_SRC).toContain("aria-label=\"Select budget\"");
     expect(NEW_TX_SRC).toContain("{state.isCross && (");
+    expect(NEW_TX_SRC).not.toContain("left-0 z-20 flex h-12 w-7");
+
+    // Category & Account full-screen pickers use system bg-surface navbar and widget SwipePaginationDots
+    const viewsSrc = readFileSync(
+      path.resolve(__dirname, "../../../components/wallet-selection-views.tsx"),
+      "utf8",
+    );
+    expect(viewsSrc).toContain("SwipePaginationDots");
+    expect(viewsSrc).toContain("border-b border-border bg-surface px-2 py-2.5 pt-[max(0.625rem,env(safe-area-inset-top))] text-fg");
+    expect(viewsSrc).not.toContain("bg-primary px-2 py-2.5 pt-[max(0.625rem,env(safe-area-inset-top))] text-primary-fg");
+
+    // Render FullScreenCategorySelectView with 5+ frequent categories to verify widget dots and system header
+    const qc = createTestQueryClient();
+    const fullCatHtml = renderToStaticMarkup(
+      React.createElement(
+        QueryClientProvider,
+        { client: qc },
+        React.createElement(FullScreenCategorySelectView, {
+          categories: [
+            { id: "c-1", type: "categories", attributes: { name: "Entertainment" } },
+            { id: "c-2", type: "categories", attributes: { name: "Food" } },
+            { id: "c-3", type: "categories", attributes: { name: "Health" } },
+            { id: "c-4", type: "categories", attributes: { name: "Transport" } },
+            { id: "c-5", type: "categories", attributes: { name: "Utilities" } },
+          ],
+          selectedCategory: "Food",
+          frequentCategories: ["Entertainment", "Food", "Health", "Transport", "Utilities"],
+          onSelect: () => {},
+          onBack: () => {},
+        }),
+      ),
+    );
+    expect(fullCatHtml).toContain("bg-surface");
+    expect(fullCatHtml).toContain("aria-label=\"View pagination\"");
+    expect(fullCatHtml).toContain("data-pagination-dot=\"true\"");
+    expect(fullCatHtml).toContain("!min-h-0 !min-w-0");
 
     // EditTransactionModal supports AccountPicker and omits category on transfers
     expect(txSrc).toContain("accounts?: Awaited<ReturnType<typeof api.accounts>>");

@@ -20,7 +20,6 @@ import {
   RotateCcw,
   Sparkles,
   Trash2,
-  Wand2,
   X,
 } from "lucide-react";
 import { api } from "@/lib/firefly/api";
@@ -40,20 +39,24 @@ import {
 import { cn, isoDate, monthRange, parseAmount, zeroPlaceholder } from "@/lib/utils";
 import { FullScreenAccountSelectView, FullScreenCategorySelectView } from "@/components/wallet-selection-views";
 import { LinkedAmountFields, useLinkedAmounts, type CurrencyInfo } from "@/components/linked-amounts";
-import { MagicChatPanel } from "@/components/magic-chatbar";
 import { ICON_CATALOG, inferAccountDefaultStyle, inferCategoryDefaultStyle, ResourceIconBadge } from "@/components/resource-icon";
 import { AnimatedTabs, Badge, Button, Card, ErrorBox, Field, Input, ModalSheet, Select, Skeleton } from "@/components/ui";
 import { useToast } from "@/components/providers";
 import { useEscapeDismiss } from "@/lib/use-escape-dismiss";
 
-type TxType = "withdrawal" | "deposit" | "transfer" | "ramble";
+type TxType = "withdrawal" | "deposit" | "transfer";
 
 const TABS: { type: TxType; label: string; icon: typeof Minus }[] = [
   { type: "deposit", label: "INCOME", icon: Plus },
   { type: "withdrawal", label: "EXPENSE", icon: Minus },
   { type: "transfer", label: "TRANSFER", icon: ArrowLeftRight },
-  { type: "ramble", label: "AI MAGIC", icon: Wand2 },
 ];
+
+const MODE_ORDER: Record<TxType, number> = {
+  deposit: 0,
+  withdrawal: 1,
+  transfer: 2,
+};
 
 const RECENT_KEY = "ff-recent-transfer-pairs";
 type Pair = { s: string; d: string };
@@ -290,49 +293,14 @@ export function applyDenominationChip(currentExpr: string, delta: number): strin
 
 export function NewTransaction() {
   const params = useSearchParams();
-  const router = useRouter();
   const raw = params.get("type");
   const templateParam = params.get("template");
   const type: TxType =
-    raw === "deposit" || raw === "transfer" || raw === "ramble" ? raw : "withdrawal";
+    raw === "deposit" || raw === "transfer" ? raw : "withdrawal";
 
   return (
     <div className="mx-auto w-full max-w-5xl">
-      {type === "ramble" ? (
-        <div className="relative mx-auto flex min-h-dvh w-full flex-col overflow-hidden bg-surface lg:min-h-0 lg:max-w-5xl lg:rounded-2xl lg:border lg:border-border lg:shadow-sm">
-          <div className="flex flex-col gap-3 border-b border-border p-3 pt-[max(0.75rem,env(safe-area-inset-top))] sm:p-4">
-            <div className="flex items-center justify-between">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={() => (typeof window !== "undefined" && window.history.length > 1 ? router.back() : router.push("/"))}
-                aria-label="Back"
-              >
-                <ArrowLeft className="size-5" />
-              </Button>
-              <span className="text-sm font-semibold">AI Assistant</span>
-              <span className="w-9" />
-            </div>
-            <AnimatedTabs
-              tabs={TABS.map((t) => ({
-                key: t.type,
-                label: <span className="capitalize">{t.label.toLowerCase()}</span>,
-                icon: t.icon,
-              }))}
-              activeTab={type}
-              onChange={(newType) => router.replace(`/new?type=${newType}`, { scroll: false })}
-              className="grid grid-cols-4"
-              ariaLabel="Transaction types"
-            />
-          </div>
-          <div className="p-3 sm:p-4">
-            <RambleAssistant />
-          </div>
-        </div>
-      ) : (
-        <WalletCalculatorForm key={`${type}-${templateParam ?? ""}`} type={type} initialTemplateId={templateParam} />
-      )}
+      <WalletCalculatorForm key={templateParam ?? "default"} type={type} initialTemplateId={templateParam} />
     </div>
   );
 }
@@ -414,9 +382,24 @@ function WalletCalculatorForm({
   // Calculator, Sub-View Drilldown & Details Drawer state
   const [expr, setExpr] = useState(() => searchParams.get("amount") ?? "");
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [paneTransition, setPaneTransition] = useState<"none" | "to-details" | "to-calc">("none");
+  const [lastType, setLastType] = useState<TxType>(type);
+  const [modeDir, setModeDir] = useState<"none" | "next" | "prev">("none");
   const [activeSubView, setActiveSubView] = useState<null | "source-account" | "dest-account" | "category">(null);
   const [touchStartX, setTouchStartX] = useState<number | null>(null);
   const [seededUrlAmount, setSeededUrlAmount] = useState(false);
+
+  if (type !== lastType) {
+    setModeDir(MODE_ORDER[type] > MODE_ORDER[lastType] ? "next" : "prev");
+    setLastType(type);
+    setError(null);
+  }
+
+  const goToDetails = (open: boolean) => {
+    if (open === detailsOpen) return;
+    setPaneTransition(open ? "to-details" : "to-calc");
+    setDetailsOpen(open);
+  };
 
   // Two-toggle Exchange Rate Mode:
   // "save" = Save the new exchange rate to Firefly III
@@ -433,7 +416,7 @@ function WalletCalculatorForm({
   const [appliedInitTemplate, setAppliedInitTemplate] = useState<string | null>(null);
 
   useEscapeDismiss(activeSubView !== null, () => setActiveSubView(null), "new-tx-subview");
-  useEscapeDismiss(detailsOpen, () => setDetailsOpen(false), "new-transaction-details");
+  useEscapeDismiss(detailsOpen, () => goToDetails(false), "new-transaction-details");
   useEscapeDismiss(showSaveTemplate, () => setShowSaveTemplate(false), "new-transaction-save-template");
 
   const handleCancelOrBack = () => {
@@ -442,7 +425,7 @@ function WalletCalculatorForm({
       return;
     }
     if (detailsOpen) {
-      setDetailsOpen(false);
+      goToDetails(false);
       return;
     }
     if (typeof window !== "undefined" && window.history.length > 1) {
@@ -876,7 +859,7 @@ function WalletCalculatorForm({
         const deltaX = (e.changedTouches[0]?.clientX ?? touchStartX) - touchStartX;
         // Swipe left or right to toggle the in-depth details panel on mobile
         if (Math.abs(deltaX) > 65) {
-          setDetailsOpen(deltaX < 0);
+          goToDetails(deltaX < 0);
         }
         setTouchStartX(null);
       }}
@@ -916,7 +899,7 @@ function WalletCalculatorForm({
           }))}
           activeTab={type}
           onChange={(newType) => router.replace(`/new?type=${newType}`, { scroll: false })}
-          className="grid grid-cols-4"
+          className="grid grid-cols-3"
           ariaLabel="Transaction types"
         />
 
@@ -953,20 +936,23 @@ function WalletCalculatorForm({
         {/* LEFT PANE:
             - On Mobile (< lg): Keypad view with Giant Amount card, inline account select, and 4x4 keypad
             - On Desktop (>= lg): Keyboard-first financial core */}
-        <div className={cn("flex-1 flex-col lg:col-span-5 lg:flex", detailsOpen ? "hidden" : "flex")}>
+        <div
+          className={cn(
+            "flex-1 flex-col lg:col-span-5 lg:flex",
+            detailsOpen ? "hidden" : "flex",
+            !detailsOpen && paneTransition === "to-calc" && "animate-swipe-prev lg:animate-none",
+          )}
+        >
           {/* MOBILE ONLY (< lg) KEYPAD VIEW */}
           <div className="relative flex flex-1 flex-col justify-between lg:hidden">
-            {/* Right-edge pull-tab: tap or swipe left for more details */}
-            <button
-              type="button"
-              onClick={() => setDetailsOpen(true)}
-              aria-label="More details"
-              title="Swipe left or tap for more details"
-              className="fixed top-1/2 right-0 z-20 flex h-12 w-7 -translate-y-1/2 items-center justify-center rounded-l-full border border-r-0 border-border bg-surface text-muted shadow-md hover:text-fg active:scale-95"
+            <div
+              key={type}
+              className={cn(
+                "flex flex-col gap-3 border-b border-border p-3 sm:p-4",
+                modeDir === "next" && "animate-swipe-next",
+                modeDir === "prev" && "animate-swipe-prev",
+              )}
             >
-              <ChevronLeft className="size-4" />
-            </button>
-            <div className="flex flex-col gap-3 border-b border-border p-3 sm:p-4">
               {(billName || billId) && (
                 <div className="flex items-center justify-between gap-2 rounded-xl border border-primary/25 bg-primary/10 px-3 py-2 text-xs font-semibold text-primary">
                   <div className="flex items-center gap-1.5 truncate">
@@ -984,8 +970,8 @@ function WalletCalculatorForm({
                   </button>
                 </div>
               )}
-              {/* Giant Amount Display + Mobile Pull-Tab */}
-              <div className={cn("relative flex min-h-28 flex-col items-center justify-center rounded-xl px-10 py-4", accentSoft)}>
+              {/* Giant Amount Display + Aligned Details Pull-Tab */}
+              <div className={cn("relative flex min-h-28 flex-col items-center justify-center rounded-xl px-10 py-4 transition-colors", accentSoft)}>
                 <div className="flex items-baseline gap-2">
                   <span className={cn("tabular text-4xl font-semibold tracking-tight sm:text-5xl", accentText)}>
                     {type === "withdrawal" ? "−" : type === "deposit" ? "+" : ""}
@@ -1002,6 +988,15 @@ function WalletCalculatorForm({
                 {type !== "transfer" && category && (
                   <Badge className="mt-2">{category.replace(/\s*:\s*/g, " › ")}</Badge>
                 )}
+                <button
+                  type="button"
+                  onClick={() => goToDetails(true)}
+                  aria-label="More details"
+                  title="Swipe left or tap for more details"
+                  className="!min-h-0 !min-w-0 absolute top-1/2 right-0 z-10 flex h-11 w-7 -translate-y-1/2 items-center justify-center rounded-l-full border border-r-0 border-border/70 bg-surface text-muted shadow-sm hover:text-fg active:scale-95 transition"
+                >
+                  <ChevronLeft className="size-4" />
+                </button>
               </div>
 
               {/* Inline From → To / Category bar */}
@@ -1151,17 +1146,6 @@ function WalletCalculatorForm({
                     ))}
                 </select>
               )}
-            </div>
-
-            {/* Quick Description Bar above keypad (Mobile) */}
-            <div className="flex items-center border-b border-border bg-surface px-4 py-2.5 text-xs">
-              <input
-                type="text"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder={defaultDescription() + " (tap to add note / description)…"}
-                className="w-full bg-transparent text-sm outline-none placeholder:text-muted"
-              />
             </div>
 
             {/* 4x4 Calculator Keypad (Mobile only) */}
@@ -1494,29 +1478,21 @@ function WalletCalculatorForm({
         {/* RIGHT PANE: IN-DEPTH DETAILS VIEW
             - On Desktop (>= lg): Always visible, keyboard-first fields (Description, Source/Dest Account, Category, Budget, Tags, Date, Notes, Submission buttons)
             - On Mobile (< lg): Shown when detailsOpen is true */}
-        <div className={cn("relative flex-col gap-4 p-4 sm:p-5 lg:col-span-7 lg:flex", detailsOpen ? "flex fade-in" : "hidden")}>
-          {/* Left-edge pull-tab on mobile Details view to flip back to calculator */}
-          {detailsOpen && (
-            <button
-              type="button"
-              onClick={() => setDetailsOpen(false)}
-              aria-label="Back to calculator"
-              title="Swipe right or tap to return to calculator"
-              className="fixed top-1/2 left-0 z-20 flex h-12 w-7 -translate-y-1/2 items-center justify-center rounded-r-full border border-l-0 border-border bg-surface text-muted shadow-md hover:text-fg active:scale-95 lg:hidden"
-            >
-              <ChevronRight className="size-4" />
-            </button>
+        <div
+          className={cn(
+            "relative flex-col gap-4 p-4 sm:p-5 lg:col-span-7 lg:flex",
+            detailsOpen
+              ? cn("flex", paneTransition === "to-details" && "animate-swipe-next lg:animate-none")
+              : "hidden",
           )}
-          <div className="flex items-center justify-between lg:hidden">
-            <Button type="button" variant="secondary" size="sm" onClick={() => setDetailsOpen(false)}>
-              ← Back to Calculator
-            </Button>
-            {state.isCross && (
+        >
+          {state.isCross && (
+            <div className="flex justify-end lg:hidden">
               <Button type="button" variant="secondary" size="sm" onClick={openSetupCurrencyModal}>
                 Setup Currency & Rate
               </Button>
-            )}
-          </div>
+            </div>
+          )}
 
           {/* Description field at top of right pane for clean keyboard tab navigation from Amount */}
           <Field label="Description">
@@ -1981,12 +1957,4 @@ function WalletCalculatorForm({
       )}
     </div>
   );
-}
-
-// ============================================================================
-// PICO "RAMBLE" MAGIC ASSISTANT (Natural-Language & Voice Multi-Transaction)
-// ============================================================================
-
-function RambleAssistant() {
-  return <MagicChatPanel mode="inline" alwaysShow />;
 }

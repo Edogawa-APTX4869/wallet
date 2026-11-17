@@ -201,6 +201,7 @@ describe("AI Ramble full-system action parser & live Q&A", () => {
     expect(magicSrc).toContain("api.createCategory");
     expect(magicSrc).toContain("api.createAccount");
     expect(settingsSrc).not.toContain("Google restricts third-party self-hosted Docker apps");
-    expect(newTxSrc).toContain("<MagicChatPanel mode=\"inline\" alwaysShow />");
+    expect(magicSrc).toContain("alwaysShow");
+    expect(newTxSrc).not.toContain("AI MAGIC");
   });
 });
