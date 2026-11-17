@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Copy, Pencil, Trash2 } from "lucide-react";
 import type { Resource, TransactionGroup, TransactionSplit } from "@/lib/firefly/types";
-import { cn, formatDate } from "@/lib/utils";
+import { cn, formatDateTime } from "@/lib/utils";
 import { ICON_CATALOG, inferCategoryDefaultStyle, useResourceMeta } from "@/components/resource-icon";
 import { Badge, Money } from "@/components/ui";
 
@@ -133,7 +133,7 @@ export function TransactionRow({
             </>
           )}
           {" · "}
-          {formatDate(first.date)}
+          {formatDateTime(first.date)}
         </p>
       </div>
       <div className="text-right shrink-0">

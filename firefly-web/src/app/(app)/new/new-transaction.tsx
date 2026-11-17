@@ -36,7 +36,16 @@ import {
   recordCategoryUsage,
   resolveDefaultAccountId,
 } from "@/lib/recent-selections";
-import { cn, isoDate, monthRange, parseAmount, zeroPlaceholder } from "@/lib/utils";
+import {
+  cn,
+  extractLocalDate,
+  isoDate,
+  isoDateTimeWithOffset,
+  isoTime,
+  monthRange,
+  parseAmount,
+  zeroPlaceholder,
+} from "@/lib/utils";
 import { FullScreenAccountSelectView, FullScreenCategorySelectView } from "@/components/wallet-selection-views";
 import { LinkedAmountFields, useLinkedAmounts, type CurrencyInfo } from "@/components/linked-amounts";
 import { ICON_CATALOG, inferAccountDefaultStyle, inferCategoryDefaultStyle, ResourceIconBadge } from "@/components/resource-icon";
@@ -368,7 +377,8 @@ function WalletCalculatorForm({
   const [counterparty, setCounterparty] = useState(() => searchParams.get("counterparty") ?? "");
   const [foreignCode, setForeignCode] = useState(() => searchParams.get("foreignCode") ?? "");
   const [description, setDescription] = useState(() => searchParams.get("description") ?? "");
-  const [date, setDate] = useState(isoDate());
+  const [date, setDate] = useState(() => extractLocalDate(searchParams.get("date")));
+  const [time, setTime] = useState(() => searchParams.get("time") || isoTime());
   const [category, setCategory] = useState(() => searchParams.get("category") ?? "");
   const [budgetId, setBudgetId] = useState(() => searchParams.get("budgetId") ?? "");
   const [tags, setTags] = useState(() => searchParams.get("tags") ?? "");
@@ -382,7 +392,7 @@ function WalletCalculatorForm({
   // Calculator, Sub-View Drilldown & Details Drawer state
   const [expr, setExpr] = useState(() => searchParams.get("amount") ?? "");
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const [paneTransition, setPaneTransition] = useState<"none" | "to-details" | "to-calc">("none");
+  const [paneTransition, setPaneTransition] = useState<"none" | "to-details" | "to-calc" | "from-subview">("none");
   const [lastType, setLastType] = useState<TxType>(type);
   const [modeDir, setModeDir] = useState<"none" | "next" | "prev">("none");
   const [activeSubView, setActiveSubView] = useState<null | "source-account" | "dest-account" | "category">(null);
@@ -401,6 +411,11 @@ function WalletCalculatorForm({
     setDetailsOpen(open);
   };
 
+  const closeSubView = () => {
+    setPaneTransition("from-subview");
+    setActiveSubView(null);
+  };
+
   // Two-toggle Exchange Rate Mode:
   // "save" = Save the new exchange rate to Firefly III
   // "once" = Just one-time change for this transaction only
@@ -415,13 +430,13 @@ function WalletCalculatorForm({
   const [templateName, setTemplateName] = useState("");
   const [appliedInitTemplate, setAppliedInitTemplate] = useState<string | null>(null);
 
-  useEscapeDismiss(activeSubView !== null, () => setActiveSubView(null), "new-tx-subview");
+  useEscapeDismiss(activeSubView !== null, closeSubView, "new-tx-subview");
   useEscapeDismiss(detailsOpen, () => goToDetails(false), "new-transaction-details");
   useEscapeDismiss(showSaveTemplate, () => setShowSaveTemplate(false), "new-transaction-save-template");
 
   const handleCancelOrBack = () => {
     if (activeSubView !== null) {
-      setActiveSubView(null);
+      closeSubView();
       return;
     }
     if (detailsOpen) {
@@ -644,7 +659,7 @@ function WalletCalculatorForm({
 
       const split: NewSplit = {
         type,
-        date,
+        date: isoDateTimeWithOffset(date, time),
         amount,
         description: description.trim() || defaultDescription(),
         currency_code: assetCur?.code || undefined,
@@ -723,6 +738,8 @@ function WalletCalculatorForm({
       }
       linked.controls.reset();
       setExpr("");
+      setDate(isoDate());
+      setTime(isoTime());
       setDescription("");
       setNotes("");
       setAttachments([]);
@@ -793,7 +810,10 @@ function WalletCalculatorForm({
 
   if (activeSubView === "source-account") {
     return (
-      <div className="relative mx-auto flex min-h-dvh w-full flex-col overflow-hidden bg-surface lg:min-h-0 lg:max-w-5xl lg:rounded-2xl lg:border lg:border-border lg:shadow-sm">
+      <div
+        key="subview-source-account"
+        className="relative mx-auto flex min-h-dvh w-full flex-col overflow-hidden bg-surface animate-swipe-next lg:min-h-0 lg:max-w-5xl lg:rounded-2xl lg:border lg:border-border lg:shadow-sm"
+      >
         <FullScreenAccountSelectView
           title={type === "deposit" ? "To account" : "Select account"}
           accounts={assetLike}
@@ -803,9 +823,9 @@ function WalletCalculatorForm({
             setAssetId(id);
             pushRecentAccountId(id);
             resetFxKeepAmount();
-            setActiveSubView(null);
+            closeSubView();
           }}
-          onBack={() => setActiveSubView(null)}
+          onBack={closeSubView}
         />
       </div>
     );
@@ -813,7 +833,10 @@ function WalletCalculatorForm({
 
   if (activeSubView === "dest-account") {
     return (
-      <div className="relative mx-auto flex min-h-dvh w-full flex-col overflow-hidden bg-surface lg:min-h-0 lg:max-w-5xl lg:rounded-2xl lg:border lg:border-border lg:shadow-sm">
+      <div
+        key="subview-dest-account"
+        className="relative mx-auto flex min-h-dvh w-full flex-col overflow-hidden bg-surface animate-swipe-next lg:min-h-0 lg:max-w-5xl lg:rounded-2xl lg:border lg:border-border lg:shadow-sm"
+      >
         <FullScreenAccountSelectView
           title="To account"
           accounts={assetLike}
@@ -823,9 +846,9 @@ function WalletCalculatorForm({
           onSelect={(id) => {
             setDestId(id);
             resetFxKeepAmount();
-            setActiveSubView(null);
+            closeSubView();
           }}
-          onBack={() => setActiveSubView(null)}
+          onBack={closeSubView}
         />
       </div>
     );
@@ -833,7 +856,10 @@ function WalletCalculatorForm({
 
   if (activeSubView === "category" && type !== "transfer") {
     return (
-      <div className="relative mx-auto flex min-h-dvh w-full flex-col overflow-hidden bg-surface lg:min-h-0 lg:max-w-5xl lg:rounded-2xl lg:border lg:border-border lg:shadow-sm">
+      <div
+        key="subview-category"
+        className="relative mx-auto flex min-h-dvh w-full flex-col overflow-hidden bg-surface animate-swipe-next lg:min-h-0 lg:max-w-5xl lg:rounded-2xl lg:border lg:border-border lg:shadow-sm"
+      >
         <FullScreenCategorySelectView
           categories={categoriesQ.data ?? []}
           selectedCategory={category}
@@ -842,9 +868,9 @@ function WalletCalculatorForm({
           onSelect={(catName) => {
             if (catName) recordCategoryUsage(catName);
             setCategory(catName);
-            setActiveSubView(null);
+            closeSubView();
           }}
-          onBack={() => setActiveSubView(null)}
+          onBack={closeSubView}
         />
       </div>
     );
@@ -852,7 +878,10 @@ function WalletCalculatorForm({
 
   return (
     <div
-      className="relative mx-auto flex min-h-dvh w-full flex-col overflow-hidden bg-surface lg:min-h-0 lg:max-w-5xl lg:rounded-2xl lg:border lg:border-border lg:shadow-sm"
+      className={cn(
+        "relative mx-auto flex min-h-dvh w-full flex-col overflow-hidden bg-surface lg:min-h-0 lg:max-w-5xl lg:rounded-2xl lg:border lg:border-border lg:shadow-sm",
+        paneTransition === "from-subview" && "animate-swipe-prev",
+      )}
       onTouchStart={(e) => setTouchStartX(e.touches[0]?.clientX ?? null)}
       onTouchEnd={(e) => {
         if (touchStartX === null) return;
@@ -1120,15 +1149,24 @@ function WalletCalculatorForm({
               </div>
             )}
 
-            {/* Quick Date, Budget & Description Strip above keypad (Mobile) */}
-            <div className="flex items-center justify-between gap-2 border-b border-border bg-surface-2/40 px-3 py-1.5 text-xs">
-              <input
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                aria-label="Transaction date"
-                className="rounded-lg border border-border bg-surface px-2 py-1 text-xs font-medium text-fg outline-none focus:border-primary"
-              />
+            {/* Quick Date, Time & Budget Strip above keypad (Mobile) */}
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-surface-2/40 px-3 py-1.5 text-xs">
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="date"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                  aria-label="Transaction date"
+                  className="rounded-lg border border-border bg-surface px-2 py-1 text-xs font-medium text-fg outline-none focus:border-primary"
+                />
+                <input
+                  type="time"
+                  value={time}
+                  onChange={(e) => setTime(e.target.value)}
+                  aria-label="Transaction time"
+                  className="rounded-lg border border-border bg-surface px-2 py-1 text-xs font-medium text-fg outline-none focus:border-primary"
+                />
+              </div>
               {type === "withdrawal" && (budgetsQ.data?.length ?? 0) > 0 && (
                 <select
                   value={budgetId}
@@ -1670,9 +1708,12 @@ function WalletCalculatorForm({
             </div>
           )}
 
-          <div className={cn("grid gap-3", type === "withdrawal" ? "sm:grid-cols-2" : "grid-cols-1")}>
+          <div className={cn("grid gap-3", type === "withdrawal" ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
             <Field label="Date">
               {(id) => <Input id={id} type="date" value={date} onChange={(e) => setDate(e.target.value)} required />}
+            </Field>
+            <Field label="Time">
+              {(id) => <Input id={id} type="time" value={time} onChange={(e) => setTime(e.target.value)} required />}
             </Field>
 
             {type === "withdrawal" && (

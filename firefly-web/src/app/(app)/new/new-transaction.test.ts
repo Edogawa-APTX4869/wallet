@@ -11,6 +11,13 @@ import {
   FullScreenAccountSelectView,
   FullScreenCategorySelectView,
 } from "@/components/wallet-selection-views";
+import {
+  extractLocalDate,
+  extractLocalTime,
+  formatDateTime,
+  isoDateTimeWithOffset,
+  isoTime,
+} from "@/lib/utils";
 import { evaluateCalcExpression } from "./new-transaction";
 
 const NEW_TX_SRC = readFileSync(path.resolve(__dirname, "new-transaction.tsx"), "utf8");
@@ -430,10 +437,37 @@ describe("FullScreenAccountSelectView & FullScreenCategorySelectView", () => {
     expect(fullCatHtml).toContain("data-pagination-dot=\"true\"");
     expect(fullCatHtml).toContain("!min-h-0 !min-w-0");
 
-    // EditTransactionModal supports AccountPicker and omits category on transfers
+    // EditTransactionModal supports AccountPicker, time preservation, and omits category on transfers
     expect(txSrc).toContain("accounts?: Awaited<ReturnType<typeof api.accounts>>");
     expect(txSrc).toContain("txType === \"deposit\" ? \"To account\" : \"From account\"");
     expect(txSrc).toContain("txType !== \"transfer\" && (");
     expect(txSrc).toContain("category_name: txType === \"transfer\" ? undefined : category.trim() || undefined");
+    expect(txSrc).toContain("isoDateTimeWithOffset(date, time)");
+    expect(txSrc).toContain("type=\"time\"");
+
+    // Category & Account pickers animate both opening (animate-swipe-next) and back/level drilldown
+    expect(NEW_TX_SRC).toContain("key=\"subview-category\"");
+    expect(NEW_TX_SRC).toContain("paneTransition === \"from-subview\" && \"animate-swipe-prev\"");
+    expect(viewsSrc).toContain("levelAnimDir === \"next\" && \"animate-swipe-next\"");
+    expect(viewsSrc).toContain("levelAnimDir === \"prev\" && \"animate-swipe-prev\"");
+    expect(NEW_TX_SRC).toContain("isoDateTimeWithOffset(date, time)");
+    expect(NEW_TX_SRC).toContain("aria-label=\"Transaction time\"");
+  });
+
+  it("formats and preserves local date + current time as ISO-8601 timestamps for Firefly III", () => {
+    const sample = new Date(2026, 10, 17, 22, 19, 33); // 2026-11-17 22:19:33 local
+    expect(isoTime(sample)).toBe("22:19");
+
+    const stampNow = isoDateTimeWithOffset("2026-11-17", "22:19", sample);
+    expect(stampNow).toMatch(/^2026-11-17T22:19:33[+-]\d{2}:\d{2}$/);
+
+    const stampEdited = isoDateTimeWithOffset("2026-11-17", "08:05", sample);
+    expect(stampEdited).toMatch(/^2026-11-17T08:05:00[+-]\d{2}:\d{2}$/);
+
+    expect(extractLocalDate(stampEdited)).toBe("2026-11-17");
+    expect(extractLocalTime(stampEdited)).toBe("08:05");
+    expect(extractLocalDate("2026-11-17")).toBe("2026-11-17");
+    expect(extractLocalTime("2026-11-17", sample)).toBe("22:19");
+    expect(formatDateTime(stampNow).length).toBeGreaterThan(6);
   });
 });

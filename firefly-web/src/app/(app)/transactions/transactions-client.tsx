@@ -9,7 +9,7 @@ import { Check, ChevronLeft, ChevronRight, Filter, Plus, RotateCcw, Search, X } 
 import { api } from "@/lib/firefly/api";
 import type { Resource, TransactionGroup } from "@/lib/firefly/types";
 import { ASSET_LIKE, useAccounts, usePrimaryCurrency } from "@/lib/hooks";
-import { cn, monthRange, parseAmount } from "@/lib/utils";
+import { cn, extractLocalDate, extractLocalTime, isoDateTimeWithOffset, monthRange, parseAmount } from "@/lib/utils";
 import { AccountPicker } from "@/components/account-picker";
 import { CategoryCascadeSelect } from "@/components/category-cascade";
 import { TransactionRow } from "@/components/transaction-row";
@@ -714,7 +714,8 @@ function EditTransactionModal({
 
   const [description, setDescription] = useState(first?.description ?? "");
   const [amount, setAmount] = useState(() => String(Math.abs(Number(first?.amount ?? 0))));
-  const [date, setDate] = useState(() => (first?.date ?? "").slice(0, 10));
+  const [date, setDate] = useState(() => extractLocalDate(first?.date));
+  const [time, setTime] = useState(() => extractLocalTime(first?.date));
   const [sourceId, setSourceId] = useState(() =>
     txType === "deposit" ? (first?.destination_id ?? "") : (first?.source_id ?? ""),
   );
@@ -736,7 +737,7 @@ function EditTransactionModal({
           type: txType,
           description: description.trim() || first?.description || "Transaction",
           amount: parsedAmt,
-          date: date || first?.date || "",
+          date: date ? isoDateTimeWithOffset(date, time) : first?.date || isoDateTimeWithOffset(),
           ...(txType === "deposit"
             ? { destination_id: sourceId || first?.destination_id || undefined }
             : { source_id: sourceId || first?.source_id || undefined }),
@@ -807,9 +808,12 @@ function EditTransactionModal({
           <CategoryCascadeSelect categories={categories} value={category} onChange={setCategory} />
         )}
 
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className={cn("grid gap-3", first.type === "withdrawal" ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
           <Field label="Date">
             {(id) => <Input id={id} type="date" value={date} onChange={(e) => setDate(e.target.value)} />}
+          </Field>
+          <Field label="Time">
+            {(id) => <Input id={id} type="time" value={time} onChange={(e) => setTime(e.target.value)} />}
           </Field>
 
           {first.type === "withdrawal" && (

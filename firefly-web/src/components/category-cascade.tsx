@@ -191,7 +191,7 @@ export function CategoryCascadeSelect({
       {mobileViewOpen &&
         typeof document !== "undefined" &&
         createPortal(
-          <div className="fixed inset-0 z-[10000] flex flex-col overflow-hidden bg-surface">
+          <div className="fixed inset-0 z-[10000] flex flex-col overflow-hidden bg-surface animate-swipe-next">
             <FullScreenCategorySelectView
               categories={categories}
               selectedCategory={value}

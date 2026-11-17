@@ -316,6 +316,7 @@ export function FullScreenCategorySelectView({
   onBack: () => void;
 }) {
   const [activeParent, setActiveParent] = useState<string | null>(null);
+  const [levelAnimDir, setLevelAnimDir] = useState<"none" | "next" | "prev">("none");
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [freqPage, setFreqPage] = useState(0);
@@ -378,6 +379,7 @@ export function FullScreenCategorySelectView({
 
   const handleHeaderBack = () => {
     if (activeParent !== null && !query.trim()) {
+      setLevelAnimDir("prev");
       setActiveParent(null);
       return;
     }
@@ -509,8 +511,11 @@ export function FullScreenCategorySelectView({
             </div>
           </div>
         ) : activeParent !== null && currentGroup ? (
-          /* LEVEL 2: GENERAL + SUBCATEGORIES (matching screenshot 2) */
-          <div>
+          /* LEVEL 2: GENERAL + SUBCATEGORIES */
+          <div
+            key={`cat-level-2-${currentGroup.parent}`}
+            className={cn(levelAnimDir === "next" && "animate-swipe-next")}
+          >
             <div className="bg-surface-2/80 px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-muted">
               GENERAL
             </div>
@@ -585,8 +590,11 @@ export function FullScreenCategorySelectView({
             )}
           </div>
         ) : (
-          /* LEVEL 1: MOST FREQUENT + ALL CATEGORIES (matching screenshot 1) */
-          <div>
+          /* LEVEL 1: MOST FREQUENT + ALL CATEGORIES */
+          <div
+            key="cat-level-1"
+            className={cn(levelAnimDir === "prev" && "animate-swipe-prev")}
+          >
             {visibleFrequent.length > 0 && (
               <div>
                 <div className="bg-surface-2/80 px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-muted">
@@ -705,6 +713,7 @@ export function FullScreenCategorySelectView({
                       type="button"
                       onClick={() => {
                         if (hasSubs) {
+                          setLevelAnimDir("next");
                           setActiveParent(group.parent);
                         } else {
                           onSelect(group.parent);

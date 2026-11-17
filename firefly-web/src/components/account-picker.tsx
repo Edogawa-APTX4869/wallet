@@ -145,7 +145,7 @@ export function AccountPicker({
         {mobileViewOpen &&
           typeof document !== "undefined" &&
           createPortal(
-            <div className="fixed inset-0 z-[10000] flex flex-col overflow-hidden bg-surface">
+            <div className="fixed inset-0 z-[10000] flex flex-col overflow-hidden bg-surface animate-swipe-next">
               <FullScreenAccountSelectView
                 title={label || "Select account"}
                 accounts={accounts}

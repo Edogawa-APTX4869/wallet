@@ -81,6 +81,79 @@ export function isoDate(d: Date = new Date()): string {
   return `${y}-${m}-${day}`;
 }
 
+/** Local time as HH:MM (24-hour). */
+export function isoTime(d: Date = new Date()): string {
+  const h = String(d.getHours()).padStart(2, "0");
+  const m = String(d.getMinutes()).padStart(2, "0");
+  return `${h}:${m}`;
+}
+
+/**
+ * Combines a local date (`YYYY-MM-DD`) and local time (`HH:MM` or `HH:MM:SS`)
+ * into an ISO-8601 timestamp with local timezone offset for Firefly III storage.
+ */
+export function isoDateTimeWithOffset(
+  dateStr?: string,
+  timeStr?: string,
+  now: Date = new Date(),
+): string {
+  const trimmedDate = (dateStr ?? "").trim();
+  if (trimmedDate.includes("T") && !timeStr) {
+    return trimmedDate;
+  }
+  const datePart = /^\d{4}-\d{2}-\d{2}/.test(trimmedDate)
+    ? trimmedDate.slice(0, 10)
+    : isoDate(now);
+
+  const cleanTime = (timeStr ?? "").trim();
+  let hh: string;
+  let mm: string;
+  let ss: string;
+  if (/^\d{2}:\d{2}(:\d{2})?$/.test(cleanTime)) {
+    hh = cleanTime.slice(0, 2);
+    mm = cleanTime.slice(3, 5);
+    if (cleanTime.length >= 8) {
+      ss = cleanTime.slice(6, 8);
+    } else {
+      ss = cleanTime.slice(0, 5) === isoTime(now)
+        ? String(now.getSeconds()).padStart(2, "0")
+        : "00";
+    }
+  } else {
+    hh = String(now.getHours()).padStart(2, "0");
+    mm = String(now.getMinutes()).padStart(2, "0");
+    ss = String(now.getSeconds()).padStart(2, "0");
+  }
+
+  const offsetMinutes = -now.getTimezoneOffset();
+  const sign = offsetMinutes >= 0 ? "+" : "-";
+  const absOff = Math.abs(offsetMinutes);
+  const offH = String(Math.floor(absOff / 60)).padStart(2, "0");
+  const offM = String(absOff % 60).padStart(2, "0");
+  return `${datePart}T${hh}:${mm}:${ss}${sign}${offH}:${offM}`;
+}
+
+/** Extracts local `YYYY-MM-DD` from a Firefly ISO timestamp or date-only string. */
+export function extractLocalDate(raw?: string | null, fallback: Date = new Date()): string {
+  const s = (raw ?? "").trim();
+  if (!s) return isoDate(fallback);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const parsed = new Date(s);
+  if (Number.isNaN(parsed.getTime())) {
+    return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : isoDate(fallback);
+  }
+  return isoDate(parsed);
+}
+
+/** Extracts local `HH:MM` from a Firefly ISO timestamp (falls back to current time if date-only/missing). */
+export function extractLocalTime(raw?: string | null, fallback: Date = new Date()): string {
+  const s = (raw ?? "").trim();
+  if (!s || !s.includes("T")) return isoTime(fallback);
+  const parsed = new Date(s);
+  if (Number.isNaN(parsed.getTime())) return isoTime(fallback);
+  return isoTime(parsed);
+}
+
 export function monthRange(offset = 0, base: Date = new Date()): { start: string; end: string; label: string } {
   const s = new Date(base.getFullYear(), base.getMonth() + offset, 1);
   const e = new Date(base.getFullYear(), base.getMonth() + offset + 1, 0);
@@ -94,6 +167,16 @@ export function monthRange(offset = 0, base: Date = new Date()): { start: string
 export function formatDate(d: string | Date, opts: Intl.DateTimeFormatOptions = { dateStyle: "medium" }) {
   const date = typeof d === "string" ? new Date(d) : d;
   return date.toLocaleDateString(undefined, opts);
+}
+
+/** Formats a transaction timestamp with date + short time when a time component exists. */
+export function formatDateTime(d: string | Date): string {
+  if (typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d.trim())) {
+    return formatDate(d);
+  }
+  const date = typeof d === "string" ? new Date(d) : d;
+  if (Number.isNaN(date.getTime())) return String(d);
+  return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
 /** Accepts "1,234.50", "1234,50" and similar; returns a canonical decimal string or "". */

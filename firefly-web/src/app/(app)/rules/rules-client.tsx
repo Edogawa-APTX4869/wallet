@@ -36,7 +36,7 @@ import type {
 import { ASSET_LIKE, useAccounts, useCurrencies, usePrimaryCurrency } from "@/lib/hooks";
 import { useOptionalUniversalFilter } from "@/lib/filter-context";
 import { pushRecentAccountId, resolveDefaultAccountForList } from "@/lib/recent-selections";
-import { cn, formatDate, isoDate, monthRange, parseAmount } from "@/lib/utils";
+import { cn, formatDate, isoDate, isoDateTimeWithOffset, isoTime, monthRange, parseAmount } from "@/lib/utils";
 import {
   buildBillRulePayload,
   buildNewTransactionUrlForBill,
@@ -1243,6 +1243,7 @@ function QuickPayModal({
       "",
   );
   const [date, setDate] = useState(isoDate());
+  const [time, setTime] = useState(() => isoTime());
   const [category, setCategory] = useState("");
   const [notes, setNotes] = useState("");
 
@@ -1258,7 +1259,7 @@ function QuickPayModal({
         amount: cleanAmt,
         currencyCode: bill.attributes.currency_code,
         sourceAccountId: sourceId,
-        date,
+        date: isoDateTimeWithOffset(date, time),
         category: category || undefined,
         notes: notes || undefined,
       });
@@ -1401,9 +1402,14 @@ function QuickPayModal({
         />
 
         <div className="flex flex-col gap-3">
-          <Field label="Payment Date">
-            {(id) => <Input id={id} type="date" value={date} onChange={(e) => setDate(e.target.value)} required />}
-          </Field>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Payment Date">
+              {(id) => <Input id={id} type="date" value={date} onChange={(e) => setDate(e.target.value)} required />}
+            </Field>
+            <Field label="Payment Time">
+              {(id) => <Input id={id} type="time" value={time} onChange={(e) => setTime(e.target.value)} required />}
+            </Field>
+          </div>
           <div className="flex flex-col gap-1.5 pt-1">
             <span className="text-xs font-semibold text-fg">Category (optional)</span>
             <CategoryCascadeSelect

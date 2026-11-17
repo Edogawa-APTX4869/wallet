@@ -37,7 +37,7 @@ import {
   recordCategoryUsage,
   resolveDefaultAccountForList,
 } from "@/lib/recent-selections";
-import { cn, isoDate, monthRange, sumDecimal } from "@/lib/utils";
+import { cn, isoDate, isoDateTimeWithOffset, isoTime, monthRange, sumDecimal } from "@/lib/utils";
 import {
   FullScreenAccountSelectView,
   FullScreenCategorySelectView,
@@ -563,7 +563,7 @@ export function MagicChatPanel({
 
     const split: NewSplit = {
       type: d.type,
-      date: d.date || isoDate(),
+      date: d.date ? (d.date.includes("T") ? d.date : isoDateTimeWithOffset(d.date, isoTime())) : isoDateTimeWithOffset(isoDate(), isoTime()),
       amount: d.amount,
       currency_code: d.currency_code || defaultCurrency,
       description: d.description,
@@ -1269,7 +1269,7 @@ export function MagicChatPanel({
       {pickerTarget !== null &&
         typeof document !== "undefined" &&
         createPortal(
-          <div className="fixed inset-0 z-[10000] flex flex-col overflow-hidden bg-surface">
+          <div className="fixed inset-0 z-[10000] flex flex-col overflow-hidden bg-surface animate-swipe-next">
             {pickerTarget.kind === "account" || pickerTarget.kind === "dest-account" ? (
               <FullScreenAccountSelectView
                 title={pickerTarget.kind === "dest-account" ? "To account" : "Select account"}
