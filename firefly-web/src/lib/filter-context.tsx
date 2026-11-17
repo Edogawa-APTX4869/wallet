@@ -22,6 +22,7 @@ import {
   serializeFilterToQueryParams,
   stepPeriod,
 } from "./filter-presets";
+import { pushRecentAccountId, saveOutsideSelectedAccountIds } from "./recent-selections";
 
 export type { AccountFilterMode };
 export {
@@ -362,6 +363,10 @@ export function UniversalFilterProvider({ children, initialState }: UniversalFil
   }, []);
 
   const setSelectedAccountIds = useCallback((ids: string[]) => {
+    if (ids.length > 0) {
+      pushRecentAccountId(ids[ids.length - 1]);
+    }
+    saveOutsideSelectedAccountIds(ids);
     setState((prev) => ({
       ...prev,
       selectedAccountIds: ids,
@@ -374,6 +379,10 @@ export function UniversalFilterProvider({ children, initialState }: UniversalFil
       const updated = exists
         ? prev.selectedAccountIds.filter((item) => item !== id)
         : [...prev.selectedAccountIds, id];
+      if (!exists) {
+        pushRecentAccountId(id);
+      }
+      saveOutsideSelectedAccountIds(updated);
       return {
         ...prev,
         accountFilter: "custom",

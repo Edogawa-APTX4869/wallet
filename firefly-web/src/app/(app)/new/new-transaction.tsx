@@ -28,12 +28,20 @@ import type { NewSplit } from "@/lib/firefly/types";
 import type { TransactionTemplateRow } from "@/lib/server/db";
 import { accountCurrency, ASSET_LIKE, useAccounts, useCurrencies } from "@/lib/hooks";
 import { formatRate } from "@/lib/fx/resolve";
+import { useUniversalFilter } from "@/lib/filter-context";
+import {
+  getMostFrequentCategories,
+  loadOutsideSelectedAccountIds,
+  loadRecentAccountIds,
+  pushRecentAccountId,
+  recordCategoryUsage,
+  resolveDefaultAccountId,
+} from "@/lib/recent-selections";
 import { cn, isoDate, monthRange, parseAmount, zeroPlaceholder } from "@/lib/utils";
-import { AccountPicker } from "@/components/account-picker";
-import { CategoryCascadeSelect } from "@/components/category-cascade";
+import { FullScreenAccountSelectView, FullScreenCategorySelectView } from "@/components/wallet-selection-views";
 import { LinkedAmountFields, useLinkedAmounts, type CurrencyInfo } from "@/components/linked-amounts";
 import { MagicChatPanel } from "@/components/magic-chatbar";
-import { ICON_CATALOG, inferCategoryDefaultStyle, ResourceIconBadge } from "@/components/resource-icon";
+import { ICON_CATALOG, inferAccountDefaultStyle, inferCategoryDefaultStyle, ResourceIconBadge } from "@/components/resource-icon";
 import { AnimatedTabs, Badge, Button, Card, ErrorBox, Field, Input, ModalSheet, Select, Skeleton } from "@/components/ui";
 import { useToast } from "@/components/providers";
 import { useEscapeDismiss } from "@/lib/use-escape-dismiss";
@@ -322,8 +330,21 @@ function WalletCalculatorForm({
   const searchParams = useSearchParams();
   const qc = useQueryClient();
   const toast = useToast();
+  const filterCtx = useUniversalFilter();
 
   const accountsQ = useAccounts("all");
+  const dashboardPrefsQ = useQuery({
+    queryKey: ["dashboard-prefs"],
+    queryFn: async () => {
+      const res = await fetch("/api/companion/dashboard");
+      if (!res.ok) return null as { selectedAccountIds?: string[]; categoryOrder?: string[] } | null;
+      const json = (await res.json()) as {
+        data?: { selectedAccountIds?: string[]; categoryOrder?: string[] };
+      };
+      return json.data ?? null;
+    },
+    staleTime: 60_000,
+  });
   const currenciesQ = useCurrencies();
   const month = monthRange(0);
   const budgetsQ = useQuery({
@@ -368,9 +389,10 @@ function WalletCalculatorForm({
   const [error, setError] = useState<string | null>(null);
   const [pairs, setPairs] = useState<Pair[]>(() => (typeof window !== "undefined" ? loadPairs() : []));
 
-  // Calculator & Details Drawer state
+  // Calculator, Sub-View Drilldown & Details Drawer state
   const [expr, setExpr] = useState(() => searchParams.get("amount") ?? "");
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [activeSubView, setActiveSubView] = useState<null | "source-account" | "dest-account" | "category">(null);
   const [touchStartX, setTouchStartX] = useState<number | null>(null);
   const [seededUrlAmount, setSeededUrlAmount] = useState(false);
 
@@ -388,10 +410,15 @@ function WalletCalculatorForm({
   const [templateName, setTemplateName] = useState("");
   const [appliedInitTemplate, setAppliedInitTemplate] = useState<string | null>(null);
 
+  useEscapeDismiss(activeSubView !== null, () => setActiveSubView(null), "new-tx-subview");
   useEscapeDismiss(detailsOpen, () => setDetailsOpen(false), "new-transaction-details");
   useEscapeDismiss(showSaveTemplate, () => setShowSaveTemplate(false), "new-transaction-save-template");
 
   const handleCancelOrBack = () => {
+    if (activeSubView !== null) {
+      setActiveSubView(null);
+      return;
+    }
     if (detailsOpen) {
       setDetailsOpen(false);
       return;
@@ -403,7 +430,21 @@ function WalletCalculatorForm({
     }
   };
 
-  const assetId = selectedAssetId ?? assetLike[0]?.id ?? null;
+  const outsideSelectedIds =
+    (dashboardPrefsQ.data?.selectedAccountIds?.length ?? 0) > 0
+      ? dashboardPrefsQ.data!.selectedAccountIds!
+      : filterCtx.selectedAccountIds.length > 0
+        ? filterCtx.selectedAccountIds
+        : loadOutsideSelectedAccountIds();
+  const recentAccountIds = loadRecentAccountIds();
+  const defaultAssetId = resolveDefaultAccountId({
+    urlSourceId: searchParams.get("sourceId"),
+    outsideSelectedIds,
+    recentAccountIds,
+    eligibleAccountIds: assetLike.map((a) => a.id),
+  });
+
+  const assetId = selectedAssetId ?? defaultAssetId ?? assetLike[0]?.id ?? null;
   const asset = all.find((a) => a.id === assetId) ?? null;
   const defaultDest = assetLike.find((a) => a.id !== assetId) ?? assetLike[0] ?? null;
   const effectiveDestId = destId ?? (type === "transfer" ? defaultDest?.id ?? null : null);
@@ -665,6 +706,12 @@ function WalletCalculatorForm({
     },
     onSuccess: () => {
       toast(`${TABS.find((t) => t.type === type)?.label} saved`);
+      if (asset?.id) {
+        pushRecentAccountId(asset.id);
+      }
+      if (type !== "transfer" && category.trim()) {
+        recordCategoryUsage(category.trim());
+      }
       if (type === "transfer" && asset && dest) {
         savePair({ s: asset.id, d: dest.id });
         setPairs(loadPairs());
@@ -687,7 +734,7 @@ function WalletCalculatorForm({
   // Physical keyboard / numpad support when not focused inside an input/textarea/select
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (currencyModalOpen) return;
+      if (currencyModalOpen || activeSubView !== null) return;
       const el = e.target as HTMLElement | null;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (el?.closest("input, textarea, select, [contenteditable=true]")) return;
@@ -734,6 +781,69 @@ function WalletCalculatorForm({
   // Accent follows the app's semantic tokens (not hard-coded brand colours)
   const accentText = type === "deposit" ? "text-success" : type === "withdrawal" ? "text-danger" : "text-primary";
   const accentSoft = type === "deposit" ? "bg-success-soft" : type === "withdrawal" ? "bg-danger-soft" : "bg-primary-soft";
+  const frequentCategories = getMostFrequentCategories(
+    (categoriesQ.data ?? []).map((c) => c.attributes.name),
+    8,
+  );
+
+  if (activeSubView === "source-account") {
+    return (
+      <div className="relative mx-auto flex min-h-dvh w-full flex-col overflow-hidden bg-surface lg:min-h-0 lg:max-w-5xl lg:rounded-2xl lg:border lg:border-border lg:shadow-sm">
+        <FullScreenAccountSelectView
+          title={type === "deposit" ? "To account" : "Select account"}
+          accounts={assetLike}
+          selectedId={assetId}
+          recentIds={recentAccountIds}
+          onSelect={(id) => {
+            setAssetId(id);
+            pushRecentAccountId(id);
+            resetFxKeepAmount();
+            setActiveSubView(null);
+          }}
+          onBack={() => setActiveSubView(null)}
+        />
+      </div>
+    );
+  }
+
+  if (activeSubView === "dest-account") {
+    return (
+      <div className="relative mx-auto flex min-h-dvh w-full flex-col overflow-hidden bg-surface lg:min-h-0 lg:max-w-5xl lg:rounded-2xl lg:border lg:border-border lg:shadow-sm">
+        <FullScreenAccountSelectView
+          title="To account"
+          accounts={assetLike}
+          selectedId={effectiveDestId}
+          excludeId={assetId}
+          recentIds={recentAccountIds}
+          onSelect={(id) => {
+            setDestId(id);
+            resetFxKeepAmount();
+            setActiveSubView(null);
+          }}
+          onBack={() => setActiveSubView(null)}
+        />
+      </div>
+    );
+  }
+
+  if (activeSubView === "category" && type !== "transfer") {
+    return (
+      <div className="relative mx-auto flex min-h-dvh w-full flex-col overflow-hidden bg-surface lg:min-h-0 lg:max-w-5xl lg:rounded-2xl lg:border lg:border-border lg:shadow-sm">
+        <FullScreenCategorySelectView
+          categories={categoriesQ.data ?? []}
+          selectedCategory={category}
+          frequentCategories={frequentCategories}
+          categoryOrder={dashboardPrefsQ.data?.categoryOrder}
+          onSelect={(catName) => {
+            if (catName) recordCategoryUsage(catName);
+            setCategory(catName);
+            setActiveSubView(null);
+          }}
+          onBack={() => setActiveSubView(null)}
+        />
+      </div>
+    );
+  }
 
   return (
     <div
@@ -874,23 +984,30 @@ function WalletCalculatorForm({
 
               {/* Inline From → To / Category bar */}
               <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-2">
-                <label className="flex min-w-0 flex-col gap-1">
+                <div className="flex min-w-0 flex-col gap-1">
                   <span className="text-xs text-muted">{type === "deposit" ? "To account" : "From account"}</span>
-                  <Select
-                    value={assetId ?? ""}
-                    onChange={(e) => {
-                      setAssetId(e.target.value);
-                      resetFxKeepAmount();
-                    }}
+                  <button
+                    type="button"
+                    onClick={() => setActiveSubView("source-account")}
                     aria-label="Select primary account"
+                    className="flex h-10 w-full items-center gap-2 rounded-xl border border-border bg-surface px-2.5 text-left text-sm font-medium text-fg hover:bg-surface-2 active:scale-[0.98] transition"
                   >
-                    {assetLike.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.attributes.name} ({a.attributes.currency_code})
-                      </option>
-                    ))}
-                  </Select>
-                </label>
+                    {asset && (
+                      <ResourceIconBadge
+                        entityType="account"
+                        entityId={asset.id}
+                        defaultIcon={inferAccountDefaultStyle(asset.attributes).icon}
+                        defaultColor={inferAccountDefaultStyle(asset.attributes).color}
+                        size="xs"
+                        editable={false}
+                      />
+                    )}
+                    <span className="min-w-0 flex-1 truncate">
+                      {asset ? asset.attributes.name : "Choose account"}
+                    </span>
+                    <ChevronRight className="size-3.5 shrink-0 text-muted" aria-hidden />
+                  </button>
+                </div>
 
                 {type === "transfer" ? (
                   <button
@@ -907,29 +1024,39 @@ function WalletCalculatorForm({
                 )}
 
                 {type === "transfer" ? (
-                  <label className="flex min-w-0 flex-col gap-1">
+                  <div className="flex min-w-0 flex-col gap-1">
                     <span className="text-xs text-muted">To account</span>
-                    <Select
-                      value={effectiveDestId ?? ""}
-                      onChange={(e) => {
-                        setDestId(e.target.value);
-                        resetFxKeepAmount();
-                      }}
+                    <button
+                      type="button"
+                      onClick={() => setActiveSubView("dest-account")}
                       aria-label="Select destination account"
+                      className="flex h-10 w-full items-center gap-2 rounded-xl border border-border bg-surface px-2.5 text-left text-sm font-medium text-fg hover:bg-surface-2 active:scale-[0.98] transition"
                     >
-                      {assetLike
-                        .filter((a) => a.id !== assetId)
-                        .map((a) => (
-                          <option key={a.id} value={a.id}>
-                            {a.attributes.name} ({a.attributes.currency_code})
-                          </option>
-                        ))}
-                    </Select>
-                  </label>
+                      {dest && (
+                        <ResourceIconBadge
+                          entityType="account"
+                          entityId={dest.id}
+                          defaultIcon={inferAccountDefaultStyle(dest.attributes).icon}
+                          defaultColor={inferAccountDefaultStyle(dest.attributes).color}
+                          size="xs"
+                          editable={false}
+                        />
+                      )}
+                      <span className="min-w-0 flex-1 truncate">
+                        {dest ? dest.attributes.name : "Choose account"}
+                      </span>
+                      <ChevronRight className="size-3.5 shrink-0 text-muted" aria-hidden />
+                    </button>
+                  </div>
                 ) : (
                   <div className="flex min-w-0 flex-col gap-1">
                     <span className="text-xs text-muted">Category</span>
-                    <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setActiveSubView("category")}
+                      aria-label="Select category"
+                      className="flex h-10 w-full items-center gap-2 rounded-xl border border-border bg-surface px-2.5 text-left text-sm font-medium text-fg hover:bg-surface-2 active:scale-[0.98] transition"
+                    >
                       {category && (
                         <ResourceIconBadge
                           entityType="category"
@@ -939,18 +1066,15 @@ function WalletCalculatorForm({
                           }
                           defaultIcon={inferCategoryDefaultStyle(category).icon}
                           defaultColor={inferCategoryDefaultStyle(category).color}
-                          size="sm"
+                          size="xs"
+                          editable={false}
                         />
                       )}
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        onClick={() => setDetailsOpen(true)}
-                        className="min-w-0 flex-1 justify-start truncate"
-                      >
-                        {category ? category.replace(/\s*:\s*/g, " › ") : counterparty || "Choose…"}
-                      </Button>
-                    </div>
+                      <span className={cn("min-w-0 flex-1 truncate", !category && "text-muted")}>
+                        {category ? category.replace(/\s*:\s*/g, " › ") : "Choose…"}
+                      </span>
+                      <ChevronRight className="size-3.5 shrink-0 text-muted" aria-hidden />
+                    </button>
                   </div>
                 )}
               </div>
@@ -1346,26 +1470,67 @@ function WalletCalculatorForm({
 
           {/* Account Pickers */}
           <div className="grid gap-3 sm:grid-cols-2">
-            <AccountPicker
-              label={type === "deposit" ? "Received into" : "From account"}
-              accounts={assetLike}
-              value={assetId}
-              onChange={(id) => {
-                setAssetId(id);
-                resetFxKeepAmount();
-              }}
-            />
+            <div className="flex flex-col gap-1.5">
+              <span className="text-sm font-medium">{type === "deposit" ? "Received into" : "From account"}</span>
+              <button
+                type="button"
+                onClick={() => setActiveSubView("source-account")}
+                className="flex min-h-14 w-full items-center gap-3 rounded-xl border border-border bg-surface px-3 py-2 text-left transition hover:bg-surface-2 active:scale-[0.98]"
+              >
+                {asset ? (
+                  <>
+                    <ResourceIconBadge
+                      entityType="account"
+                      entityId={asset.id}
+                      defaultIcon={inferAccountDefaultStyle(asset.attributes).icon}
+                      defaultColor={inferAccountDefaultStyle(asset.attributes).color}
+                      size="sm"
+                      editable={false}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <span className="block truncate font-medium text-fg">{asset.attributes.name}</span>
+                      <span className="block text-xs text-muted">
+                        {asset.attributes.currency_code} · {asset.attributes.current_balance}
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  <span className="flex-1 text-muted">Choose account</span>
+                )}
+                <ChevronRight className="size-4 shrink-0 text-muted" aria-hidden />
+              </button>
+            </div>
             {type === "transfer" ? (
-              <AccountPicker
-                label="To account"
-                accounts={assetLike}
-                value={effectiveDestId}
-                excludeId={assetId}
-                onChange={(id) => {
-                  setDestId(id);
-                  resetFxKeepAmount();
-                }}
-              />
+              <div className="flex flex-col gap-1.5">
+                <span className="text-sm font-medium">To account</span>
+                <button
+                  type="button"
+                  onClick={() => setActiveSubView("dest-account")}
+                  className="flex min-h-14 w-full items-center gap-3 rounded-xl border border-border bg-surface px-3 py-2 text-left transition hover:bg-surface-2 active:scale-[0.98]"
+                >
+                  {dest ? (
+                    <>
+                      <ResourceIconBadge
+                        entityType="account"
+                        entityId={dest.id}
+                        defaultIcon={inferAccountDefaultStyle(dest.attributes).icon}
+                        defaultColor={inferAccountDefaultStyle(dest.attributes).color}
+                        size="sm"
+                        editable={false}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <span className="block truncate font-medium text-fg">{dest.attributes.name}</span>
+                        <span className="block text-xs text-muted">
+                          {dest.attributes.currency_code} · {dest.attributes.current_balance}
+                        </span>
+                      </div>
+                    </>
+                  ) : (
+                    <span className="flex-1 text-muted">Choose destination account</span>
+                  )}
+                  <ChevronRight className="size-4 shrink-0 text-muted" aria-hidden />
+                </button>
+              </div>
             ) : (
               <Field label={type === "withdrawal" ? "Payee / Merchant" : "Payer"}>
                 {(id) => (
@@ -1424,8 +1589,35 @@ function WalletCalculatorForm({
           </div>
 
           {type !== "transfer" && (
-            <div className="sm:col-span-2">
-              <CategoryCascadeSelect categories={categoriesQ.data} value={category} onChange={setCategory} />
+            <div className="sm:col-span-2 flex flex-col gap-1.5">
+              <span className="text-sm font-medium">Category</span>
+              <button
+                type="button"
+                onClick={() => setActiveSubView("category")}
+                className="flex min-h-12 w-full items-center gap-3 rounded-xl border border-border bg-surface px-3 py-2 text-left transition hover:bg-surface-2 active:scale-[0.98]"
+              >
+                {category ? (
+                  <>
+                    <ResourceIconBadge
+                      entityType="category"
+                      entityId={
+                        categoriesQ.data?.find((c) => c.attributes.name.toLowerCase() === category.toLowerCase())?.id ??
+                        category
+                      }
+                      defaultIcon={inferCategoryDefaultStyle(category).icon}
+                      defaultColor={inferCategoryDefaultStyle(category).color}
+                      size="sm"
+                      editable={false}
+                    />
+                    <span className="min-w-0 flex-1 truncate font-medium text-fg">
+                      {category.replace(/\s*:\s*/g, " › ")}
+                    </span>
+                  </>
+                ) : (
+                  <span className="flex-1 text-muted">Choose category…</span>
+                )}
+                <ChevronRight className="size-4 shrink-0 text-muted" aria-hidden />
+              </button>
             </div>
           )}
 

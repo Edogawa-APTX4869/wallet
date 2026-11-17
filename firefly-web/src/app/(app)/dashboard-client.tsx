@@ -38,6 +38,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { api } from "@/lib/firefly/api";
+import { pushRecentAccountId, saveOutsideSelectedAccountIds } from "@/lib/recent-selections";
 import type { Account, BasicSummary, ChartDataSet, Resource, SummaryEntry, TransactionGroup } from "@/lib/firefly/types";
 import {
   CARD_CATALOG,
@@ -986,6 +987,12 @@ export function DashboardClient() {
 
   const prefs = prefsQ.data ?? DEFAULT_DASHBOARD_PREFS;
   const selectedIds = useMemo(() => prefs.selectedAccountIds ?? [], [prefs.selectedAccountIds]);
+
+  useEffect(() => {
+    if (prefsQ.data) {
+      saveOutsideSelectedAccountIds(prefsQ.data.selectedAccountIds ?? []);
+    }
+  }, [prefsQ.data]);
   const cards = Array.isArray(prefs.cards) ? prefs.cards : DEFAULT_DASHBOARD_PREFS.cards;
 
   const handleReorderCards = useCallback(
@@ -1085,10 +1092,15 @@ export function DashboardClient() {
       // If all accounts are now selected, normalize back to empty array ("all non-excluded")
       nextIds = combined.length >= walletAccounts.length ? [] : combined;
     }
+    if (nextIds.includes(id)) {
+      pushRecentAccountId(id);
+    }
+    saveOutsideSelectedAccountIds(nextIds);
     savePrefsMut.mutate({ selectedAccountIds: nextIds });
   }
 
   function selectAllAccounts() {
+    saveOutsideSelectedAccountIds([]);
     savePrefsMut.mutate({ selectedAccountIds: [] });
   }
 
