@@ -15,10 +15,8 @@ import {
 } from "recharts";
 import {
   ArrowDownLeft,
-  ArrowLeft,
   ArrowLeftRight,
   ArrowUpRight,
-  List,
   Pencil,
   Plus,
   Receipt,
@@ -342,12 +340,6 @@ export function AccountDetailClient({ id }: { id: string }) {
 
   return (
     <div className="flex flex-col gap-5">
-      <div>
-        <Link href="/accounts" className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-fg">
-          <ArrowLeft className="size-4" aria-hidden /> Back to accounts
-        </Link>
-      </div>
-
       {accQ.isLoading ? (
         <Skeleton className="h-24" />
       ) : a ? (
@@ -661,18 +653,9 @@ export function AccountDetailClient({ id }: { id: string }) {
       )}
 
       <Card className="flex flex-col gap-3">
-        <div className="flex items-start justify-between gap-2 border-b border-border/60 pb-3">
-          <div>
-            <h2 className="text-base font-bold text-fg">Last records overview</h2>
-            <p className="text-xs text-muted">What was the last transactions I made?</p>
-          </div>
-          <Link
-            href={`/transactions?accountId=${id}`}
-            className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-3 py-1.5 text-xs font-semibold text-fg hover:bg-surface-3 transition active:scale-95"
-          >
-            <List className="size-3.5 text-primary" aria-hidden="true" />
-            <span>Records</span>
-          </Link>
+        <div className="border-b border-border/60 pb-3">
+          <h2 className="text-base font-bold text-fg">Last records overview</h2>
+          <p className="text-xs text-muted">What was the last transactions I made?</p>
         </div>
 
         {txQ.isLoading ? (

@@ -247,4 +247,13 @@ describe("EditAccountModal liability rendering", () => {
     expect(html).toContain("Liability direction");
     expect(html).toContain("I am owed this debt (credit)");
   });
+
+  it("omits duplicate inline Back to accounts link and duplicate Last records link", () => {
+    const { readFileSync } = require("node:fs") as typeof import("node:fs");
+    const path = require("node:path") as typeof import("node:path");
+    const detailSrc = readFileSync(path.resolve(__dirname, "account-detail-client.tsx"), "utf8");
+    expect(detailSrc).not.toContain("Back to accounts");
+    const txLinks = detailSrc.match(/href=\{`\/transactions\?accountId=\$\{id\}`\}/g) ?? [];
+    expect(txLinks).toHaveLength(1);
+  });
 });

@@ -65,7 +65,6 @@ import {
   ResourceIconBadge,
   useResourceMeta,
 } from "@/components/resource-icon";
-import { CreateAccountModal } from "@/components/create-account-modal";
 import { NeedleGauge } from "@/components/needle-gauge";
 import { TransactionRow } from "@/components/transaction-row";
 import {
@@ -156,12 +155,14 @@ export interface AccountsSectionHeaderProps {
   accountCount: number;
   selectedCount?: number;
   onSelectAll?: () => void;
+  showRecordsPill?: boolean;
 }
 
 export function AccountsSectionHeader({
   accountCount,
   selectedCount = 0,
   onSelectAll,
+  showRecordsPill = true,
 }: AccountsSectionHeaderProps) {
   return (
     <div className="flex items-center justify-between gap-2 px-0.5">
@@ -187,7 +188,7 @@ export function AccountsSectionHeader({
             Select all
           </button>
         )}
-        <RecordsQuickActionPill className="hidden sm:inline-flex" />
+        {showRecordsPill && <RecordsQuickActionPill className="hidden sm:inline-flex" />}
       </div>
     </div>
   );
@@ -264,8 +265,45 @@ export type AccountGridItem =
 export interface TwoColumnAccountGridProps {
   accounts: AccountGridItem[];
   selectedIdSet?: Set<string>;
-  onToggleAccount?: (id: string) => void;
+  onToggleAccount?: (id: string, opts?: { multi?: boolean }) => void;
   showManageLink?: boolean;
+}
+
+const LONG_PRESS_MS = 420;
+
+/**
+ * Pure selection transition for the Accounts grid:
+ * - Short click (`multi = false`) when 0 or 1 account is selected: solo-selects `targetId`, or restores all (`[]`) if `targetId` was already the only selected account.
+ * - Long press / modifier click (`multi = true`), OR any click when multiple accounts (`> 1`) are already selected: adds or removes `targetId` in the multi-selection, restoring all (`[]`) if none remain or all are chosen.
+ */
+export function computeNextAccountSelection({
+  currentSelectedIds,
+  targetId,
+  totalAccountCount,
+  multi = false,
+}: {
+  currentSelectedIds: string[];
+  targetId: string;
+  totalAccountCount: number;
+  multi?: boolean;
+}): string[] {
+  const isToggleMode = multi || currentSelectedIds.length > 1;
+  if (!isToggleMode) {
+    if (currentSelectedIds.length === 1 && currentSelectedIds[0] === targetId) {
+      return [];
+    }
+    return [targetId];
+  }
+
+  if (currentSelectedIds.length === 0) {
+    return [targetId];
+  }
+  if (currentSelectedIds.includes(targetId)) {
+    const remaining = currentSelectedIds.filter((x) => x !== targetId);
+    return remaining.length === 0 ? [] : remaining;
+  }
+  const combined = [...currentSelectedIds, targetId];
+  return totalAccountCount > 0 && combined.length >= totalAccountCount ? [] : combined;
 }
 
 export function TwoColumnAccountGrid({
@@ -275,6 +313,18 @@ export function TwoColumnAccountGrid({
   showManageLink = false,
 }: TwoColumnAccountGridProps) {
   const meta = useResourceMeta();
+  const pressTimerRef = useRef<number | null>(null);
+  const longPressTriggeredRef = useRef(false);
+  const pointerStartRef = useRef<{ id: string; x: number; y: number } | null>(null);
+
+  const clearPressTimer = useCallback(() => {
+    if (pressTimerRef.current !== null) {
+      window.clearTimeout(pressTimerRef.current);
+      pressTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => clearPressTimer, [clearPressTimer]);
 
   return (
     <div className="grid grid-cols-2 gap-2 sm:gap-2.5 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 3xl:grid-cols-6">
@@ -301,8 +351,61 @@ export function TwoColumnAccountGrid({
             key={id}
             role="button"
             tabIndex={0}
-            onClick={() => onToggleAccount?.(id)}
-            onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && onToggleAccount?.(id)}
+            title="Tap to select one account · Long-press to add to selection"
+            onPointerDown={(e) => {
+              if (e.pointerType === "mouse" && e.button !== 0) return;
+              clearPressTimer();
+              longPressTriggeredRef.current = false;
+              pointerStartRef.current = { id, x: e.clientX, y: e.clientY };
+              pressTimerRef.current = window.setTimeout(() => {
+                pressTimerRef.current = null;
+                longPressTriggeredRef.current = true;
+                pointerStartRef.current = null;
+                if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
+                  try {
+                    navigator.vibrate(15);
+                  } catch {
+                    /* ignore haptic errors */
+                  }
+                }
+                onToggleAccount?.(id, { multi: true });
+              }, LONG_PRESS_MS);
+            }}
+            onPointerMove={(e) => {
+              const start = pointerStartRef.current;
+              if (!start || start.id !== id) return;
+              if (Math.hypot(e.clientX - start.x, e.clientY - start.y) > 8) {
+                clearPressTimer();
+                pointerStartRef.current = null;
+              }
+            }}
+            onPointerUp={() => {
+              clearPressTimer();
+              pointerStartRef.current = null;
+            }}
+            onPointerCancel={() => {
+              clearPressTimer();
+              pointerStartRef.current = null;
+            }}
+            onPointerLeave={() => {
+              clearPressTimer();
+              pointerStartRef.current = null;
+            }}
+            onContextMenu={(e) => e.preventDefault()}
+            onClick={(e) => {
+              if (longPressTriggeredRef.current) {
+                longPressTriggeredRef.current = false;
+                return;
+              }
+              const isMultiModifier = e.ctrlKey || e.metaKey || e.shiftKey;
+              onToggleAccount?.(id, { multi: isMultiModifier });
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onToggleAccount?.(id, { multi: e.ctrlKey || e.metaKey || e.shiftKey });
+              }
+            }}
             aria-pressed={isSelected}
             style={
               isSelected
@@ -930,7 +1033,6 @@ export function DashboardClient() {
   }, []);
 
   const [topTab, setTopTab] = useState<"accounts" | "budgets">("accounts");
-  const [createAccountOpen, setCreateAccountOpen] = useState(false);
   const [dragKey, setDragKey] = useState<DashboardCardKey | null>(null);
   const [dragOverKey, setDragOverKey] = useState<DashboardCardKey | null>(null);
   const [configOpenKey, setConfigOpenKey] = useState<DashboardCardKey | null>(null);
@@ -1078,20 +1180,13 @@ export function DashboardClient() {
     [activeSelectedAccounts],
   );
 
-  function toggleAccountSelection(id: string) {
-    let nextIds: string[];
-    if (selectedIds.length === 0) {
-      // Wallet behavior: tapping an account when all are active solo-selects that account
-      nextIds = [id];
-    } else if (selectedIds.includes(id)) {
-      const remaining = selectedIds.filter((x) => x !== id);
-      // If deselecting the last selected account, restore all accounts
-      nextIds = remaining.length === 0 ? [] : remaining;
-    } else {
-      const combined = [...selectedIds, id];
-      // If all accounts are now selected, normalize back to empty array ("all non-excluded")
-      nextIds = combined.length >= walletAccounts.length ? [] : combined;
-    }
+  function toggleAccountSelection(id: string, opts?: { multi?: boolean }) {
+    const nextIds = computeNextAccountSelection({
+      currentSelectedIds: selectedIds,
+      targetId: id,
+      totalAccountCount: walletAccounts.length,
+      multi: opts?.multi ?? false,
+    });
     if (nextIds.includes(id)) {
       pushRecentAccountId(id);
     }
@@ -1411,9 +1506,7 @@ export function DashboardClient() {
       {/* Header: title + net worth of the selected accounts + segmented switch */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-xs font-medium text-muted">
-            Net worth · {activeSelectedAccounts.length} of {walletAccounts.length} accounts
-          </p>
+          <p className="text-xs font-medium text-muted">Net worth</p>
           <p className="tabular text-3xl font-semibold tracking-tight">
             <Money
               amount={selectedBalancePrimary.toFixed(primaryDecimals)}
@@ -1447,6 +1540,7 @@ export function DashboardClient() {
               accountCount={walletAccounts.length}
               selectedCount={selectedIds.length}
               onSelectAll={selectAllAccounts}
+              showRecordsPill={false}
             />
 
             {accountsQ.isLoading ? (
@@ -1464,19 +1558,6 @@ export function DashboardClient() {
                   showManageLink={true}
                 />
 
-                {/* Wallet-style "Select all non-excluded" quick link when subset is selected */}
-                {selectedIds.length > 0 && (
-                  <div className="flex justify-center pt-0.5">
-                    <button
-                      type="button"
-                      onClick={selectAllAccounts}
-                      className="rounded-lg px-2.5 py-1 text-xs font-semibold text-primary hover:bg-primary-soft/30 transition-colors cursor-pointer"
-                    >
-                      Select all non-excluded
-                    </button>
-                  </div>
-                )}
-
                 {/* Wallet-style Context-Aware Bottom Action Bar */}
                 <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-2">
                   <div className="flex flex-wrap items-center gap-1.5">
@@ -1493,14 +1574,6 @@ export function DashboardClient() {
                         )}
                       </Link>
                     )}
-                    <button
-                      type="button"
-                      onClick={() => setCreateAccountOpen(true)}
-                      className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-3 py-1.5 text-xs font-semibold text-fg hover:bg-surface-3 transition active:scale-95 cursor-pointer shadow-2xs"
-                    >
-                      <Plus className="size-3.5 text-primary" aria-hidden="true" />
-                      <span>Add account</span>
-                    </button>
                   </div>
 
                   <Link
@@ -1522,18 +1595,9 @@ export function DashboardClient() {
           <div className="flex flex-col gap-3">
             {/* Card 1: Budget Left to Spend (Wallet Style) */}
             <Card className="flex flex-col gap-3 p-3 sm:p-4 md:p-5">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <h2 className="text-base font-bold text-fg">Budget Left to Spend</h2>
-                  <p className="text-xs text-muted">In {primaryCode}</p>
-                </div>
-                <Link
-                  href="/budgets"
-                  className="rounded-lg p-1 text-muted hover:bg-surface-2 hover:text-fg transition-colors"
-                  aria-label="Manage budgets"
-                >
-                  <MoreVertical className="size-4" aria-hidden="true" />
-                </Link>
+              <div>
+                <h2 className="text-base font-bold text-fg">Budget Left to Spend</h2>
+                <p className="text-xs text-muted">In {primaryCode}</p>
               </div>
 
               {budgetRows.length === 0 ? (
@@ -1598,7 +1662,7 @@ export function DashboardClient() {
                   <span>Show more</span>
                 </Link>
                 <Link
-                  href="/budgets"
+                  href="/budgets?create=1"
                   className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-3 py-1.5 text-xs font-semibold text-fg hover:bg-surface-3 transition active:scale-95"
                 >
                   <span>Create budget</span>
@@ -1668,7 +1732,7 @@ export function DashboardClient() {
                   </Link>
                 )}
                 <Link
-                  href="/piggy-banks"
+                  href="/piggy-banks?create=1"
                   className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-2 px-3 py-1.5 text-xs font-semibold text-fg hover:bg-surface-3 transition active:scale-95"
                 >
                   <span>Create goal</span>
@@ -1680,46 +1744,51 @@ export function DashboardClient() {
         </div>
       </SwipeableWidget>
 
-      {/* Horizontal Quick-Action Filter Chips (Planned payments, Debts, Budgets, Savings Goals) */}
-      <DashboardQuickFilterChips />
+      {/* Account-specific widgets & quick filter chips only render on the Accounts tab */}
+      {topTab === "accounts" && (
+        <div className="flex flex-col gap-4 animate-tab-enter">
+          {/* Horizontal Quick-Action Filter Chips (Planned payments, Debts, Budgets, Savings Goals) */}
+          <DashboardQuickFilterChips />
 
-      {/* Draggable & Configurable Dashboard Cards (1 col on Mobile, 2-col Bento Grid on Desktop) */}
-      <DashboardCardsGrid
-        cards={cards}
-        onReorderCards={handleReorderCards}
-        configOpenKey={configOpenKey}
-        setConfigOpenKey={setConfigOpenKey}
-        stepCardOrder={stepCardOrder}
-        updateCardConfig={updateCardConfig}
-        removeCard={removeCard}
-        computeMetricsForPeriod={computeMetricsForPeriod}
-        filteredTransactions={filteredTransactions}
-        primaryCode={primaryCode}
-        primaryDecimals={primaryDecimals}
-        primarySymbol={primary?.symbol}
-        selectedBalancePrimary={selectedBalancePrimary}
-        barData={barData}
-        trendData={trendData}
-        chartLoading={chartQ.isLoading}
-        budgetRows={budgetRows}
-        extraCtx={extraCtx}
-      />
+          {/* Draggable & Configurable Dashboard Cards (1 col on Mobile, 2-col Bento Grid on Desktop) */}
+          <DashboardCardsGrid
+            cards={cards}
+            onReorderCards={handleReorderCards}
+            configOpenKey={configOpenKey}
+            setConfigOpenKey={setConfigOpenKey}
+            stepCardOrder={stepCardOrder}
+            updateCardConfig={updateCardConfig}
+            removeCard={removeCard}
+            computeMetricsForPeriod={computeMetricsForPeriod}
+            filteredTransactions={filteredTransactions}
+            primaryCode={primaryCode}
+            primaryDecimals={primaryDecimals}
+            primarySymbol={primary?.symbol}
+            selectedBalancePrimary={selectedBalancePrimary}
+            barData={barData}
+            trendData={trendData}
+            chartLoading={chartQ.isLoading}
+            budgetRows={budgetRows}
+            extraCtx={extraCtx}
+          />
 
-      {/* Compact "Add more cards / Customize Dashboard" toolbar (Sleek, zero bulk) */}
-      <div className="flex flex-wrap items-center justify-between gap-2 px-1 pt-1 pb-2 text-xs text-muted">
-        <span>
-          Showing <strong className="text-fg">{cards.filter((c) => c.visible).length}</strong> of{" "}
-          <strong>{CARD_CATALOG.length}</strong> available cards
-        </span>
-        <button
-          type="button"
-          onClick={() => setShowCardManager(true)}
-          className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold text-primary transition-colors hover:bg-surface-2 active:scale-95 cursor-pointer"
-        >
-          <SlidersHorizontal className="size-3.5" aria-hidden="true" />
-          <span>Add more cards &amp; rearrange</span>
-        </button>
-      </div>
+          {/* Compact "Add more cards / Customize Dashboard" toolbar (Sleek, zero bulk) */}
+          <div className="flex flex-wrap items-center justify-between gap-2 px-1 pt-1 pb-2 text-xs text-muted">
+            <span>
+              Showing <strong className="text-fg">{cards.filter((c) => c.visible).length}</strong> of{" "}
+              <strong>{CARD_CATALOG.length}</strong> available cards
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowCardManager(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold text-primary transition-colors hover:bg-surface-2 active:scale-95 cursor-pointer"
+            >
+              <SlidersHorizontal className="size-3.5" aria-hidden="true" />
+              <span>Add more cards &amp; rearrange</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       <ModalSheet
         open={showCardManager}
@@ -2018,12 +2087,6 @@ export function DashboardClient() {
           </div>
         )}
       </ModalSheet>
-
-      <CreateAccountModal
-        open={createAccountOpen}
-        onClose={() => setCreateAccountOpen(false)}
-        initialType="asset"
-      />
     </div>
   );
 }

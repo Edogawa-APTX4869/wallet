@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Decimal from "decimal.js";
 import {
@@ -11,7 +12,6 @@ import {
   Plus,
   PlusCircle,
   Settings2,
-  SlidersHorizontal,
   Trash2,
 } from "lucide-react";
 import { api } from "@/lib/firefly/api";
@@ -41,6 +41,8 @@ import { useEscapeDismiss } from "@/lib/use-escape-dismiss";
 export function BudgetsClient() {
   const qc = useQueryClient();
   const toast = useToast();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [monthOffset, setMonthOffset] = useState(0);
   const range = useMemo(() => monthRange(monthOffset), [monthOffset]);
   const primaryQ = usePrimaryCurrency();
@@ -251,6 +253,16 @@ export function BudgetsClient() {
     };
   }, [rows, availEntry, defaultCode, defaultDecimals]);
 
+  const createFromQuery = searchParams.get("create") === "1" || searchParams.get("create") === "true";
+  const isConfigOpen = configOpen || createFromQuery;
+
+  const handleCloseConfig = () => {
+    setConfigOpen(false);
+    if (createFromQuery) {
+      router.replace("/budgets", { scroll: false });
+    }
+  };
+
   const openCreateModal = (seedName = "") => {
     setConfigBudget(null);
     setConfigInitialName(seedName);
@@ -279,7 +291,7 @@ export function BudgetsClient() {
             >
               <ArrowLeftRight className="size-4" aria-hidden /> Transfer
             </Button>
-            <Button size="sm" onClick={() => openCreateModal("")}>
+            <Button size="sm" onClick={() => openCreateModal(newName.trim())}>
               <Plus className="size-4" aria-hidden /> New budget
             </Button>
             <div className="flex items-center gap-1">
@@ -318,13 +330,6 @@ export function BudgetsClient() {
           </Field>
           <Button type="submit" loading={createMut.isPending}>
             <Plus className="size-4" aria-hidden /> Add budget
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => openCreateModal(newName.trim())}
-          >
-            <SlidersHorizontal className="size-4" aria-hidden /> Full configuration
           </Button>
         </form>
       </div>
@@ -648,8 +653,8 @@ export function BudgetsClient() {
       )}
 
       <BudgetConfigModal
-        open={configOpen}
-        onClose={() => setConfigOpen(false)}
+        open={isConfigOpen}
+        onClose={handleCloseConfig}
         budget={configBudget}
         initialName={configInitialName}
       />

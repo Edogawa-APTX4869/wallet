@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 import { NeedleGauge } from "@/components/needle-gauge";
 import {
+  computeNextAccountSelection,
   isEligibleWalletAccount,
   TwoColumnAccountGrid,
   type AccountGridItem,
@@ -117,6 +118,134 @@ describe("BudgetBakers Wallet Mobile Experience Components", () => {
         account_role: "initialBalance",
       });
       expect(isEligibleWalletAccount(initialBal)).toBe(false);
+    });
+  });
+
+  describe("computeNextAccountSelection (Single-Click vs Long-Press Multi-Select)", () => {
+    it("solo-selects on a single click, switches solo target, and toggles back to all when tapping the only selected account", () => {
+      // Clicking an account when all ([]) are active solo-selects it
+      expect(
+        computeNextAccountSelection({
+          currentSelectedIds: [],
+          targetId: "acc-1",
+          totalAccountCount: 4,
+          multi: false,
+        }),
+      ).toEqual(["acc-1"]);
+
+      // Single-clicking another account when 1 is selected replaces selection with just that one account
+      expect(
+        computeNextAccountSelection({
+          currentSelectedIds: ["acc-1"],
+          targetId: "acc-3",
+          totalAccountCount: 4,
+          multi: false,
+        }),
+      ).toEqual(["acc-3"]);
+
+      // Single-clicking the already solo-selected account restores all accounts ([])
+      expect(
+        computeNextAccountSelection({
+          currentSelectedIds: ["acc-3"],
+          targetId: "acc-3",
+          totalAccountCount: 4,
+          multi: false,
+        }),
+      ).toEqual([]);
+    });
+
+    it("treats any short click as multi-add/toggle once more than one account is selected", () => {
+      // With 2+ selected, a normal click (multi: false) adds to the selection instead of collapsing to 1
+      expect(
+        computeNextAccountSelection({
+          currentSelectedIds: ["acc-1", "acc-2"],
+          targetId: "acc-3",
+          totalAccountCount: 4,
+          multi: false,
+        }),
+      ).toEqual(["acc-1", "acc-2", "acc-3"]);
+
+      // Normal click on an already-selected account removes just that account
+      expect(
+        computeNextAccountSelection({
+          currentSelectedIds: ["acc-1", "acc-2", "acc-3"],
+          targetId: "acc-2",
+          totalAccountCount: 4,
+          multi: false,
+        }),
+      ).toEqual(["acc-1", "acc-3"]);
+
+      // Normal click on the last unselected account normalizes back to all ([])
+      expect(
+        computeNextAccountSelection({
+          currentSelectedIds: ["acc-1", "acc-2", "acc-3"],
+          targetId: "acc-4",
+          totalAccountCount: 4,
+          multi: false,
+        }),
+      ).toEqual([]);
+    });
+
+    it("adds or toggles accounts in selection on long-press (multi: true)", () => {
+      // Long-pressing a second account adds it alongside the first
+      expect(
+        computeNextAccountSelection({
+          currentSelectedIds: ["acc-1"],
+          targetId: "acc-2",
+          totalAccountCount: 4,
+          multi: true,
+        }),
+      ).toEqual(["acc-1", "acc-2"]);
+
+      // Long-pressing a third account keeps all three selected
+      expect(
+        computeNextAccountSelection({
+          currentSelectedIds: ["acc-1", "acc-2"],
+          targetId: "acc-3",
+          totalAccountCount: 4,
+          multi: true,
+        }),
+      ).toEqual(["acc-1", "acc-2", "acc-3"]);
+
+      // Long-pressing an already selected account removes only that one
+      expect(
+        computeNextAccountSelection({
+          currentSelectedIds: ["acc-1", "acc-2", "acc-3"],
+          targetId: "acc-2",
+          totalAccountCount: 4,
+          multi: true,
+        }),
+      ).toEqual(["acc-1", "acc-3"]);
+
+      // Long-pressing the final remaining unselected account normalizes back to all ([])
+      expect(
+        computeNextAccountSelection({
+          currentSelectedIds: ["acc-1", "acc-2", "acc-3"],
+          targetId: "acc-4",
+          totalAccountCount: 4,
+          multi: true,
+        }),
+      ).toEqual([]);
+    });
+
+    it("removes duplicate actions on Home and Budgets pages", () => {
+      const { readFileSync } = require("node:fs") as typeof import("node:fs");
+      const path = require("node:path") as typeof import("node:path");
+      const dashSrc = readFileSync(path.resolve(__dirname, "../app/(app)/dashboard-client.tsx"), "utf8");
+      const budgetsSrc = readFileSync(path.resolve(__dirname, "../app/(app)/budgets/budgets-client.tsx"), "utf8");
+
+      // Home Accounts card keeps Manage accounts + and removes duplicate + Add account, Select all non-excluded, and top Records pill
+      expect(dashSrc).toContain("showRecordsPill={false}");
+      expect(dashSrc).toContain("<p className=\"text-xs font-medium text-muted\">Net worth</p>");
+      expect(dashSrc).not.toContain("Net worth ·");
+      expect(dashSrc).not.toContain("<span>Add account</span>");
+      expect(dashSrc).not.toContain("Select all non-excluded");
+      expect(dashSrc).not.toContain("aria-label=\"Manage budgets\"");
+      expect(dashSrc).toContain("href=\"/budgets?create=1\"");
+      expect(dashSrc).toContain("href=\"/piggy-banks?create=1\"");
+
+      // Budgets page removes duplicate Full configuration button (uses header New budget button)
+      expect(budgetsSrc).not.toContain("Full configuration");
     });
   });
 });

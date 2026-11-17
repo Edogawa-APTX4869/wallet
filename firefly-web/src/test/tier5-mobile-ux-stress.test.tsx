@@ -450,6 +450,15 @@ describe("Tier 5 Adversarial Stress Testing Suite: Mobile UX Redesign", () => {
       expect(budgetsMarkup).toContain("Budgets &amp; Savings Goals");
       expect(budgetsMarkup).not.toContain('data-testid="accounts-view"');
       expect(budgetsMarkup).not.toContain("Checking");
+
+      // Source contract check: DashboardClient gates account widgets & filter chips behind topTab === "accounts"
+      const { readFileSync } = require("node:fs") as typeof import("node:fs");
+      const path = require("node:path") as typeof import("node:path");
+      const dashSrc = readFileSync(
+        path.resolve(__dirname, "../app/(app)/dashboard-client.tsx"),
+        "utf8",
+      );
+      expect(dashSrc).toMatch(/\{topTab === "accounts" && \(\s*<div className="flex flex-col gap-4 animate-tab-enter">/);
     });
 
     it("2.3 Keyboard navigation on segmented tabs: ArrowLeft & ArrowRight wrap deterministically", () => {

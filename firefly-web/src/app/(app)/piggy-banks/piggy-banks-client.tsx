@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Decimal from "decimal.js";
 import { Minus, Plus, Trash2 } from "lucide-react";
@@ -31,6 +32,8 @@ import { useEscapeDismiss } from "@/lib/use-escape-dismiss";
 export function PiggyBanksClient() {
   const qc = useQueryClient();
   const toast = useToast();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const filterCtx = useOptionalUniversalFilter();
 
   const piggyQ = useQuery({ queryKey: ["piggy-banks"], queryFn: api.piggyBanks });
@@ -40,8 +43,16 @@ export function PiggyBanksClient() {
     (a) => a.attributes.type === "asset" && a.attributes.active !== false,
   );
 
+  const createFromQuery = searchParams.get("create") === "1" || searchParams.get("create") === "true";
   const [showNew, setShowNew] = useState(false);
-  useEscapeDismiss(showNew, () => setShowNew(false), "piggy-banks-new-form");
+  const isNewOpen = showNew || createFromQuery;
+  const handleCloseNew = () => {
+    setShowNew(false);
+    if (createFromQuery) {
+      router.replace("/piggy-banks", { scroll: false });
+    }
+  };
+  useEscapeDismiss(isNewOpen, handleCloseNew, "piggy-banks-new-form");
   const [name, setName] = useState("");
   const [accountId, setAccountId] = useState("");
   const [targetAmount, setTargetAmount] = useState("");
@@ -73,7 +84,7 @@ export function PiggyBanksClient() {
     },
     onSuccess: () => {
       toast("Piggy bank created");
-      setShowNew(false);
+      handleCloseNew();
       setName("");
       setTargetAmount("");
       setCurrentAmount("0");
@@ -125,13 +136,13 @@ export function PiggyBanksClient() {
         title="Piggy Banks & Savings Goals"
         subtitle="Track savings goals attached to your asset accounts · Click any icon to customize"
         actions={
-          <Button size="sm" onClick={() => setShowNew((s) => !s)}>
+          <Button size="sm" onClick={() => (isNewOpen ? handleCloseNew() : setShowNew(true))}>
             <Plus className="size-4" aria-hidden /> New Piggy Bank
           </Button>
         }
       />
 
-      {showNew && (
+      {isNewOpen && (
         <div className="rounded-xl border border-border bg-surface p-3.5 sm:p-4 shadow-2xs">
           <form
             onSubmit={(e) => {
@@ -176,7 +187,7 @@ export function PiggyBanksClient() {
               {(id) => <Input id={id} type="date" value={targetDate} onChange={(e) => setTargetDate(e.target.value)} />}
             </Field>
             <div className="flex justify-end gap-2 sm:col-span-4">
-              <Button type="button" variant="secondary" onClick={() => setShowNew(false)}>
+              <Button type="button" variant="secondary" onClick={handleCloseNew}>
                 Cancel
               </Button>
               <Button type="submit" loading={createMut.isPending}>
