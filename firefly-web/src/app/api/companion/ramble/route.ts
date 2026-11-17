@@ -1,8 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getKv, setKv } from "@/lib/server/db";
 import { getSession } from "@/lib/server/session";
+import {
+  generateSmartReply,
+  parseWithSmartHeuristics,
+  type AccountContextItem,
+  type AiActionKind,
+  type AiProviderType,
+  type AttachmentPayload,
+  type BillContextItem,
+  type BudgetContextItem,
+  type CategoryContextItem,
+  type ParsedTransactionDraft,
+  type PiggyContextItem,
+  type SmartParseContext,
+} from "@/lib/ai-ramble-parser";
 
-export type AiProviderType = "disabled" | "local-heuristic" | "gemini" | "openai-compatible";
+export type {
+  AccountContextItem,
+  AiActionKind,
+  AiProviderType,
+  AttachmentPayload,
+  BillContextItem,
+  BudgetContextItem,
+  CategoryContextItem,
+  ParsedTransactionDraft,
+  PiggyContextItem,
+  SmartParseContext,
+};
 
 export interface LlmConfig {
   enabled: boolean;
@@ -14,26 +39,8 @@ export interface LlmConfig {
   verifiedAt?: string;
 }
 
-export interface AttachmentPayload {
-  name: string;
-  mimeType: string;
-  dataUrl: string; // data:<mime>;base64,<data>
-}
-
-export interface ParsedTransactionDraft {
-  type: "withdrawal" | "deposit" | "transfer";
-  amount: string;
-  currency_code: string;
-  description: string;
-  source_name: string;
-  destination_name: string;
-  category_name: string;
-  budget_name: string;
-  tags: string[];
-  date: string;
-}
-
-const GEMINI_OPENAI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
+const GEMINI_OPENAI_ENDPOINT =
+  "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
 
 function getLlmConfig(): LlmConfig {
   const saved = getKv<Partial<LlmConfig>>("llm_config", {});
@@ -131,7 +138,6 @@ export async function PUT(req: NextRequest) {
     });
   }
 
-  // Always verify that the selected engine actually works before enabling the chatbar
   let verified = false;
   let verifyError = "";
 
@@ -186,9 +192,7 @@ export async function PUT(req: NextRequest) {
     };
     setKv("llm_config", failedCfg);
     return NextResponse.json(
-      {
-        error: `AI verification failed: ${verifyError}. Chatbar remains hidden until the connection succeeds.`,
-      },
+      { error: `AI verification failed: ${verifyError}` },
       { status: 400 },
     );
   }
@@ -253,12 +257,17 @@ export async function POST(req: NextRequest) {
     categories?: string[];
     budgets?: string[];
     tags?: string[];
+    accountDetails?: AccountContextItem[];
+    budgetDetails?: BudgetContextItem[];
+    piggyDetails?: PiggyContextItem[];
+    billDetails?: BillContextItem[];
+    categoryDetails?: CategoryContextItem[];
   };
 
   const text = (body.text ?? "").trim();
   const attachments = body.attachments ?? [];
   if (!text && attachments.length === 0) {
-    return NextResponse.json({ error: "Enter text or attach a receipt/file to parse" }, { status: 400 });
+    return NextResponse.json({ error: "Enter text or attach a file to parse" }, { status: 400 });
   }
 
   const today = body.today || new Date().toISOString().slice(0, 10);
@@ -266,23 +275,29 @@ export async function POST(req: NextRequest) {
   const defaultAccount = body.defaultAccount || "";
   const cfg = getLlmConfig();
 
-  // If an LLM provider is configured & verified, use it (including multimodal vision for receipt images)
+  const ctx: SmartParseContext = {
+    text: text || "Extract the transaction details from the attached receipt/document.",
+    today,
+    defaultCurrency,
+    defaultAccount,
+    accounts: body.accounts ?? [],
+    categories: body.categories ?? [],
+    budgets: body.budgets ?? [],
+    tags: body.tags ?? [],
+    accountDetails: body.accountDetails,
+    budgetDetails: body.budgetDetails,
+    piggyDetails: body.piggyDetails,
+    billDetails: body.billDetails,
+    categoryDetails: body.categoryDetails,
+  };
+
   if ((cfg.provider === "gemini" || cfg.provider === "openai-compatible") && cfg.endpoint) {
     try {
-      const drafts = await parseWithLlm(cfg, {
-        text: text || "Extract the transaction details from the attached receipt/document.",
-        attachments,
-        today,
-        defaultCurrency,
-        defaultAccount,
-        accounts: body.accounts ?? [],
-        categories: body.categories ?? [],
-        budgets: body.budgets ?? [],
-        tags: body.tags ?? [],
-      });
-      if (drafts.length > 0) {
+      const llmRes = await parseWithLlm(cfg, { ...ctx, attachments });
+      if (llmRes.drafts.length > 0 || llmRes.reply) {
         return NextResponse.json({
-          data: drafts,
+          data: llmRes.drafts,
+          reply: llmRes.reply || undefined,
           engine: cfg.provider === "gemini" ? "gemini" : "llm",
         });
       }
@@ -295,21 +310,12 @@ export async function POST(req: NextRequest) {
     text ||
     attachments.map((a) => a.name.replace(/\.[^.]+$/, "")).join(" ");
 
-  const drafts = parseWithSmartHeuristics({
-    text: fallbackText,
-    today,
-    defaultCurrency,
-    defaultAccount,
-    accounts: body.accounts ?? [],
-    categories: body.categories ?? [],
-    budgets: body.budgets ?? [],
-    tags: body.tags ?? [],
-  });
+  const drafts = parseWithSmartHeuristics({ ...ctx, text: fallbackText });
+  const reply = generateSmartReply({ ...ctx, text: fallbackText }, drafts);
 
-  // If the user only attached a receipt image with no numbers in the filename and local heuristic is used,
-  // create a ready-to-edit draft card with the attachment linked so they can fill the amount in 1 tap.
   if (drafts.length === 0 && attachments.length > 0) {
     drafts.push({
+      action_type: "transaction",
       type: "withdrawal",
       amount: "0.000",
       currency_code: defaultCurrency,
@@ -323,46 +329,52 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  return NextResponse.json({ data: drafts, engine: "smart-local" });
+  return NextResponse.json({
+    data: drafts,
+    reply: reply || undefined,
+    engine: "smart-local",
+  });
 }
 
 async function parseWithLlm(
   cfg: LlmConfig,
-  ctx: {
-    text: string;
-    attachments: AttachmentPayload[];
-    today: string;
-    defaultCurrency: string;
-    defaultAccount: string;
-    accounts: string[];
-    categories: string[];
-    budgets: string[];
-    tags: string[];
-  },
-): Promise<ParsedTransactionDraft[]> {
-  const prompt = `You are a financial transaction and receipt parser for Firefly III.
-Today's date is ${ctx.today}. Default currency: ${ctx.defaultCurrency}. Default asset account: "${ctx.defaultAccount}".
-Known asset accounts: ${JSON.stringify(ctx.accounts)}
-Known categories: ${JSON.stringify(ctx.categories)}
-Known budgets: ${JSON.stringify(ctx.budgets)}
-Known tags: ${JSON.stringify(ctx.tags)}
+  ctx: SmartParseContext & { attachments: AttachmentPayload[] },
+): Promise<{ drafts: ParsedTransactionDraft[]; reply?: string }> {
+  const prompt = `You are a full-system Firefly III assistant.
+Today: ${ctx.today}. Default currency: ${ctx.defaultCurrency}. Default account: "${ctx.defaultAccount}".
+Accounts: ${JSON.stringify(ctx.accountDetails ?? ctx.accounts)}
+Categories: ${JSON.stringify(ctx.categoryDetails ?? ctx.categories)}
+Budgets (month): ${JSON.stringify(ctx.budgetDetails ?? ctx.budgets)}
+Piggy Banks: ${JSON.stringify(ctx.piggyDetails ?? [])}
+Bills: ${JSON.stringify(ctx.billDetails ?? [])}
+Tags: ${JSON.stringify(ctx.tags)}
 
-Extract one or more transactions from the user's message and/or attached receipt images and return ONLY a JSON object {"transactions": [...]} where each item has:
+Return ONLY a JSON object {"transactions": [...], "reply": "optional concise answer"}.
+If the user asks a financial question (balances, overspent budgets, bills, savings), answer concisely in "reply" using the provided live data and leave "transactions" empty unless they also asked to log/change something.
+Each item in "transactions" supports ALL system actions:
+- "action_type": "transaction" | "budget_adjust" | "budget_transfer" | "piggy_bank" | "bill" | "recurrence" | "category" | "account"
 - "type": "withdrawal" | "deposit" | "transfer"
-- "amount": string numeric (e.g. "4.500")
+- "amount": numeric string (e.g. "4.500")
 - "currency_code": 3-letter ISO code (default "${ctx.defaultCurrency}")
-- "description": concise merchant or item description
-- "source_name": asset account for withdrawal/transfer, or payer for deposit
-- "destination_name": merchant for withdrawal, or asset account for deposit/transfer
-- "category_name": best matching category from known categories or empty string
-- "budget_name": best matching budget or empty string
+- "foreign_amount": optional string if converting currency
+- "foreign_currency_code": optional ISO code
+- "description": concise title / payee / resource name
+- "source_name": source asset account (or source budget for "budget_transfer")
+- "destination_name": merchant (withdrawal), target asset account (deposit/transfer), target budget ("budget_transfer"), or piggy bank name ("piggy_bank")
+- "category_name": best matching category
+- "budget_name": best matching budget (for withdrawal or "budget_adjust")
+- "bill_name": best matching or new bill name
 - "tags": array of strings
-- "date": YYYY-MM-DD`;
+- "notes": optional notes
+- "date": YYYY-MM-DD
+- "adjust_mode": optional "set" | "add" | "subtract" | "create" (for budget_adjust / piggy_bank)
+- "repeat_freq": optional "daily" | "weekly" | "monthly" | "quarterly" | "half-year" | "yearly" (for bill / recurrence)
+- "target_date": optional YYYY-MM-DD (for piggy_bank)
+- "account_type": optional "asset" | "liability" | "expense" | "revenue" (for account)`;
 
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (cfg.apiKey) headers.Authorization = `Bearer ${cfg.apiKey}`;
 
-  // Build multimodal content array if image attachments are included
   const imageAttachments = ctx.attachments.filter((a) => a.mimeType.startsWith("image/"));
   const userContent: unknown =
     imageAttachments.length > 0
@@ -393,125 +405,12 @@ Extract one or more transactions from the user's message and/or attached receipt
   const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
   const rawContent = data.choices?.[0]?.message?.content ?? "{}";
   const cleaned = rawContent.replace(/^```json\s*/i, "").replace(/```\s*$/, "").trim();
-  const parsed = JSON.parse(cleaned) as { transactions?: ParsedTransactionDraft[] };
-  return Array.isArray(parsed.transactions) ? parsed.transactions : [];
-}
-
-/**
- * Built-in offline multi-transaction natural-language parser ("Ramble") that works out-of-the-box
- * with zero external API keys. Splits sentences/clauses and extracts amounts, currencies, dates,
- * categories, accounts, and descriptions.
- */
-function parseWithSmartHeuristics(ctx: {
-  text: string;
-  today: string;
-  defaultCurrency: string;
-  defaultAccount: string;
-  accounts: string[];
-  categories: string[];
-  budgets: string[];
-  tags: string[];
-}): ParsedTransactionDraft[] {
-  const segments = ctx.text
-    .split(/\n+|;|\b(?:and\s+(?:spent|paid|bought|received|transferred|got)|then)\b/i)
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  const results: ParsedTransactionDraft[] = [];
-  const currencyMap: Record<string, string> = {
-    bhd: "BHD",
-    bd: "BHD",
-    dinar: "BHD",
-    dinars: "BHD",
-    usd: "USD",
-    $: "USD",
-    dollar: "USD",
-    dollars: "USD",
-    eur: "EUR",
-    "€": "EUR",
-    euro: "EUR",
-    euros: "EUR",
-    gbp: "GBP",
-    "£": "GBP",
-    sar: "SAR",
-    aed: "AED",
-    kwd: "KWD",
-    omr: "OMR",
+  const parsed = JSON.parse(cleaned) as {
+    transactions?: ParsedTransactionDraft[];
+    reply?: string;
   };
-
-  for (const seg of segments) {
-    const amtMatch = seg.match(
-      /(?:(BHD|BD|USD|\$|EUR|€|GBP|£|SAR|AED|KWD|OMR)\s*)?(\d+(?:[.,]\d{1,4})?)\s*(BHD|BD|dinars?|USD|\$|dollars?|EUR|€|euros?|GBP|£|SAR|AED|KWD|OMR)?/i,
-    );
-    if (!amtMatch) continue;
-
-    const rawCur = (amtMatch[1] || amtMatch[3] || "").toLowerCase();
-    const currency_code = currencyMap[rawCur] || ctx.defaultCurrency;
-    const amount = amtMatch[2].replace(",", ".");
-
-    const lower = seg.toLowerCase();
-    let type: "withdrawal" | "deposit" | "transfer" = "withdrawal";
-    if (/\b(received|salary|income|earned|deposited|refund)\b/i.test(lower)) {
-      type = "deposit";
-    } else if (/\b(transfer|transferred|moved)\b/i.test(lower)) {
-      type = "transfer";
-    }
-
-    let date = ctx.today;
-    if (/\byesterday\b/i.test(lower)) {
-      const d = new Date(`${ctx.today}T12:00:00`);
-      d.setDate(d.getDate() - 1);
-      date = d.toISOString().slice(0, 10);
-    }
-
-    let category_name = "";
-    for (const c of ctx.categories) {
-      const parts = c.toLowerCase().split(/[:/>›]/).map((p) => p.trim());
-      if (parts.some((p) => p.length > 2 && lower.includes(p))) {
-        category_name = c;
-        break;
-      }
-    }
-
-    let matchedAccount = ctx.defaultAccount;
-    for (const a of ctx.accounts) {
-      if (a && lower.includes(a.toLowerCase())) {
-        matchedAccount = a;
-        break;
-      }
-    }
-
-    const foundTags: string[] = [];
-    const hashMatches = seg.matchAll(/#([\w-]+)/g);
-    for (const m of hashMatches) foundTags.push(m[1]);
-    for (const t of ctx.tags) {
-      if (t && lower.includes(t.toLowerCase()) && !foundTags.includes(t)) {
-        foundTags.push(t);
-      }
-    }
-
-    let desc = seg
-      .replace(amtMatch[0], "")
-      .replace(/\b(spent|paid|bought|for|on|at|from|to|yesterday|today|this morning|tonight)\b/gi, " ")
-      .replace(/#[\w-]+/g, "")
-      .replace(/\s+/g, " ")
-      .trim();
-    if (!desc) desc = category_name || (type === "deposit" ? "Income" : "Expense");
-    desc = desc.charAt(0).toUpperCase() + desc.slice(1);
-
-    results.push({
-      type,
-      amount,
-      currency_code,
-      description: desc,
-      source_name: type === "deposit" ? desc : matchedAccount,
-      destination_name: type === "deposit" ? matchedAccount : desc,
-      category_name,
-      budget_name: "",
-      tags: foundTags,
-      date,
-    });
-  }
-
-  return results;
+  return {
+    drafts: Array.isArray(parsed.transactions) ? parsed.transactions : [],
+    reply: typeof parsed.reply === "string" ? parsed.reply.trim() : undefined,
+  };
 }

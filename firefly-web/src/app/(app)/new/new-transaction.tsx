@@ -299,14 +299,36 @@ export function NewTransaction() {
   return (
     <div className="mx-auto w-full max-w-5xl">
       {type === "ramble" ? (
-        <div className="mx-auto max-w-2xl">
-          <div className="mb-4 flex items-center justify-between">
-            <h1 className="text-xl font-bold">Magic Assistant (&ldquo;Ramble&rdquo;)</h1>
-            <Button variant="secondary" size="sm" onClick={() => router.replace("/new?type=withdrawal")}>
-              Calculator View
-            </Button>
+        <div className="relative mx-auto flex min-h-dvh w-full flex-col overflow-hidden bg-surface lg:min-h-0 lg:max-w-5xl lg:rounded-2xl lg:border lg:border-border lg:shadow-sm">
+          <div className="flex flex-col gap-3 border-b border-border p-3 pt-[max(0.75rem,env(safe-area-inset-top))] sm:p-4">
+            <div className="flex items-center justify-between">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => (typeof window !== "undefined" && window.history.length > 1 ? router.back() : router.push("/"))}
+                aria-label="Back"
+              >
+                <ArrowLeft className="size-5" />
+              </Button>
+              <span className="text-sm font-semibold">AI Assistant</span>
+              <span className="w-9" />
+            </div>
+            <AnimatedTabs
+              tabs={TABS.map((t) => ({
+                key: t.type,
+                label: <span className="capitalize">{t.label.toLowerCase()}</span>,
+                icon: t.icon,
+              }))}
+              activeTab={type}
+              onChange={(newType) => router.replace(`/new?type=${newType}`, { scroll: false })}
+              className="grid grid-cols-4"
+              ariaLabel="Transaction types"
+            />
           </div>
-          <RambleAssistant />
+          <div className="p-3 sm:p-4">
+            <RambleAssistant />
+          </div>
         </div>
       ) : (
         <WalletCalculatorForm key={`${type}-${templateParam ?? ""}`} type={type} initialTemplateId={templateParam} />
@@ -1966,5 +1988,5 @@ function WalletCalculatorForm({
 // ============================================================================
 
 function RambleAssistant() {
-  return <MagicChatPanel mode="inline" />;
+  return <MagicChatPanel mode="inline" alwaysShow />;
 }

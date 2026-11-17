@@ -825,49 +825,21 @@ export function SettingsClient() {
       </Card>
 
       {/* AI Assistant ("Ramble") Configuration */}
-      <Card id="assistant" className="scroll-mt-6 flex flex-col gap-4">
-        <div className="flex flex-wrap items-center justify-between gap-2.5">
+      <Card id="assistant" className="scroll-mt-6 flex flex-col gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2.5">
-            <span className="flex size-9 items-center justify-center rounded-xl bg-primary-soft text-primary">
+            <span className="flex size-8 items-center justify-center rounded-xl bg-primary-soft text-primary">
               <Wand2 className="size-4" aria-hidden />
             </span>
-            <div>
-              <h2 className="font-semibold">Magic Assistant (&ldquo;Ramble&rdquo;) &amp; Bottom Chatbar</h2>
-              <p className="text-xs text-muted">
-                The bottom AI Chatbar stays hidden until configured and verified here. Supports voice, text, and
-                receipt attachments.
-              </p>
-            </div>
+            <h2 className="font-semibold">AI Assistant</h2>
           </div>
 
           {llmConfigQ.data?.enabled && llmConfigQ.data?.verified ? (
-            <Badge tone="success">✓ Verified &amp; Chatbar Active ({llmConfigQ.data.provider})</Badge>
+            <Badge tone="success">✓ Active ({llmConfigQ.data.provider})</Badge>
           ) : (
-            <Badge tone="neutral">Chatbar Hidden (Not Configured)</Badge>
+            <Badge tone="neutral">Hidden</Badge>
           )}
         </div>
-
-        {activeProvider === "gemini" && (
-          <div className="rounded-xl border border-primary/30 bg-primary-soft/40 p-3.5 text-xs leading-relaxed">
-            <p className="font-semibold text-primary">
-              Using your Google Account (Google Pro / Google AI Studio):
-            </p>
-            <p className="mt-1 text-muted">
-              Google restricts third-party self-hosted Docker apps from using consumer Google One subscription cookies
-              directly, <strong className="text-fg">but your Google Account includes free Gemini 2.5 Flash &amp; Pro access via Google AI Studio</strong>{" "}
-              (including multimodal receipt image vision). Sign in with your Google Account to copy your personal key:
-            </p>
-            <a
-              href="https://aistudio.google.com/apikey"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-fg hover:opacity-90"
-            >
-              <span>Sign in with Google Account at AI Studio</span>
-              <ExternalLink className="size-3.5" aria-hidden />
-            </a>
-          </div>
-        )}
 
         <form
           onSubmit={(e) => {
@@ -888,10 +860,10 @@ export function SettingsClient() {
                   else if (next === "openai-compatible") setLlmModel("gpt-4o-mini");
                 }}
               >
-                <option value="gemini">Google Gemini (via Google Account)</option>
+                <option value="gemini">Google Gemini</option>
                 <option value="openai-compatible">OpenAI / Ollama / OpenRouter</option>
-                <option value="local-heuristic">Built-in Smart Local Parser (No Key)</option>
-                <option value="disabled">Disabled (Hide AI Chatbar)</option>
+                <option value="local-heuristic">Smart Local Parser (No Key)</option>
+                <option value="disabled">Disabled</option>
               </Select>
             )}
           </Field>
@@ -905,17 +877,24 @@ export function SettingsClient() {
                     value={llmModel || llmConfigQ.data?.model || "gemini-2.5-flash"}
                     onChange={(e) => setLlmModel(e.target.value)}
                   >
-                    <option value="gemini-2.5-flash">gemini-2.5-flash (Fast + Vision)</option>
-                    <option value="gemini-2.5-pro">gemini-2.5-pro (Pro Reasoning + Vision)</option>
+                    <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+                    <option value="gemini-2.5-pro">gemini-2.5-pro</option>
                     <option value="gemini-2.0-flash">gemini-2.0-flash</option>
                   </Select>
                 )}
               </Field>
               <Field
-                label={
-                  llmConfigQ.data?.hasApiKey
-                    ? "Google AI Studio Key (saved · enter to replace)"
-                    : "Google AI Studio Key"
+                label={llmConfigQ.data?.hasApiKey ? "Google AI Studio Key (saved)" : "Google AI Studio Key"}
+                hint={
+                  <a
+                    href="https://aistudio.google.com/apikey"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
+                  >
+                    <span>Get key</span>
+                    <ExternalLink className="size-3" aria-hidden />
+                  </a>
                 }
               >
                 {(id) => (
@@ -933,7 +912,7 @@ export function SettingsClient() {
 
           {activeProvider === "openai-compatible" && (
             <>
-              <Field label="Chat Completions URL">
+              <Field label="Endpoint URL">
                 {(id) => (
                   <Input
                     id={id}
@@ -953,13 +932,7 @@ export function SettingsClient() {
                   />
                 )}
               </Field>
-              <Field
-                label={
-                  llmConfigQ.data?.hasApiKey
-                    ? "API Key (saved · enter to replace)"
-                    : "API Key (optional for Ollama)"
-                }
-              >
+              <Field label={llmConfigQ.data?.hasApiKey ? "API Key (saved)" : "API Key"}>
                 {(id) => (
                   <Input
                     id={id}
@@ -973,22 +946,9 @@ export function SettingsClient() {
             </>
           )}
 
-          {activeProvider === "local-heuristic" && (
-            <div className="flex items-center text-xs text-muted sm:col-span-2">
-              Uses the built-in offline parser for natural language and voice dictation. Attachments are uploaded to
-              Firefly III automatically.
-            </div>
-          )}
-
-          {activeProvider === "disabled" && (
-            <div className="flex items-center text-xs text-muted sm:col-span-2">
-              The AI Magic Chatbar will remain completely hidden across the app.
-            </div>
-          )}
-
           <div className="flex items-end">
             <Button type="submit" loading={saveLlmMut.isPending} className="w-full">
-              {activeProvider === "disabled" ? "Disable & Hide Chatbar" : "Verify & Enable Chatbar"}
+              {activeProvider === "disabled" ? "Disable" : "Verify & Enable"}
             </Button>
           </div>
         </form>
