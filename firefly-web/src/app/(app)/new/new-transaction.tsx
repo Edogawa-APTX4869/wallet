@@ -1103,6 +1103,34 @@ function WalletCalculatorForm({
               </div>
             )}
 
+            {/* Quick Date, Budget & Description Strip above keypad (Mobile) */}
+            <div className="flex items-center justify-between gap-2 border-b border-border bg-surface-2/40 px-3 py-1.5 text-xs">
+              <input
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                aria-label="Transaction date"
+                className="rounded-lg border border-border bg-surface px-2 py-1 text-xs font-medium text-fg outline-none focus:border-primary"
+              />
+              {type === "withdrawal" && (budgetsQ.data?.length ?? 0) > 0 && (
+                <select
+                  value={budgetId}
+                  onChange={(e) => setBudgetId(e.target.value)}
+                  aria-label="Select budget"
+                  className="max-w-44 truncate rounded-lg border border-border bg-surface px-2 py-1 text-xs font-medium text-fg outline-none focus:border-primary"
+                >
+                  <option value="">No budget</option>
+                  {budgetsQ.data
+                    ?.filter((b) => b.attributes.active)
+                    .map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.attributes.name}
+                      </option>
+                    ))}
+                </select>
+              )}
+            </div>
+
             {/* Quick Description Bar above keypad (Mobile) */}
             <div className="flex items-center border-b border-border bg-surface px-4 py-2.5 text-xs">
               <input
@@ -1444,7 +1472,19 @@ function WalletCalculatorForm({
         {/* RIGHT PANE: IN-DEPTH DETAILS VIEW
             - On Desktop (>= lg): Always visible, keyboard-first fields (Description, Source/Dest Account, Category, Budget, Tags, Date, Notes, Submission buttons)
             - On Mobile (< lg): Shown when detailsOpen is true */}
-        <div className={cn("flex-col gap-4 p-4 sm:p-5 lg:col-span-7 lg:flex", detailsOpen ? "flex fade-in" : "hidden")}>
+        <div className={cn("relative flex-col gap-4 p-4 sm:p-5 lg:col-span-7 lg:flex", detailsOpen ? "flex fade-in" : "hidden")}>
+          {/* Left-edge pull-tab on mobile Details view to flip back to calculator */}
+          {detailsOpen && (
+            <button
+              type="button"
+              onClick={() => setDetailsOpen(false)}
+              aria-label="Back to calculator"
+              title="Swipe right or tap to return to calculator"
+              className="fixed top-1/2 left-0 z-20 flex h-12 w-7 -translate-y-1/2 items-center justify-center rounded-r-full border border-l-0 border-border bg-surface text-muted shadow-md hover:text-fg active:scale-95 lg:hidden"
+            >
+              <ChevronRight className="size-4" />
+            </button>
+          )}
           <div className="flex items-center justify-between lg:hidden">
             <Button type="button" variant="secondary" size="sm" onClick={() => setDetailsOpen(false)}>
               ← Back to Calculator
@@ -1579,13 +1619,24 @@ function WalletCalculatorForm({
               </Field>
             )}
 
-            <LinkedAmountFields
-              from={assetCur}
-              to={otherCur}
-              fromLabel={`Amount (${assetCur?.code || ""})`}
-              toLabel={`Target amount (${otherCur?.code || ""})`}
-              linked={linked}
-            />
+            {state.isCross && (
+              <LinkedAmountFields
+                from={assetCur}
+                to={otherCur}
+                fromLabel={`Amount (${assetCur?.code || ""})`}
+                toLabel={`Target amount (${otherCur?.code || ""})`}
+                linked={{
+                  ...linked,
+                  controls: {
+                    ...linked.controls,
+                    setFrom: (v: string) => {
+                      setExpr(v);
+                      linked.controls.setFrom(v);
+                    },
+                  },
+                }}
+              />
+            )}
           </div>
 
           {type !== "transfer" && (

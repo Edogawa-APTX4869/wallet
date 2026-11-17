@@ -196,6 +196,8 @@ export function CategoryCascadeSelect({
               categories={categories}
               selectedCategory={value}
               frequentCategories={frequentCategories}
+              allowEmpty={!allowCreate}
+              allowCreate={allowCreate}
               onSelect={(nextCat) => {
                 if (nextCat) recordCategoryUsage(nextCat);
                 onChange(nextCat);

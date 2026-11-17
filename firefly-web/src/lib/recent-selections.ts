@@ -161,15 +161,31 @@ export function getMostFrequentCategories(allCategoryNames: string[], limit = 8)
   const unique = Array.from(new Set(allCategoryNames.map((n) => n.trim()).filter(Boolean)));
   if (unique.length === 0) return [];
   const freq = loadCategoryFreqMap();
-  return [...unique]
+
+  const used = unique
+    .filter((name) => (freq[name]?.count ?? 0) > 0)
     .sort((a, b) => {
       const fa = freq[a];
       const fb = freq[b];
       const countDiff = (fb?.count ?? 0) - (fa?.count ?? 0);
       if (countDiff !== 0) return countDiff;
-      const timeDiff = (fb?.lastUsed ?? 0) - (fa?.lastUsed ?? 0);
-      if (timeDiff !== 0) return timeDiff;
-      return 0;
-    })
-    .slice(0, limit);
+      return (fb?.lastUsed ?? 0) - (fa?.lastUsed ?? 0);
+    });
+
+  const unused = unique.filter((name) => (freq[name]?.count ?? 0) === 0);
+  const seenParents = new Set(used.map((n) => n.split(/\s*[:/>›→]\s*/)[0].trim().toLowerCase()));
+  const firstPassUnused: string[] = [];
+  const remainderUnused: string[] = [];
+
+  for (const name of unused) {
+    const parent = name.split(/\s*[:/>›→]\s*/)[0].trim().toLowerCase();
+    if (!seenParents.has(parent)) {
+      seenParents.add(parent);
+      firstPassUnused.push(name);
+    } else {
+      remainderUnused.push(name);
+    }
+  }
+
+  return [...used, ...firstPassUnused, ...remainderUnused].slice(0, limit);
 }

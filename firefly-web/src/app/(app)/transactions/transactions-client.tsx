@@ -676,6 +676,7 @@ export function TransactionsClient() {
         <EditTransactionModal
           key={editingGroup.id}
           group={editingGroup}
+          accounts={assetAccounts}
           categories={categoriesQ.data}
           budgets={budgetsQ.data}
           onClose={() => setEditingGroup(null)}
@@ -687,11 +688,13 @@ export function TransactionsClient() {
 
 function EditTransactionModal({
   group,
+  accounts = [],
   categories,
   budgets,
   onClose,
 }: {
   group: Resource<TransactionGroup>;
+  accounts?: Awaited<ReturnType<typeof api.accounts>>;
   categories?: Awaited<ReturnType<typeof api.categories>>;
   budgets?: Awaited<ReturnType<typeof api.budgets>>;
   onClose: () => void;
@@ -704,10 +707,20 @@ function EditTransactionModal({
     setTimeout(onClose, 240);
   };
   const first = group.attributes.transactions[0];
+  const txType = (first?.type === "deposit" || first?.type === "transfer" ? first.type : "withdrawal") as
+    | "withdrawal"
+    | "deposit"
+    | "transfer";
 
   const [description, setDescription] = useState(first?.description ?? "");
   const [amount, setAmount] = useState(() => String(Math.abs(Number(first?.amount ?? 0))));
   const [date, setDate] = useState(() => (first?.date ?? "").slice(0, 10));
+  const [sourceId, setSourceId] = useState(() =>
+    txType === "deposit" ? (first?.destination_id ?? "") : (first?.source_id ?? ""),
+  );
+  const [destId, setDestId] = useState(() =>
+    txType === "transfer" ? (first?.destination_id ?? "") : "",
+  );
   const [category, setCategory] = useState(first?.category_name ?? "");
   const [budgetId, setBudgetId] = useState(first?.budget_id ?? "");
   const [tags, setTags] = useState(() => (first?.tags ?? []).join(", "));
@@ -720,15 +733,18 @@ function EditTransactionModal({
       return api.updateTransaction(group.id, [
         {
           transaction_journal_id: first?.transaction_journal_id,
-          type: (first?.type === "deposit" || first?.type === "transfer" ? first.type : "withdrawal") as
-            | "withdrawal"
-            | "deposit"
-            | "transfer",
+          type: txType,
           description: description.trim() || first?.description || "Transaction",
           amount: parsedAmt,
           date: date || first?.date || "",
-          category_name: category.trim() || undefined,
-          budget_id: first?.type === "withdrawal" && budgetId ? budgetId : undefined,
+          ...(txType === "deposit"
+            ? { destination_id: sourceId || first?.destination_id || undefined }
+            : { source_id: sourceId || first?.source_id || undefined }),
+          ...(txType === "transfer" && (destId || first?.destination_id)
+            ? { destination_id: destId || first?.destination_id || undefined }
+            : {}),
+          category_name: txType === "transfer" ? undefined : category.trim() || undefined,
+          budget_id: txType === "withdrawal" && budgetId ? budgetId : undefined,
           tags: tags
             .split(",")
             .map((t) => t.trim())
@@ -767,7 +783,29 @@ function EditTransactionModal({
           </Field>
         </div>
 
-        <CategoryCascadeSelect categories={categories} value={category} onChange={setCategory} />
+        {accounts.length > 0 && (
+          <div className={cn("grid gap-3", txType === "transfer" ? "sm:grid-cols-2" : "grid-cols-1")}>
+            <AccountPicker
+              label={txType === "deposit" ? "To account" : "From account"}
+              accounts={accounts}
+              value={sourceId || null}
+              onChange={(id) => setSourceId(id)}
+            />
+            {txType === "transfer" && (
+              <AccountPicker
+                label="To account"
+                accounts={accounts}
+                value={destId || null}
+                excludeId={sourceId || null}
+                onChange={(id) => setDestId(id)}
+              />
+            )}
+          </div>
+        )}
+
+        {txType !== "transfer" && (
+          <CategoryCascadeSelect categories={categories} value={category} onChange={setCategory} />
+        )}
 
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Date">

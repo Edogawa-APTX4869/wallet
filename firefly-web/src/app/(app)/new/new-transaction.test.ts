@@ -4,7 +4,7 @@ import path from "node:path";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { resolveDefaultAccountForList, resolveDefaultAccountId } from "@/lib/recent-selections";
+import { getMostFrequentCategories, resolveDefaultAccountForList, resolveDefaultAccountId } from "@/lib/recent-selections";
 import { AccountPicker } from "@/components/account-picker";
 import { CategoryCascadeSelect } from "@/components/category-cascade";
 import {
@@ -210,8 +210,8 @@ describe("FullScreenAccountSelectView & FullScreenCategorySelectView", () => {
     expect(level1Html).toContain("Vehicle");
     expect(level1Html).toContain("Food &amp; Drinks");
 
-    // When a subcategory is selected, opens directly to Level 2 for that parent (GENERAL + SUBCATEGORIES)
-    const level2Html = renderToStaticMarkup(
+    // Always opens at Level 1 ("Category") even when a subcategory is selected, highlighting the selected sub on its parent row
+    const reopenedHtml = renderToStaticMarkup(
       React.createElement(
         QueryClientProvider,
         { client: qc },
@@ -219,17 +219,39 @@ describe("FullScreenAccountSelectView & FullScreenCategorySelectView", () => {
           categories,
           selectedCategory: "Vehicle: Fuel",
           frequentCategories: ["Vehicle: Fuel"],
+          allowEmpty: true,
           onSelect: () => {},
           onBack: () => {},
         }),
       ),
     );
 
-    expect(level2Html).toContain(">Vehicle</h1>");
-    expect(level2Html).toContain("GENERAL");
-    expect(level2Html).toContain("SUBCATEGORIES");
-    expect(level2Html).toContain("Fuel");
-    expect(level2Html).toContain("Parking");
+    expect(reopenedHtml).toContain(">Category</h1>");
+    expect(reopenedHtml).toContain("MOST FREQUENT");
+    expect(reopenedHtml).toContain("ALL CATEGORIES");
+    expect(reopenedHtml).toContain("Any category");
+    expect(reopenedHtml).toContain(">Fuel</span>");
+    expect(reopenedHtml).toContain("Clear");
+  });
+
+  it("diversifies parent categories in getMostFrequentCategories before repeating parents", () => {
+    const picked = getMostFrequentCategories(
+      [
+        "Vehicle: Fuel",
+        "Vehicle: Parking",
+        "Vehicle: Leasing",
+        "Food: Groceries",
+        "Shopping",
+        "Housing: Rent",
+      ],
+      4,
+    );
+    expect(picked).toEqual([
+      "Vehicle: Fuel",
+      "Food: Groceries",
+      "Shopping",
+      "Housing: Rent",
+    ]);
   });
 
   it("supports allowEmpty and Clear in FullScreenAccountSelectView for filter views", () => {
@@ -358,5 +380,17 @@ describe("FullScreenAccountSelectView & FullScreenCategorySelectView", () => {
     expect(chatSrc).toContain("resolveDefaultAccountForList");
     expect(chatSrc).toContain("FullScreenAccountSelectView");
     expect(chatSrc).toContain("FullScreenCategorySelectView");
+
+    // /new has symmetrical right-edge & left-edge pull tabs plus quick date/budget controls
+    expect(NEW_TX_SRC).toContain("left-0 z-20 flex h-12 w-7 -translate-y-1/2 items-center justify-center rounded-r-full");
+    expect(NEW_TX_SRC).toContain("aria-label=\"Transaction date\"");
+    expect(NEW_TX_SRC).toContain("aria-label=\"Select budget\"");
+    expect(NEW_TX_SRC).toContain("{state.isCross && (");
+
+    // EditTransactionModal supports AccountPicker and omits category on transfers
+    expect(txSrc).toContain("accounts?: Awaited<ReturnType<typeof api.accounts>>");
+    expect(txSrc).toContain("txType === \"deposit\" ? \"To account\" : \"From account\"");
+    expect(txSrc).toContain("txType !== \"transfer\" && (");
+    expect(txSrc).toContain("category_name: txType === \"transfer\" ? undefined : category.trim() || undefined");
   });
 });

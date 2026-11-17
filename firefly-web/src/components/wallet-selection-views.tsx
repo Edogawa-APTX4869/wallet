@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { ArrowLeft, Check, ChevronRight, Search, Settings, Wallet, X } from "lucide-react";
+import { ArrowLeft, Check, ChevronRight, FolderTree, Plus, Search, Settings, Wallet, X } from "lucide-react";
 import type { Account, Category, Resource } from "@/lib/firefly/types";
 import { cn } from "@/lib/utils";
 import { buildCategoryTree, parseCategoryName } from "@/components/category-cascade";
@@ -87,10 +87,12 @@ export function FullScreenAccountSelectView({
         ordered.push(acc);
       }
     }
-    for (const acc of eligible) {
-      if (ordered.length >= 4) break;
-      if (!ordered.some((x) => x.id === acc.id)) {
-        ordered.push(acc);
+    if (recentIds.length === 0 && eligible.length > 4) {
+      for (const acc of eligible) {
+        if (ordered.length >= 4) break;
+        if (!ordered.some((x) => x.id === acc.id)) {
+          ordered.push(acc);
+        }
       }
     }
     return ordered.slice(0, 4);
@@ -296,6 +298,9 @@ export function FullScreenCategorySelectView({
   selectedCategory,
   frequentCategories = [],
   categoryOrder,
+  allowEmpty = false,
+  emptyLabel = "Any category",
+  allowCreate = true,
   onSelect,
   onBack,
 }: {
@@ -303,16 +308,13 @@ export function FullScreenCategorySelectView({
   selectedCategory: string;
   frequentCategories?: string[];
   categoryOrder?: string[];
+  allowEmpty?: boolean;
+  emptyLabel?: string;
+  allowCreate?: boolean;
   onSelect: (fullCategoryName: string) => void;
   onBack: () => void;
 }) {
-  const initialParent = useMemo(() => {
-    const parsed = parseCategoryName(selectedCategory);
-    if (!parsed.sub) return null;
-    return parsed.parent || null;
-  }, [selectedCategory]);
-
-  const [activeParent, setActiveParent] = useState<string | null>(initialParent);
+  const [activeParent, setActiveParent] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [freqPage, setFreqPage] = useState(0);
@@ -458,7 +460,7 @@ export function FullScreenCategorySelectView({
               SEARCH RESULTS
             </div>
             <div className="divide-y divide-border bg-surface">
-              {searchMatches.length === 0 ? (
+              {searchMatches.length === 0 && !allowCreate ? (
                 <p className="px-4 py-8 text-center text-sm text-muted">No matching categories found.</p>
               ) : (
                 searchMatches.map((item) => {
@@ -487,6 +489,20 @@ export function FullScreenCategorySelectView({
                   );
                 })
               )}
+              {allowCreate &&
+                query.trim() &&
+                !searchMatches.some((m) => m.full.toLowerCase() === query.trim().toLowerCase()) && (
+                  <button
+                    type="button"
+                    onClick={() => onSelect(query.trim())}
+                    className="flex w-full items-center gap-3.5 px-4 py-3 text-left text-sm font-semibold text-primary hover:bg-primary-soft/20"
+                  >
+                    <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-primary-soft text-primary">
+                      <Plus className="size-5" aria-hidden />
+                    </span>
+                    <span className="truncate">Use &ldquo;{query.trim()}&rdquo; as new category</span>
+                  </button>
+                )}
             </div>
           </div>
         ) : activeParent !== null && currentGroup ? (
@@ -629,6 +645,24 @@ export function FullScreenCategorySelectView({
               ALL CATEGORIES
             </div>
             <div className="divide-y divide-border bg-surface">
+              {allowEmpty && (
+                <button
+                  type="button"
+                  onClick={() => onSelect("")}
+                  className={cn(
+                    "flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-surface-2/70 active:bg-surface-2",
+                    !selectedCategory && "bg-primary-soft/20",
+                  )}
+                >
+                  <div className="flex min-w-0 items-center gap-3.5">
+                    <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-surface-2 text-muted">
+                      <FolderTree className="size-5" aria-hidden />
+                    </span>
+                    <span className="truncate text-sm font-medium text-fg">{emptyLabel}</span>
+                  </div>
+                  {!selectedCategory && <Check className="size-4 text-primary shrink-0" aria-hidden />}
+                </button>
+              )}
               {tree.length === 0 ? (
                 <p className="px-4 py-8 text-center text-sm text-muted">No categories available.</p>
               ) : (
@@ -636,9 +670,9 @@ export function FullScreenCategorySelectView({
                   const style = inferCategoryDefaultStyle(group.parent, idx);
                   const entityId = group.parentResource?.id || group.parent;
                   const hasSubs = group.subcategories.length > 0;
+                  const parsedSelected = parseCategoryName(selectedCategory);
                   const isParentOrChildSelected =
-                    parseCategoryName(selectedCategory).parent.toLowerCase() ===
-                    group.parent.toLowerCase();
+                    parsedSelected.parent.toLowerCase() === group.parent.toLowerCase();
 
                   return (
                     <button
@@ -665,9 +699,16 @@ export function FullScreenCategorySelectView({
                         />
                         <span className="truncate text-sm font-medium text-fg">{group.parent}</span>
                       </div>
-                      {hasSubs && (
-                        <ChevronRight className="size-4 text-muted shrink-0" aria-hidden />
-                      )}
+                      <div className="flex shrink-0 items-center gap-2">
+                        {isParentOrChildSelected && (
+                          <span className="rounded-full bg-primary-soft px-2 py-0.5 text-[11px] font-semibold text-primary">
+                            {parsedSelected.sub || "Selected"}
+                          </span>
+                        )}
+                        {hasSubs && (
+                          <ChevronRight className="size-4 text-muted shrink-0" aria-hidden />
+                        )}
+                      </div>
                     </button>
                   );
                 })
