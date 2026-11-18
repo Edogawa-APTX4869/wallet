@@ -10,6 +10,7 @@ import { ICON_CATALOG } from "@/components/resource-icon";
 import { useAiAssistantConfig } from "@/components/magic-chatbar";
 import { cn } from "@/lib/utils";
 import { useEscapeDismiss } from "@/lib/use-escape-dismiss";
+import { companionFetch } from "@/lib/offline-sync";
 
 /**
  * Floating Speed-Dial ("+" button in bottom-right):
@@ -56,10 +57,12 @@ export function SpeedDialFab({
   const templatesQ = useQuery({
     queryKey: ["companion-templates"],
     queryFn: async () => {
-      const res = await fetch("/api/companion/templates");
-      if (!res.ok) return [] as TransactionTemplateRow[];
-      const json = (await res.json()) as { data?: TransactionTemplateRow[] };
-      return json.data ?? [];
+      try {
+        const json = await companionFetch<{ data?: TransactionTemplateRow[] }>("/api/companion/templates");
+        return json.data ?? [];
+      } catch {
+        return [] as TransactionTemplateRow[];
+      }
     },
     staleTime: 60_000,
   });

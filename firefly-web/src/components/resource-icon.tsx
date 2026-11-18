@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEscapeDismiss } from "@/lib/use-escape-dismiss";
+import { companionFetch } from "@/lib/offline-sync";
 import {
   Activity,
   AlarmClock,
@@ -429,10 +430,12 @@ export function useResourceMeta() {
   const query = useQuery({
     queryKey: ["companion-meta"],
     queryFn: async () => {
-      const res = await fetch("/api/companion/meta");
-      if (!res.ok) return [] as CompanionMetaItem[];
-      const json = (await res.json()) as { data?: CompanionMetaItem[] };
-      return json.data ?? [];
+      try {
+        const json = await companionFetch<{ data?: CompanionMetaItem[] }>("/api/companion/meta");
+        return json.data ?? [];
+      } catch {
+        return [] as CompanionMetaItem[];
+      }
     },
     staleTime: 60_000,
   });
@@ -462,13 +465,11 @@ export function useUpdateResourceMeta() {
       is_todo?: boolean;
       extra?: Record<string, unknown>;
     }) => {
-      const res = await fetch("/api/companion/meta", {
+      return companionFetch("/api/companion/meta", {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: payload,
+        label: `Update icon (${payload.entity_type})`,
       });
-      if (!res.ok) throw new Error("Failed to save custom icon/meta");
-      return res.json();
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["companion-meta"] });

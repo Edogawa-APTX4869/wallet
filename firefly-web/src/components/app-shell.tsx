@@ -32,6 +32,7 @@ import { MagicChatbar } from "@/components/magic-chatbar";
 import { useTheme } from "@/components/theme-provider";
 import { globalEscapeStack, useEscapeDismiss, useHasActiveOverlay } from "@/lib/use-escape-dismiss";
 import { isMainBottomNavRoute } from "@/components/capacitor-bridge";
+import { OfflineStatusBanner } from "@/components/offline-status-banner";
 import { PageTransition } from "@/components/page-transition";
 
 interface NavChild {
@@ -887,6 +888,7 @@ export function AppShellInner({ children, serverUrl }: { children: React.ReactNo
               Press [ or Ctrl+B to toggle menu
             </span>
           </div>
+          <OfflineStatusBanner serverUrl={serverUrl} />
           <PageTransition>
             {children}
           </PageTransition>

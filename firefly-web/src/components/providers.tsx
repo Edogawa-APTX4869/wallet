@@ -3,6 +3,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { FireflyError } from "@/lib/firefly/api";
+import { OFFLINE_SYNCED_EVENT, startOfflineSyncMonitor } from "@/lib/offline-sync";
 import { cn } from "@/lib/utils";
 import { ThemeProvider } from "@/components/theme-provider";
 import { CapacitorBridge } from "@/components/capacitor-bridge";
@@ -20,8 +21,13 @@ export function Providers({ children }: { children: React.ReactNode }) {
       new QueryClient({
         defaultOptions: {
           queries: {
+            networkMode: "always",
             refetchOnWindowFocus: true,
-            retry: (count, err) => !(err instanceof FireflyError && err.status < 500) && count < 2,
+            retry: (count, err) =>
+              !(err instanceof FireflyError && (err.status === 0 || err.status < 500)) && count < 2,
+          },
+          mutations: {
+            networkMode: "always",
           },
         },
       }),
@@ -33,12 +39,38 @@ export function Providers({ children }: { children: React.ReactNode }) {
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4000);
   }, []);
 
-  // Register service worker for installability/offline shell.
+  // Register service worker for offline shell/data cache + warm routes when online.
   useEffect(() => {
     if (process.env.NODE_ENV === "production" && "serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js").catch(() => {});
+      navigator.serviceWorker
+        .register("/sw.js")
+        .then((reg) => {
+          const worker = reg.active || navigator.serviceWorker.controller;
+          if (worker && navigator.onLine) {
+            worker.postMessage({ type: "WARM_CACHE" });
+          }
+        })
+        .catch(() => {});
     }
   }, []);
+
+  // Start offline queue monitor, auto-validate auth on reconnect & refresh queries after sync.
+  useEffect(() => {
+    const stopMonitor = startOfflineSyncMonitor();
+    const onSynced = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ synced?: number }>).detail;
+      const n = detail?.synced ?? 0;
+      if (n > 0) {
+        push(`Synced ${n} offline change${n === 1 ? "" : "s"}`, "success");
+        void client.invalidateQueries();
+      }
+    };
+    window.addEventListener(OFFLINE_SYNCED_EVENT, onSynced);
+    return () => {
+      stopMonitor();
+      window.removeEventListener(OFFLINE_SYNCED_EVENT, onSynced);
+    };
+  }, [client, push]);
 
   return (
     <QueryClientProvider client={client}>

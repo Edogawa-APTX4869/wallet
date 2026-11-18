@@ -22,6 +22,7 @@ import {
   Webhook as WebhookIcon,
 } from "lucide-react";
 import { api } from "@/lib/firefly/api";
+import { resetAllOfflineData, syncOfflineQueue, useOfflineSync } from "@/lib/offline-sync";
 import type { Currency } from "@/lib/firefly/types";
 import type { AiProviderType } from "@/app/api/companion/ramble/route";
 import { formatRate } from "@/lib/fx/resolve";
@@ -323,11 +324,13 @@ export function SettingsClient() {
   }
 
   async function disconnect() {
+    await resetAllOfflineData();
     await fetch("/api/session", { method: "DELETE" });
     qc.clear();
     router.replace("/login");
   }
 
+  const offlineSync = useOfflineSync();
   const booleanConfigs = (configQ.data ?? []).filter(
     (item) => typeof item.value === "boolean" && item.editable !== false,
   );
@@ -367,16 +370,54 @@ export function SettingsClient() {
               {aboutQ.data ? `v${aboutQ.data.version} (API ${aboutQ.data.api_version})` : "—"}
             </p>
           </div>
-          <div>
-            <p className="text-xs text-muted">Primary currency</p>
-            <p className="font-medium">
-              {primaryQ.data
-                ? `${primaryQ.data.code} (${primaryQ.data.symbol}) · ${primaryQ.data.decimal_places} decimals`
-                : "—"}
-            </p>
+            <div>
+              <p className="text-xs text-muted">Primary currency</p>
+              <p className="font-medium">
+                {primaryQ.data
+                  ? `${primaryQ.data.code} (${primaryQ.data.symbol}) · ${primaryQ.data.decimal_places} decimals`
+                  : "—"}
+              </p>
+            </div>
           </div>
-        </div>
-      </Card>
+
+          {/* Offline Mode & Auth Validation Status Strip */}
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-surface px-3 py-2 text-xs">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge tone={offlineSync.isOnline ? "success" : "warning"}>
+                {offlineSync.isOnline ? "Online" : "Offline mode"}
+              </Badge>
+              <span className="text-muted">
+                {offlineSync.queue.length > 0
+                  ? `${offlineSync.queue.length} offline change${offlineSync.queue.length === 1 ? "" : "s"} pending`
+                  : offlineSync.lastSyncedAt
+                    ? `Last synced ${formatDate(offlineSync.lastSyncedAt)}`
+                    : "All changes synced"}
+              </span>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              disabled={!offlineSync.isOnline}
+              loading={offlineSync.syncPhase === "validating_auth" || offlineSync.syncPhase === "syncing"}
+              onClick={async () => {
+                const res = await syncOfflineQueue({ validateOnlyWhenEmpty: true });
+                if (res.authRequired) {
+                  toast("Authentication check failed — please re-enter your token.", "error");
+                } else if (res.offline) {
+                  toast("Server unreachable right now.", "info");
+                } else if (res.synced > 0) {
+                  toast(`Validated auth & synced ${res.synced} change${res.synced === 1 ? "" : "s"}`);
+                  void qc.invalidateQueries();
+                } else {
+                  toast("Authentication validated ✓ Everything is up to date.");
+                }
+              }}
+            >
+              Validate Auth &amp; Sync
+            </Button>
+          </div>
+        </Card>
 
       {/* Theme */}
       <Card className="flex flex-col gap-3">

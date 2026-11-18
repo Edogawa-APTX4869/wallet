@@ -62,6 +62,7 @@ export function TransactionRow({
   const first = splits[0];
   if (!first) return null;
   const isSplit = splits.length > 1;
+  const isOfflinePending = Boolean((group as { __offlinePending?: boolean }).__offlinePending);
   const sign = signFor(first, perspectiveAccountId);
   const total = splits.reduce((acc, s) => acc + Math.abs(Number(s.amount)), 0);
   const viewFromDest = first.type === "transfer" && perspectiveAccountId && first.destination_id === perspectiveAccountId;
@@ -111,6 +112,9 @@ export function TransactionRow({
           )}
           {first.type === "opening balance" && (
             <Badge tone="neutral" className="ml-1.5 text-[10px] sm:text-xs">Opening balance</Badge>
+          )}
+          {isOfflinePending && (
+            <Badge tone="warning" className="ml-1.5 text-[10px] sm:text-xs">Pending sync</Badge>
           )}
         </p>
         <p className="truncate text-[11px] sm:text-xs text-muted">

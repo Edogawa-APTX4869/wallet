@@ -270,12 +270,19 @@
 
       // Auto-launch saved server on startup unless ?configure=1 is passed
       if (window.location.search.indexOf("configure=1") === -1) {
-        setTimeout(function () {
-          launch(saved);
-        }, 250);
+        if (!navigator.onLine && /^http:\/\//i.test(saved)) {
+          spinner.classList.add("hidden");
+          statusText.textContent = "Offline — LAN HTTP server unavailable without Wi-Fi. Retry or choose an HTTPS server.";
+        } else {
+          setTimeout(function () {
+            launch(saved);
+          }, 250);
+        }
       } else {
         spinner.classList.add("hidden");
-        statusText.textContent = "Select or enter your Wallet server URL";
+        statusText.textContent = navigator.onLine
+          ? "Select or enter your Wallet server URL"
+          : "Offline — previously opened HTTPS servers can launch from cache";
       }
     })();
   </script>

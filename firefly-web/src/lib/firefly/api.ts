@@ -30,6 +30,20 @@ import type {
   Webhook,
 } from "./types";
 import type { StoredRate } from "@/lib/fx/resolve";
+import {
+  buildSyntheticTransactionGroup,
+  enqueueOfflineOperation,
+  getCachedOutboxSnapshot,
+  getHttpCache,
+  makeOfflineTempId,
+  setHttpCache,
+} from "@/lib/offline-store";
+import {
+  isNetworkOrGatewayFailure,
+  markNetworkOffline,
+  markNetworkOnline,
+  syncOfflineQueue,
+} from "@/lib/offline-sync";
 
 export class FireflyError extends Error {
   status: number;
@@ -66,14 +80,120 @@ export function qs(params?: Params): string {
   return s ? `?${s}` : "";
 }
 
+function describeFireflyMutation(method: string, cleanPath: string, body?: unknown): string {
+  const b = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
+  if ((method === "POST" || method === "PUT") && (cleanPath === "transactions" || cleanPath.startsWith("transactions/")) && Array.isArray(b.transactions)) {
+    const sp = (b.transactions[0] ?? {}) as Partial<NewSplit>;
+    const kindLabel = sp.type === "deposit" ? "Income" : sp.type === "transfer" ? "Transfer" : "Expense";
+    const amtPart = sp.amount ? `${sp.amount}${sp.currency_code ? ` ${sp.currency_code}` : ""}` : "";
+    const descPart = sp.description ? ` · ${sp.description}` : "";
+    const prefix = method === "PUT" && !cleanPath.includes("offline-") ? "Edit " : "";
+    return `${prefix}${kindLabel}${amtPart ? `: ${amtPart}` : ""}${descPart}`;
+  }
+  if (cleanPath.startsWith("transactions/")) {
+    return method === "DELETE" ? "Delete transaction" : "Edit transaction";
+  }
+  if (cleanPath.includes("/limits")) return "Update budget limit";
+  if (cleanPath.startsWith("available-budgets")) return "Update available budget";
+  if (cleanPath.startsWith("budgets")) return `${method === "DELETE" ? "Delete" : "Save"} budget`;
+  if (cleanPath.startsWith("piggy-banks")) return `${method === "DELETE" ? "Delete" : "Save"} piggy bank`;
+  if (cleanPath.startsWith("categories")) return `${method === "DELETE" ? "Delete" : "Save"} category`;
+  if (cleanPath.startsWith("accounts")) return `${method === "DELETE" ? "Delete" : "Save"} account`;
+  if (cleanPath.startsWith("exchange-rates")) return "Save exchange rate";
+  if (cleanPath.startsWith("tags")) return `${method === "DELETE" ? "Delete" : "Save"} tag`;
+  if (cleanPath.startsWith("rules") || cleanPath.startsWith("rule-groups")) return "Save automation rule";
+  if (cleanPath.startsWith("bills")) return `${method === "DELETE" ? "Delete" : "Save"} bill`;
+  if (cleanPath.startsWith("recurrences")) return "Save recurring transaction";
+  return `${method} ${cleanPath.split("?")[0]}`;
+}
+
+function buildOptimisticWriteResponse<T>(method: string, cleanPath: string, body: unknown, tempId?: string): T {
+  if (method === "DELETE") return undefined as T;
+  if (method === "POST" && cleanPath === "transactions") {
+    const id = tempId || makeOfflineTempId("offline-tx");
+    return {
+      data: buildSyntheticTransactionGroup(id, (body ?? {}) as { group_title?: string; transactions?: NewSplit[] }),
+      __offlineQueued: true,
+    } as unknown as T;
+  }
+  const basePath = cleanPath.split("/")[0];
+  const existingId = cleanPath.split("/")[1];
+  return {
+    data: {
+      id: tempId || existingId || makeOfflineTempId("offline"),
+      type: basePath,
+      attributes: (body && typeof body === "object" ? body : {}) as Record<string, unknown>,
+    },
+    __offlineQueued: true,
+  } as unknown as T;
+}
+
 async function request<T>(method: string, path: string, params?: Params, body?: unknown): Promise<T> {
-  const res = await fetch(`/api/ff/${path.replace(/^\/+/, "")}${qs(params)}`, {
-    method,
-    headers: body ? { "Content-Type": "application/json" } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
-    cache: "no-store",
-  });
-  if (res.status === 204) return undefined as T;
+  const cleanPath = path.replace(/^\/+/, "");
+  const fullPath = `${cleanPath}${qs(params)}`;
+  const cacheKey = `ff:${fullPath}`;
+
+  const tryOfflineRead = async (fallbackErr?: Error): Promise<T> => {
+    const cached = await getHttpCache<T>(cacheKey);
+    if (cached) return cached.data;
+    throw fallbackErr ?? new FireflyError("Offline and no cached data available for this screen.", 0);
+  };
+
+  const queueOfflineWrite = async (): Promise<T> => {
+    const isCreateTx = method === "POST" && cleanPath === "transactions";
+    const tempId = method === "POST" ? makeOfflineTempId(isCreateTx ? "offline-tx" : "offline") : undefined;
+    const res = await enqueueOfflineOperation({
+      kind: "ff-request",
+      method: method as "POST" | "PUT" | "DELETE",
+      path: fullPath,
+      label: describeFireflyMutation(method, cleanPath, body),
+      body,
+      tempId,
+    });
+    if (res.cancelledTempId) {
+      return undefined as T;
+    }
+    return buildOptimisticWriteResponse<T>(method, cleanPath, body, res.item?.tempId ?? tempId);
+  };
+
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    markNetworkOffline();
+    if (method === "GET") return tryOfflineRead();
+    return queueOfflineWrite();
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(`/api/ff/${fullPath}`, {
+      method,
+      headers: body ? { "Content-Type": "application/json" } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+      cache: "no-store",
+    });
+  } catch (err) {
+    if (isNetworkOrGatewayFailure(err)) {
+      markNetworkOffline();
+      if (method === "GET") {
+        return tryOfflineRead(new FireflyError("You appear to be offline and this view is not cached.", 0));
+      }
+      return queueOfflineWrite();
+    }
+    throw err;
+  }
+
+  if (isNetworkOrGatewayFailure(res.status)) {
+    markNetworkOffline();
+    if (method === "GET") {
+      return tryOfflineRead(new FireflyError(`Server unreachable (HTTP ${res.status}).`, res.status));
+    }
+    return queueOfflineWrite();
+  }
+
+  if (res.status === 204) {
+    markNetworkOnline();
+    return undefined as T;
+  }
+
   const text = await res.text();
   let json: unknown = null;
   try {
@@ -81,10 +201,21 @@ async function request<T>(method: string, path: string, params?: Params, body?: 
   } catch {
     /* non-JSON */
   }
+
   if (!res.ok) {
     const j = (json ?? {}) as { message?: string; errors?: Record<string, string[]> };
-    if (res.status === 401 && typeof window !== "undefined" && !path.startsWith("about")) {
-      window.location.replace("/login?expired=1");
+    if (res.status === 401 && typeof window !== "undefined" && !cleanPath.startsWith("about")) {
+      if (method !== "GET") {
+        // Never discard user's typed write when auth expired; queue cleanly & prompt re-authentication
+        const out = await queueOfflineWrite();
+        void syncOfflineQueue();
+        return out;
+      }
+      if (getCachedOutboxSnapshot().length > 0) {
+        void syncOfflineQueue();
+      } else {
+        window.location.replace("/login?expired=1");
+      }
     }
     const fieldMsgs = j.errors ? Object.values(j.errors).flat() : [];
     throw new FireflyError(
@@ -92,6 +223,11 @@ async function request<T>(method: string, path: string, params?: Params, body?: 
       res.status,
       j.errors ?? {},
     );
+  }
+
+  markNetworkOnline();
+  if (method === "GET") {
+    void setHttpCache(cacheKey, json);
   }
   return json as T;
 }
@@ -136,29 +272,60 @@ async function uploadAttachment(
   attachableId: string,
   file: { name: string; type: string; dataUrl: string },
 ) {
-  const created = await ff.post<SingleResponse<{ filename: string }>>("attachments", {
-    filename: file.name,
-    attachable_type: attachableType,
-    attachable_id: String(attachableId),
-    title: file.name,
-    notes: "Uploaded via FireFly Companion",
-  });
-  const attachmentId = created.data.id;
-  const base64Part = file.dataUrl.includes(",") ? file.dataUrl.split(",")[1] : file.dataUrl;
-  const binaryStr = atob(base64Part);
-  const bytes = new Uint8Array(binaryStr.length);
-  for (let i = 0; i < binaryStr.length; i++) {
-    bytes[i] = binaryStr.charCodeAt(i);
+  const targetId = String(attachableId);
+  const enqueueAtt = async () => {
+    await enqueueOfflineOperation({
+      kind: "ff-attachment",
+      method: "POST",
+      path: "attachments",
+      label: `Attachment: ${file.name}`,
+      attachment: { attachableType, attachableId: targetId, file },
+    });
+    return makeOfflineTempId("offline-att");
+  };
+
+  if (targetId.startsWith("offline-") || (typeof navigator !== "undefined" && navigator.onLine === false)) {
+    return enqueueAtt();
   }
-  const uploadRes = await fetch(`/api/ff/attachments/${encodeURIComponent(attachmentId)}/upload`, {
-    method: "POST",
-    headers: { "Content-Type": "application/octet-stream" },
-    body: bytes,
-  });
-  if (!uploadRes.ok) {
-    throw new Error(`Failed to upload binary for attachment ${file.name} (HTTP ${uploadRes.status})`);
+
+  try {
+    const created = await ff.post<SingleResponse<{ filename: string }>>("attachments", {
+      filename: file.name,
+      attachable_type: attachableType,
+      attachable_id: targetId,
+      title: file.name,
+      notes: "Uploaded via FireFly Companion",
+    });
+    if ((created as unknown as { __offlineQueued?: boolean })?.__offlineQueued) {
+      return enqueueAtt();
+    }
+    const attachmentId = created.data.id;
+    const base64Part = file.dataUrl.includes(",") ? file.dataUrl.split(",")[1] : file.dataUrl;
+    const binaryStr = atob(base64Part);
+    const bytes = new Uint8Array(binaryStr.length);
+    for (let i = 0; i < binaryStr.length; i++) {
+      bytes[i] = binaryStr.charCodeAt(i);
+    }
+    const uploadRes = await fetch(`/api/ff/attachments/${encodeURIComponent(attachmentId)}/upload`, {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: bytes,
+    });
+    if (isNetworkOrGatewayFailure(uploadRes.status)) {
+      markNetworkOffline();
+      return enqueueAtt();
+    }
+    if (!uploadRes.ok) {
+      throw new Error(`Failed to upload binary for attachment ${file.name} (HTTP ${uploadRes.status})`);
+    }
+    return attachmentId;
+  } catch (err) {
+    if (isNetworkOrGatewayFailure(err)) {
+      markNetworkOffline();
+      return enqueueAtt();
+    }
+    throw err;
   }
-  return attachmentId;
 }
 
 export const api = {

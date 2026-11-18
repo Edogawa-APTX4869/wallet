@@ -23,6 +23,7 @@ import {
   X,
 } from "lucide-react";
 import { api } from "@/lib/firefly/api";
+import { companionFetch } from "@/lib/offline-sync";
 import type { NewSplit } from "@/lib/firefly/types";
 import type { TransactionTemplateRow } from "@/lib/server/db";
 import { accountCurrency, ASSET_LIKE, useAccounts, useCurrencies } from "@/lib/hooks";
@@ -335,12 +336,14 @@ function WalletCalculatorForm({
   const dashboardPrefsQ = useQuery({
     queryKey: ["dashboard-prefs"],
     queryFn: async () => {
-      const res = await fetch("/api/companion/dashboard");
-      if (!res.ok) return null as { selectedAccountIds?: string[]; categoryOrder?: string[] } | null;
-      const json = (await res.json()) as {
-        data?: { selectedAccountIds?: string[]; categoryOrder?: string[] };
-      };
-      return json.data ?? null;
+      try {
+        const json = await companionFetch<{
+          data?: { selectedAccountIds?: string[]; categoryOrder?: string[] };
+        }>("/api/companion/dashboard");
+        return json.data ?? null;
+      } catch {
+        return null as { selectedAccountIds?: string[]; categoryOrder?: string[] } | null;
+      }
     },
     staleTime: 60_000,
   });
@@ -357,10 +360,12 @@ function WalletCalculatorForm({
   const templatesQ = useQuery({
     queryKey: ["companion-templates"],
     queryFn: async () => {
-      const res = await fetch("/api/companion/templates");
-      if (!res.ok) return [] as TransactionTemplateRow[];
-      const json = (await res.json()) as { data?: TransactionTemplateRow[] };
-      return json.data ?? [];
+      try {
+        const json = await companionFetch<{ data?: TransactionTemplateRow[] }>("/api/companion/templates");
+        return json.data ?? [];
+      } catch {
+        return [] as TransactionTemplateRow[];
+      }
     },
   });
 
@@ -607,10 +612,10 @@ function WalletCalculatorForm({
   const saveTemplateMut = useMutation({
     mutationFn: async () => {
       if (!templateName.trim()) throw new Error("Enter a template name");
-      const res = await fetch("/api/companion/templates", {
+      return companionFetch("/api/companion/templates", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        label: `Save template "${templateName.trim()}"`,
+        body: {
           name: templateName.trim(),
           type,
           amount: state.fromAmount,
@@ -626,10 +631,8 @@ function WalletCalculatorForm({
           budget_id: budgetId,
           tags,
           notes,
-        }),
+        },
       });
-      if (!res.ok) throw new Error("Could not save template");
-      return res.json();
     },
     onSuccess: () => {
       toast(`Template "${templateName}" saved`);
@@ -641,7 +644,11 @@ function WalletCalculatorForm({
   });
 
   const delTemplateMut = useMutation({
-    mutationFn: (id: string) => fetch(`/api/companion/templates?id=${encodeURIComponent(id)}`, { method: "DELETE" }),
+    mutationFn: (id: string) =>
+      companionFetch(`/api/companion/templates?id=${encodeURIComponent(id)}`, {
+        method: "DELETE",
+        label: "Delete template",
+      }),
     onSuccess: () => {
       toast("Template removed", "info");
       qc.invalidateQueries({ queryKey: ["companion-templates"] });
@@ -724,8 +731,13 @@ function WalletCalculatorForm({
       }
       return res;
     },
-    onSuccess: () => {
-      toast(`${TABS.find((t) => t.type === type)?.label} saved`);
+    onSuccess: (res) => {
+      const queuedOffline = Boolean((res as unknown as { __offlineQueued?: boolean })?.__offlineQueued);
+      if (queuedOffline) {
+        toast("Saved offline — will sync & verify auth when online", "info");
+      } else {
+        toast(`${TABS.find((t) => t.type === type)?.label} saved`);
+      }
       if (asset?.id) {
         pushRecentAccountId(asset.id);
       }

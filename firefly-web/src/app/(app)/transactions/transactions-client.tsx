@@ -7,6 +7,8 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import Decimal from "decimal.js";
 import { Check, ChevronLeft, ChevronRight, Filter, Plus, RotateCcw, Search, X } from "lucide-react";
 import { api } from "@/lib/firefly/api";
+import { mergePendingTransactionsIntoGroups } from "@/lib/offline-store";
+import { useOfflineSync } from "@/lib/offline-sync";
 import type { Resource, TransactionGroup } from "@/lib/firefly/types";
 import { ASSET_LIKE, useAccounts, usePrimaryCurrency } from "@/lib/hooks";
 import { cn, extractLocalDate, extractLocalTime, isoDateTimeWithOffset, monthRange, parseAmount } from "@/lib/utils";
@@ -124,6 +126,7 @@ export function TransactionsClient() {
   const searchParams = useSearchParams();
   const paramKey = searchParams.toString();
   const universalFilter = useUniversalFilter();
+  const offlineSync = useOfflineSync();
 
   const [filters, setFilters] = useState<Filters>(() => filtersFromParams((k) => searchParams.get(k)));
   const [prevParamKey, setPrevParamKey] = useState(paramKey);
@@ -207,7 +210,10 @@ export function TransactionsClient() {
     onError: (e) => toast((e as Error).message, "error"),
   });
 
-  const rawGroups = useMemo(() => txQ.data?.pages.flatMap((p) => p.data) ?? [], [txQ.data]);
+  const rawGroups = useMemo(
+    () => mergePendingTransactionsIntoGroups(txQ.data?.pages.flatMap((p) => p.data) ?? [], offlineSync.queue),
+    [txQ.data, offlineSync.queue],
+  );
   const groups = useMemo(() => {
     if (universalFilter.accountFilter !== "all_stats") return rawGroups;
     const excludedAccountIds = new Set(
@@ -754,8 +760,9 @@ function EditTransactionModal({
         },
       ]);
     },
-    onSuccess: () => {
-      toast("Transaction updated", "success");
+    onSuccess: (res) => {
+      const queuedOffline = Boolean((res as unknown as { __offlineQueued?: boolean })?.__offlineQueued);
+      toast(queuedOffline ? "Edit queued offline — will sync when online" : "Transaction updated", queuedOffline ? "info" : "success");
       qc.invalidateQueries({ queryKey: ["transactions"] });
       qc.invalidateQueries({ queryKey: ["accounts"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });

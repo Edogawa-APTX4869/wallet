@@ -58,6 +58,8 @@ import {
 import { SwipeableWidget } from "@/components/swipeable-widget";
 import { ExtraCard, inPeriod, isSystemContraAccount, type ExtraCardContext } from "./dashboard-extra-cards";
 import { useAccounts, usePrimaryCurrency, useRatesToPrimary } from "@/lib/hooks";
+import { mergePendingTransactionsIntoGroups } from "@/lib/offline-store";
+import { companionFetch, useOfflineSync } from "@/lib/offline-sync";
 import { cn, formatMoney, isoDate, monthRange, sumDecimal } from "@/lib/utils";
 import {
   COLOR_PALETTE,
@@ -1052,28 +1054,29 @@ export function DashboardClient() {
 
   const primaryQ = usePrimaryCurrency();
   const accountsQ = useAccounts("all");
+  const offlineSync = useOfflineSync();
 
   // Load persisted dashboard preferences (selected accounts + card order/config)
   const prefsQ = useQuery({
     queryKey: ["dashboard-prefs"],
     queryFn: async () => {
-      const res = await fetch("/api/companion/dashboard");
-      if (!res.ok) return DEFAULT_DASHBOARD_PREFS;
-      const json = (await res.json()) as { data?: DashboardPreferences };
-      return json.data ?? DEFAULT_DASHBOARD_PREFS;
+      try {
+        const json = await companionFetch<{ data?: DashboardPreferences }>("/api/companion/dashboard");
+        return json.data ?? DEFAULT_DASHBOARD_PREFS;
+      } catch {
+        return DEFAULT_DASHBOARD_PREFS;
+      }
     },
     staleTime: 60_000,
   });
 
   const savePrefsMut = useMutation({
     mutationFn: async (next: Partial<DashboardPreferences>) => {
-      const res = await fetch("/api/companion/dashboard", {
+      return companionFetch<{ data: DashboardPreferences }>("/api/companion/dashboard", {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(next),
+        body: next,
+        label: "Update dashboard layout",
       });
-      if (!res.ok) throw new Error("Failed to save dashboard layout");
-      return (await res.json()) as { data: DashboardPreferences };
     },
     onMutate: (next) => {
       qc.setQueryData(["dashboard-prefs"], (old: unknown) => {
@@ -1253,9 +1256,9 @@ export function DashboardClient() {
     return total;
   }, [balancesByCurrency, toPrimary]);
 
-  // Filter recent transactions by selected accounts
+  // Filter recent transactions by selected accounts (including pending offline queue)
   const filteredTransactions = useMemo(() => {
-    const allTx = recentTxQ.data?.data ?? [];
+    const allTx = mergePendingTransactionsIntoGroups(recentTxQ.data?.data ?? [], offlineSync.queue);
     if (selectedIds.length === 0) return allTx;
     return allTx.filter((g) => {
       const s = g.attributes.transactions[0];
@@ -1265,7 +1268,7 @@ export function DashboardClient() {
         (s.destination_id && selectedIdSet.has(String(s.destination_id)))
       );
     });
-  }, [recentTxQ.data, selectedIds.length, selectedIdSet]);
+  }, [recentTxQ.data, offlineSync.queue, selectedIds.length, selectedIdSet]);
 
   // Compute Cash Flow Table & Gauge metrics for any given period (7, 30, or 90 days)
   function computeMetricsForPeriod(days: number) {
