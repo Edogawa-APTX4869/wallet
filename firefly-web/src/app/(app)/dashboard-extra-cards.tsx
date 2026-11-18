@@ -17,6 +17,7 @@ import type { Account, Bill, PiggyBank, Resource, TransactionGroup } from "@/lib
 import type { DashboardCardConfig } from "@/lib/dashboard-cards";
 import { cn, formatDate, isoDate } from "@/lib/utils";
 import { ResourceIconBadge } from "@/components/resource-icon";
+import { accountHref } from "@/lib/native-wallet";
 import { Badge, EmptyState, Money, Progress } from "@/components/ui";
 
 export interface ExtraCardContext {
@@ -684,7 +685,7 @@ export function ExtraCard({ card, ctx }: { card: DashboardCardConfig; ctx: Extra
             {items.map((item) => (
               <Link
                 key={item.acc.id}
-                href={`/accounts/${item.acc.id}`}
+                href={accountHref(item.acc.id)}
                 className="card-hover-spring flex flex-col justify-between gap-2 rounded-xl border border-border bg-surface-2/40 p-3 hover:border-primary/50 hover:bg-surface-2 hover:shadow-xs"
               >
                 <div className="flex items-start justify-between gap-2">

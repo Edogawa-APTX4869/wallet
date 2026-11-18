@@ -1,7 +1,15 @@
 import type { NextConfig } from "next";
 
+const isCapacitorExport = process.env.CAPACITOR_EXPORT === "1";
+
 const nextConfig: NextConfig = {
-  output: "standalone",
+  output: isCapacitorExport ? "export" : "standalone",
+  ...(isCapacitorExport
+    ? {
+        trailingSlash: true,
+        images: { unoptimized: true },
+      }
+    : {}),
   turbopack: {
     rules: {
       "*.css": {

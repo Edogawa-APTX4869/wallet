@@ -44,6 +44,7 @@ import {
   markNetworkOnline,
   syncOfflineQueue,
 } from "@/lib/offline-sync";
+import { executeFireflyHttp } from "@/lib/native-wallet";
 
 export class FireflyError extends Error {
   status: number;
@@ -162,13 +163,12 @@ async function request<T>(method: string, path: string, params?: Params, body?: 
     return queueOfflineWrite();
   }
 
-  let res: Response;
+  let transportRes: { status: number; ok: boolean; text: string; networkError: boolean; message?: string };
   try {
-    res = await fetch(`/api/ff/${fullPath}`, {
+    transportRes = await executeFireflyHttp({
       method,
-      headers: body ? { "Content-Type": "application/json" } : undefined,
-      body: body ? JSON.stringify(body) : undefined,
-      cache: "no-store",
+      fullPath,
+      bodyJson: body ? JSON.stringify(body) : undefined,
     });
   } catch (err) {
     if (isNetworkOrGatewayFailure(err)) {
@@ -181,20 +181,25 @@ async function request<T>(method: string, path: string, params?: Params, body?: 
     throw err;
   }
 
-  if (isNetworkOrGatewayFailure(res.status)) {
+  if (transportRes.networkError || isNetworkOrGatewayFailure(transportRes.status)) {
     markNetworkOffline();
     if (method === "GET") {
-      return tryOfflineRead(new FireflyError(`Server unreachable (HTTP ${res.status}).`, res.status));
+      return tryOfflineRead(
+        new FireflyError(
+          transportRes.status ? `Server unreachable (HTTP ${transportRes.status}).` : "You appear to be offline and this view is not cached.",
+          transportRes.status,
+        ),
+      );
     }
     return queueOfflineWrite();
   }
 
-  if (res.status === 204) {
+  if (transportRes.status === 204) {
     markNetworkOnline();
     return undefined as T;
   }
 
-  const text = await res.text();
+  const text = transportRes.text;
   let json: unknown = null;
   try {
     json = text ? JSON.parse(text) : null;
@@ -202,9 +207,9 @@ async function request<T>(method: string, path: string, params?: Params, body?: 
     /* non-JSON */
   }
 
-  if (!res.ok) {
+  if (!transportRes.ok) {
     const j = (json ?? {}) as { message?: string; errors?: Record<string, string[]> };
-    if (res.status === 401 && typeof window !== "undefined" && !cleanPath.startsWith("about")) {
+    if (transportRes.status === 401 && typeof window !== "undefined" && !cleanPath.startsWith("about")) {
       if (method !== "GET") {
         // Never discard user's typed write when auth expired; queue cleanly & prompt re-authentication
         const out = await queueOfflineWrite();
@@ -219,8 +224,8 @@ async function request<T>(method: string, path: string, params?: Params, body?: 
     }
     const fieldMsgs = j.errors ? Object.values(j.errors).flat() : [];
     throw new FireflyError(
-      fieldMsgs[0] || j.message || `Request failed (HTTP ${res.status})`,
-      res.status,
+      fieldMsgs[0] || j.message || `Request failed (HTTP ${transportRes.status})`,
+      transportRes.status,
       j.errors ?? {},
     );
   }
@@ -301,17 +306,13 @@ async function uploadAttachment(
     }
     const attachmentId = created.data.id;
     const base64Part = file.dataUrl.includes(",") ? file.dataUrl.split(",")[1] : file.dataUrl;
-    const binaryStr = atob(base64Part);
-    const bytes = new Uint8Array(binaryStr.length);
-    for (let i = 0; i < binaryStr.length; i++) {
-      bytes[i] = binaryStr.charCodeAt(i);
-    }
-    const uploadRes = await fetch(`/api/ff/attachments/${encodeURIComponent(attachmentId)}/upload`, {
+    const uploadRes = await executeFireflyHttp({
       method: "POST",
-      headers: { "Content-Type": "application/octet-stream" },
-      body: bytes,
+      fullPath: `attachments/${encodeURIComponent(attachmentId)}/upload`,
+      bodyBase64: base64Part,
+      contentType: "application/octet-stream",
     });
-    if (isNetworkOrGatewayFailure(uploadRes.status)) {
+    if (uploadRes.networkError || isNetworkOrGatewayFailure(uploadRes.status)) {
       markNetworkOffline();
       return enqueueAtt();
     }

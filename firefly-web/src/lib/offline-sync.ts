@@ -12,6 +12,13 @@ import {
   updateOfflineQueueItem,
   type OfflineQueueItem,
 } from "@/lib/offline-store";
+import {
+  clearLocalCompanionData,
+  executeFireflyHttp,
+  getWalletSessionStatus,
+  isNativeStandalone,
+  localCompanionRequest,
+} from "@/lib/native-wallet";
 
 export type OfflineSyncPhase = "idle" | "validating_auth" | "syncing" | "auth_required" | "error";
 
@@ -138,14 +145,47 @@ export function markNetworkOnline() {
 }
 
 /**
- * Explicitly validates BOTH companion session cookie (`/api/session`)
- * and upstream Firefly III token validity (`/api/ff/about/user`) before syncing offline changes.
+ * Explicitly validates BOTH session state (cookie or Android Keystore credentials)
+ * and upstream Firefly III token validity (`/about/user`) before syncing offline changes.
  */
 export async function validateServerAuthentication(): Promise<AuthValidationResult> {
   if (typeof navigator !== "undefined" && navigator.onLine === false) {
     return { ok: false, reason: "unreachable", message: "Device is offline." };
   }
   try {
+    if (isNativeStandalone()) {
+      const sess = await getWalletSessionStatus();
+      if (!sess.connected) {
+        return {
+          ok: false,
+          reason: "session_missing",
+          message: "Not connected to Firefly III. Sign in to validate authentication and sync.",
+        };
+      }
+      if (sess.biometricLocked) {
+        return {
+          ok: false,
+          reason: "unreachable",
+          message: "Unlock Wallet with your fingerprint to verify authentication and sync.",
+        };
+      }
+      const userRes = await executeFireflyHttp({ method: "GET", fullPath: "about/user" });
+      if (userRes.networkError || isNetworkOrGatewayFailure(userRes.status)) {
+        return { ok: false, reason: "unreachable", message: "Firefly III server is temporarily unreachable." };
+      }
+      if (userRes.status === 401 || userRes.status === 403) {
+        return {
+          ok: false,
+          reason: "token_invalid",
+          message: "Authentication rejected (HTTP 401). Please update your Firefly III token to sync.",
+        };
+      }
+      if (!userRes.ok) {
+        return { ok: false, reason: "unreachable", message: `Auth check returned HTTP ${userRes.status}.` };
+      }
+      return { ok: true };
+    }
+
     const sessRes = await fetch("/api/session", { cache: "no-store" });
     if (isNetworkOrGatewayFailure(sessRes.status)) {
       return { ok: false, reason: "unreachable", message: `Server unavailable (HTTP ${sessRes.status}).` };
@@ -198,45 +238,44 @@ async function replayAttachmentItem(
     resolvedIds.get(att.attachableId) ??
     att.attachableId;
 
-  const createRes = await fetch("/api/ff/attachments", {
+  const createRes = await executeFireflyHttp({
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
+    fullPath: "attachments",
+    bodyJson: JSON.stringify({
       filename: att.file.name,
       attachable_type: att.attachableType,
       attachable_id: String(targetId),
       title: att.file.name,
       notes: "Uploaded via FireFly Companion",
     }),
-    cache: "no-store",
   });
+  if (createRes.networkError) {
+    return { status: 503, ok: false, errorMessage: createRes.message || "Network unavailable." };
+  }
   if (!createRes.ok) {
     let msg = `Attachment metadata failed (HTTP ${createRes.status})`;
     try {
-      const errJson = (await createRes.json()) as { message?: string };
+      const errJson = createRes.text ? (JSON.parse(createRes.text) as { message?: string }) : null;
       if (errJson?.message) msg = errJson.message;
     } catch {
       /* ignore */
     }
     return { status: createRes.status, ok: false, errorMessage: msg };
   }
-  const createdJson = (await createRes.json()) as { data?: { id?: string } };
+  const createdJson = createRes.text ? (JSON.parse(createRes.text) as { data?: { id?: string } }) : null;
   const attachmentId = createdJson?.data?.id;
   if (!attachmentId) return { status: 500, ok: false, errorMessage: "Attachment ID missing." };
 
   const base64Part = att.file.dataUrl.includes(",") ? att.file.dataUrl.split(",")[1] : att.file.dataUrl;
-  const binaryStr = atob(base64Part);
-  const bytes = new Uint8Array(binaryStr.length);
-  for (let i = 0; i < binaryStr.length; i++) {
-    bytes[i] = binaryStr.charCodeAt(i);
-  }
-
-  const uploadRes = await fetch(`/api/ff/attachments/${encodeURIComponent(attachmentId)}/upload`, {
+  const uploadRes = await executeFireflyHttp({
     method: "POST",
-    headers: { "Content-Type": "application/octet-stream" },
-    body: bytes,
-    cache: "no-store",
+    fullPath: `attachments/${encodeURIComponent(attachmentId)}/upload`,
+    bodyBase64: base64Part,
+    contentType: "application/octet-stream",
   });
+  if (uploadRes.networkError) {
+    return { status: 503, ok: false, errorMessage: uploadRes.message || "Network unavailable." };
+  }
   if (!uploadRes.ok) {
     return {
       status: uploadRes.status,
@@ -351,27 +390,50 @@ export function syncOfflineQueue(opts: { validateOnlyWhenEmpty?: boolean } = {})
         }
 
         const resolvedPath = resolvePathIds(item.path, resolvedIds);
-        const url =
-          item.kind === "companion-request"
-            ? resolvedPath.startsWith("/")
-              ? resolvedPath
-              : `/api/companion/${resolvedPath}`
-            : `/api/ff/${resolvedPath}`;
-
-        const res = await fetch(url, {
-          method: item.method,
-          headers: item.body !== undefined ? { "Content-Type": "application/json" } : undefined,
-          body: item.body !== undefined ? JSON.stringify(item.body) : undefined,
-          cache: "no-store",
-        });
-
-        if (isNetworkOrGatewayFailure(res.status)) {
-          await updateOfflineQueueItem(item.id, { status: "pending" });
-          patchState({ isOnline: false, reachabilityConfirmed: false, syncPhase: "idle" });
-          return { synced, failed, authRequired: false, offline: true };
+        if (item.kind === "companion-request" && isNativeStandalone()) {
+          const companionUrl = resolvedPath.startsWith("/") ? resolvedPath : `/api/companion/${resolvedPath}`;
+          await localCompanionRequest(companionUrl, item.method, item.body);
+          await removeOfflineQueueItem(item.id);
+          synced++;
+          continue;
         }
 
-        if (res.status === 401 || res.status === 403) {
+        let resStatus: number;
+        let resOk: boolean;
+        let text: string;
+        if (item.kind === "ff-request") {
+          const ffRes = await executeFireflyHttp({
+            method: item.method,
+            fullPath: resolvedPath,
+            bodyJson: item.body !== undefined ? JSON.stringify(item.body) : undefined,
+          });
+          if (ffRes.networkError || isNetworkOrGatewayFailure(ffRes.status)) {
+            await updateOfflineQueueItem(item.id, { status: "pending" });
+            patchState({ isOnline: false, reachabilityConfirmed: false, syncPhase: "idle" });
+            return { synced, failed, authRequired: false, offline: true };
+          }
+          resStatus = ffRes.status;
+          resOk = ffRes.ok;
+          text = ffRes.text;
+        } else {
+          const url = resolvedPath.startsWith("/") ? resolvedPath : `/api/companion/${resolvedPath}`;
+          const res = await fetch(url, {
+            method: item.method,
+            headers: item.body !== undefined ? { "Content-Type": "application/json" } : undefined,
+            body: item.body !== undefined ? JSON.stringify(item.body) : undefined,
+            cache: "no-store",
+          });
+          if (isNetworkOrGatewayFailure(res.status)) {
+            await updateOfflineQueueItem(item.id, { status: "pending" });
+            patchState({ isOnline: false, reachabilityConfirmed: false, syncPhase: "idle" });
+            return { synced, failed, authRequired: false, offline: true };
+          }
+          resStatus = res.status;
+          resOk = res.ok;
+          text = await res.text();
+        }
+
+        if (resStatus === 401 || resStatus === 403) {
           await updateOfflineQueueItem(item.id, { status: "pending" });
           patchState({
             authValid: false,
@@ -381,7 +443,6 @@ export function syncOfflineQueue(opts: { validateOnlyWhenEmpty?: boolean } = {})
           return { synced, failed, authRequired: true, offline: false };
         }
 
-        const text = await res.text();
         let json: Record<string, unknown> | null = null;
         try {
           json = text ? (JSON.parse(text) as Record<string, unknown>) : null;
@@ -389,11 +450,11 @@ export function syncOfflineQueue(opts: { validateOnlyWhenEmpty?: boolean } = {})
           /* non-JSON */
         }
 
-        if (!res.ok) {
+        if (!resOk) {
           const msg =
             (json?.message as string | undefined) ||
             (json?.error as string | undefined) ||
-            `Request failed (HTTP ${res.status})`;
+            `Request failed (HTTP ${resStatus})`;
           if (item.tempId) blockedTempIds.add(item.tempId);
           await updateOfflineQueueItem(item.id, {
             status: "failed",
@@ -528,6 +589,11 @@ export async function companionFetch<T = unknown>(
   const url = path.startsWith("/api/") ? path : `/api/companion/${path.replace(/^\/+/, "")}`;
   const cacheKey = options.cacheKey ?? `companion:${url}`;
 
+  if (isNativeStandalone()) {
+    const out = await localCompanionRequest<T>(url, method, options.body);
+    return out as T & { __offlineQueued?: boolean };
+  }
+
   const queueMutation = async (): Promise<T & { __offlineQueued?: boolean }> => {
     const cleanPath = url.replace(/^\/api\/companion\//, "");
     await enqueueOfflineOperation({
@@ -604,6 +670,7 @@ export async function companionFetch<T = unknown>(
 export async function resetAllOfflineData(): Promise<void> {
   await clearOfflineQueue();
   await clearOfflineHttpCache();
+  await clearLocalCompanionData();
   if (typeof caches !== "undefined") {
     try {
       const keys = await caches.keys();

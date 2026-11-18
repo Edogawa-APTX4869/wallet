@@ -6,7 +6,11 @@ export const dynamic = "force-dynamic";
 /** Current connection status (never exposes the token). */
 export async function GET() {
   const session = await getSession();
-  return NextResponse.json({ connected: !!session, url: session?.url ?? null });
+  return NextResponse.json({
+    connected: !!session,
+    url: session?.url ?? null,
+    defaultUrl: process.env.FIREFLY_URL || "",
+  });
 }
 
 /** Connect: validates the URL + Personal Access Token against Firefly III and stores them. */

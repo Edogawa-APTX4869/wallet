@@ -22,6 +22,7 @@ import { useAccounts, usePrimaryCurrency, useRatesToPrimary } from "@/lib/hooks"
 import { cn, formatDate, isoDate } from "@/lib/utils";
 import { inferAccountDefaultStyle, ResourceIconBadge } from "@/components/resource-icon";
 import { CreateAccountModal } from "@/components/create-account-modal";
+import { accountHref } from "@/lib/native-wallet";
 import { formatAccountRole } from "./[id]/account-detail-client";
 import { AnimatedTabs, Badge, Button, Card, EmptyState, ErrorBox, Input, Money, PageHeader, Skeleton } from "@/components/ui";
 
@@ -442,7 +443,7 @@ function AccountCard({
     isForeign && rateToPrimary ? new Decimal(bal).mul(rateToPrimary).toFixed(primaryDecimals) : null;
 
   return (
-    <Link href={`/accounts/${acc.id}`} className="group block cursor-pointer">
+    <Link href={accountHref(acc.id)} className="group block cursor-pointer">
       <Card className="card-hover-spring flex h-full flex-col justify-between gap-3 cursor-pointer group-hover:border-primary/50 group-hover:shadow-md">
         <div className="flex items-start justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2.5">

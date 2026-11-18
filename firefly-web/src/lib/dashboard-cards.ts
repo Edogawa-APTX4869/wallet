@@ -35,6 +35,7 @@ export interface DashboardCardConfig {
 export interface DashboardPreferences {
   selectedAccountIds: string[]; // empty = all active asset/liability accounts included
   cards: DashboardCardConfig[];
+  categoryOrder?: string[];
 }
 
 export interface CardCatalogEntry {

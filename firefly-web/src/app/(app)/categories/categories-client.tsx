@@ -6,9 +6,10 @@ import Decimal from "decimal.js";
 import { Check, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, GripVertical, Pencil, Plus, Trash2, X } from "lucide-react";
 import { api } from "@/lib/firefly/api";
 import type { Category, SpentEntry } from "@/lib/firefly/types";
-import { buildCategoryTree, formatCategoryName, type CategoryTreeGroup } from "@/components/category-cascade";
+import { buildCategoryTree, formatCategoryName } from "@/components/category-cascade";
 import { inferCategoryDefaultStyle, ResourceIconBadge } from "@/components/resource-icon";
 import { monthRange, cn } from "@/lib/utils";
+import { companionFetch } from "@/lib/offline-sync";
 import { Badge, Button, Card, EmptyState, ErrorBox, Field, Input, Money, PageHeader, Skeleton } from "@/components/ui";
 import { useToast } from "@/components/providers";
 import { useEscapeDismiss } from "@/lib/use-escape-dismiss";
@@ -78,6 +79,22 @@ export function CategoriesClient() {
   useEscapeDismiss(quickAddUnderParent !== null, () => setQuickAddUnderParent(null), "categories-quick-add");
   useEscapeDismiss(editId !== null, () => setEditId(null), "categories-edit");
   const [parentOrder, setParentOrder] = useState<string[]>(() => getStoredCategoryOrder());
+  const prefsOrderQ = useQuery({
+    queryKey: ["dashboard-prefs"],
+    queryFn: async () => {
+      try {
+        const res = await companionFetch<{ data?: { categoryOrder?: string[] } }>("/api/companion/dashboard");
+        return res.data ?? null;
+      } catch {
+        return null;
+      }
+    },
+    staleTime: 60_000,
+  });
+  const effectiveParentOrder = useMemo(
+    () => (parentOrder.length > 0 ? parentOrder : (prefsOrderQ.data?.categoryOrder ?? [])),
+    [parentOrder, prefsOrderQ.data?.categoryOrder],
+  );
   const [draggingParent, setDraggingParent] = useState<string | null>(null);
   const [dragOverParent, setDragOverParent] = useState<string | null>(null);
   const [collapsedParents, setCollapsedParents] = useState<Set<string>>(() => new Set());
@@ -132,8 +149,10 @@ export function CategoriesClient() {
     onError: (e) => toast((e as Error).message, "error"),
   });
 
-  const items = categoriesQ.data ?? [];
-  const tree = useMemo(() => buildCategoryTree(items, parentOrder), [items, parentOrder]);
+  const tree = useMemo(
+    () => buildCategoryTree(categoriesQ.data ?? [], effectiveParentOrder),
+    [categoriesQ.data, effectiveParentOrder],
+  );
 
   const moveCategory = (fromParent: string, toParent: string) => {
     if (fromParent === toParent) return;
@@ -146,6 +165,11 @@ export function CategoriesClient() {
     newOrder.splice(toIdx, 0, moved);
     setParentOrder(newOrder);
     saveStoredCategoryOrder(newOrder);
+    void companionFetch("/api/companion/dashboard", {
+      method: "PUT",
+      body: { categoryOrder: newOrder },
+      label: "Reorder categories",
+    }).then(() => qc.invalidateQueries({ queryKey: ["dashboard-prefs"] })).catch(() => {});
     toast(`Reordered "${fromParent}"`);
   };
 

@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import { ClientRedirect } from "@/components/client-redirect";
 
 export default function BillsRedirectPage() {
-  redirect("/rules?tab=bills");
+  return <ClientRedirect to="/rules?tab=bills" />;
 }

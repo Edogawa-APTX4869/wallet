@@ -323,9 +323,20 @@ export function FullScreenCategorySelectView({
   const [freqAnimDir, setFreqAnimDir] = useState<"none" | "next" | "prev">("none");
   const [freqTouchX, setFreqTouchX] = useState<number | null>(null);
 
+  const resolvedOrder = useMemo(() => {
+    if (categoryOrder && categoryOrder.length > 0) return categoryOrder;
+    if (typeof window === "undefined") return undefined;
+    try {
+      const raw = localStorage.getItem("wallet_categories_order");
+      return raw ? (JSON.parse(raw) as string[]) : undefined;
+    } catch {
+      return undefined;
+    }
+  }, [categoryOrder]);
+
   const tree = useMemo(
-    () => buildCategoryTree(categories, categoryOrder),
-    [categories, categoryOrder],
+    () => buildCategoryTree(categories, resolvedOrder),
+    [categories, resolvedOrder],
   );
 
   const currentGroup = useMemo(() => {

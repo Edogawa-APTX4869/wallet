@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { FireflyError } from "@/lib/firefly/api";
 import { OFFLINE_SYNCED_EVENT, startOfflineSyncMonitor } from "@/lib/offline-sync";
+import { isNativeStandalone } from "@/lib/native-wallet";
 import { cn } from "@/lib/utils";
 import { ThemeProvider } from "@/components/theme-provider";
 import { CapacitorBridge } from "@/components/capacitor-bridge";
@@ -39,8 +40,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4000);
   }, []);
 
-  // Register service worker for offline shell/data cache + warm routes when online.
+  // Register service worker for web/PWA offline shell/data cache + warm routes when online.
+  // Standalone Capacitor APK already bundles static assets inside the APK itself.
   useEffect(() => {
+    if (isNativeStandalone()) return;
     if (process.env.NODE_ENV === "production" && "serviceWorker" in navigator) {
       navigator.serviceWorker
         .register("/sw.js")

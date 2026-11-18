@@ -30,10 +30,11 @@ jobs:
           cache: "npm"
           cache-dependency-path: firefly-web/package-lock.json
 
-      - name: Install dependencies & sync Capacitor Android
+      - name: Install dependencies, build static bundle & sync Capacitor Android
         working-directory: ./firefly-web
         run: |
           npm ci
+          npm run build:capacitor
           npx cap sync android
 
       - name: Set up JDK 21

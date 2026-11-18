@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/firefly/api";
 import { companionFetch } from "@/lib/offline-sync";
+import { suppressNativeAutoLock } from "@/lib/native-wallet";
 import type { NewSplit } from "@/lib/firefly/types";
 import type { TransactionTemplateRow } from "@/lib/server/db";
 import { accountCurrency, ASSET_LIKE, useAccounts, useCurrencies } from "@/lib/hooks";
@@ -1775,6 +1776,7 @@ function WalletCalculatorForm({
               <div className="flex flex-col gap-2">
                 <label
                   htmlFor={id}
+                  onClick={() => void suppressNativeAutoLock()}
                   className="inline-flex cursor-pointer items-center gap-2 self-start rounded-xl border border-dashed border-border bg-surface-2/60 px-3.5 py-2 text-xs font-medium text-fg transition hover:border-primary hover:bg-primary-soft/30"
                 >
                   <Paperclip className="size-3.5 text-primary" aria-hidden />

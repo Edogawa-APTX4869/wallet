@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, CloudOff, KeyRound, RefreshCw, Trash2, Wifi } from "lucide-react";
 import { removeOfflineQueueItem } from "@/lib/offline-store";
 import { syncOfflineQueue, useOfflineSync } from "@/lib/offline-sync";
+import { reauthenticateWalletSession } from "@/lib/native-wallet";
 import { formatDateTime } from "@/lib/utils";
 import { Badge, Button, ErrorBox, Field, Input, ModalSheet } from "@/components/ui";
 import { useToast } from "@/components/providers";
@@ -54,15 +55,10 @@ export function OfflineStatusBanner({ serverUrl }: { serverUrl: string }) {
     setAuthLoading(true);
     setAuthError(null);
     try {
-      const res = await fetch("/api/session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: authUrl.trim() || serverUrl, token: authToken.trim() }),
+      await reauthenticateWalletSession({
+        url: authUrl.trim() || serverUrl,
+        token: authToken.trim(),
       });
-      const json = (await res.json()) as { message?: string };
-      if (!res.ok) {
-        throw new Error(json.message || "Authentication failed.");
-      }
       setAuthToken("");
       setAuthOpen(false);
       toast("Authentication verified — syncing queued changes…", "info");

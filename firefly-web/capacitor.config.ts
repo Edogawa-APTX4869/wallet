@@ -5,7 +5,7 @@ const serverUrl = process.env.CAPACITOR_SERVER_URL?.trim();
 const config: CapacitorConfig = {
   appId: "com.alqubaiti.wallet",
   appName: "Wallet",
-  webDir: "capacitor-shell",
+  webDir: "out",
   server: {
     ...(serverUrl ? { url: serverUrl } : {}),
     cleartext: true,

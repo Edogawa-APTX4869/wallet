@@ -5,6 +5,7 @@ import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Copy, Pencil, Trash2 } fro
 import type { Resource, TransactionGroup, TransactionSplit } from "@/lib/firefly/types";
 import { cn, formatDateTime } from "@/lib/utils";
 import { ICON_CATALOG, inferCategoryDefaultStyle, useResourceMeta } from "@/components/resource-icon";
+import { accountHref } from "@/lib/native-wallet";
 import { Badge, Money } from "@/components/ui";
 
 export function signFor(split: TransactionSplit, perspectiveAccountId?: string): 1 | -1 | 0 {
@@ -118,11 +119,11 @@ export function TransactionRow({
           )}
         </p>
         <p className="truncate text-[11px] sm:text-xs text-muted">
-          <Link href={`/accounts/${first.source_id}`} className="hover:underline">
+          <Link href={accountHref(first.source_id)} className="hover:underline">
             {first.source_name}
           </Link>
           {" → "}
-          <Link href={`/accounts/${first.destination_id}`} className="hover:underline">
+          <Link href={accountHref(first.destination_id)} className="hover:underline">
             {first.destination_name}
           </Link>
           {first.category_name && (

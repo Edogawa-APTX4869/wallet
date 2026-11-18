@@ -4,12 +4,21 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.webkit.WebBackForwardList;
 import android.webkit.WebHistoryItem;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
 
 import androidx.activity.OnBackPressedCallback;
 
+import com.getcapacitor.Bridge;
 import com.getcapacitor.BridgeActivity;
+import com.getcapacitor.BridgeWebViewClient;
 import com.getcapacitor.WebViewListener;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * Native Android host for Wallet.
@@ -197,8 +206,9 @@ public class MainActivity extends BridgeActivity {
     "var p=window.location.pathname||'/';" +
     "var clean=p.split('?')[0].replace(/\\/+$/,'')||'/';" +
     "var mainRoute=isMainPath(clean);" +
+    "var isLogin=clean==='/login';" +
     "var isNew=clean==='/new'||clean.indexOf('/new/')===0;" +
-    "var hasModal=!!document.querySelector('[role=\"dialog\"][aria-modal=\"true\"],#mobile-nav-drawer');" +
+    "var hasModal=!!document.querySelector('[role=\"dialog\"][aria-modal=\"true\"],#mobile-nav-drawer,[data-testid=\"biometric-lock-screen\"]');" +
     "var hasFab=!!document.querySelector('[data-testid=\"fab-backdrop\"]');" +
     "var hasDockExp=!!document.querySelector('[aria-label=\"Collapse filter dock\"]');" +
     "var overlay=!mainRoute||hasModal||hasFab||hasDockExp;" +
@@ -215,7 +225,7 @@ public class MainActivity extends BridgeActivity {
     "var nativeBack=hdr.querySelector('button[aria-label=\"Go back\"]');" +
     "var injectedBack=hdr.querySelector('#wallet-injected-back');" +
     "var menuBtn=hdr.querySelector('button[aria-label=\"Open navigation menu\"]');" +
-    "if(!mainRoute&&!isNew&&!nativeBack){" +
+    "if(!mainRoute&&!isNew&&!isLogin&&!nativeBack){" +
     "if(!injectedBack&&menuBtn&&menuBtn.parentElement){" +
     "var b=document.createElement('button');" +
     "b.type='button';" +
@@ -249,6 +259,9 @@ public class MainActivity extends BridgeActivity {
   private static final String JS_DECIDE =
     "(function(){" +
     "try{" +
+    "if(document.querySelector('[data-testid=\"biometric-lock-screen\"]'))return 'exit';" +
+    "var pNow=(window.location.pathname||'/').split('?')[0].replace(/\\/+$/,'')||'/';" +
+    "if(pNow==='/login')return 'exit';" +
     "if(typeof window.__walletBack==='function'){" +
     "var r=String(window.__walletBack());" +
     "if(r==='handled'||r==='exit'||r==='back')return r;" +
@@ -280,9 +293,21 @@ public class MainActivity extends BridgeActivity {
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
+    registerPlugin(WalletNativePlugin.class);
     super.onCreate(savedInstanceState);
 
     if (getBridge() != null) {
+      getBridge().setWebViewClient(new BridgeWebViewClient(getBridge()) {
+        @Override
+        public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+          WebResourceResponse resolved = resolveStaticExportRoute(request);
+          if (resolved != null) {
+            return resolved;
+          }
+          return super.shouldInterceptRequest(view, request);
+        }
+      });
+
       getBridge().addWebViewListener(new WebViewListener() {
         @Override
         public void onPageCommitVisible(WebView view, String url) {
@@ -302,6 +327,50 @@ public class MainActivity extends BridgeActivity {
         handleBack();
       }
     });
+  }
+
+  private WebResourceResponse resolveStaticExportRoute(WebResourceRequest request) {
+    try {
+      if (getBridge() == null || getBridge().getServerUrl() != null) return null;
+      if (!"GET".equalsIgnoreCase(request.getMethod())) return null;
+      Uri url = request.getUrl();
+      if (url == null) return null;
+      String host = url.getHost();
+      if (host == null || !host.equalsIgnoreCase(getBridge().getHost())) return null;
+
+      String path = url.getPath();
+      if (path == null) path = "/";
+      if (path.startsWith(Bridge.CAPACITOR_HTTP_INTERCEPTOR_START)
+          || path.startsWith(Bridge.CAPACITOR_FILE_START)
+          || path.startsWith(Bridge.CAPACITOR_CONTENT_START)
+          || "/cordova.js".equals(path)
+          || "/favicon.ico".equalsIgnoreCase(path)) {
+        return null;
+      }
+
+      String trimmed = path.replaceAll("^/+|/+$", "");
+      if (trimmed.contains("..")) return null;
+      int lastSlash = trimmed.lastIndexOf('/');
+      String lastSegment = lastSlash >= 0 ? trimmed.substring(lastSlash + 1) : trimmed;
+      if (lastSegment.contains(".")) {
+        return null;
+      }
+
+      String assetPath = trimmed.isEmpty()
+          ? "public/index.html"
+          : "public/" + trimmed + "/index.html";
+
+      InputStream stream = getAssets().open(assetPath);
+      stream = getBridge().getLocalServer().getJavaScriptInjectedStream(stream);
+      Map<String, String> headers = new HashMap<>();
+      headers.put("Content-Type", "text/html; charset=utf-8");
+      headers.put("Cache-Control", "no-store");
+      return new WebResourceResponse("text/html", "UTF-8", 200, "OK", headers, stream);
+    } catch (IOException ignored) {
+      return null;
+    } catch (Exception ignored) {
+      return null;
+    }
   }
 
   private void injectRuntimeEnhancements(WebView webView) {
@@ -359,9 +428,9 @@ public class MainActivity extends BridgeActivity {
       if (prevUrl == null) return false;
       Uri uri = Uri.parse(prevUrl);
       String scheme = uri.getScheme();
-      String host = uri.getHost();
+      String path = uri.getPath();
       if ("file".equalsIgnoreCase(scheme)) return false;
-      if ("localhost".equalsIgnoreCase(host)) return false;
+      if (path != null && (path.startsWith("/login") || path.equals("/index.html"))) return false;
       return true;
     } catch (Exception e) {
       return webView.canGoBack();
@@ -382,11 +451,10 @@ public class MainActivity extends BridgeActivity {
       Uri uri = Uri.parse(url);
       String scheme = uri.getScheme();
       if (scheme == null || "file".equals(scheme)) return true;
-      String host = uri.getHost();
-      if ("localhost".equals(host)) return true;
       String path = uri.getPath();
       if (path == null || path.isEmpty()) path = "/";
       while (path.length() > 1 && path.endsWith("/")) path = path.substring(0, path.length() - 1);
+      if ("/login".equals(path)) return true;
       for (String p : MAIN_TAB_PATHS) {
         if (p.equals(path)) return true;
       }

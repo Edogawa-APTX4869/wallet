@@ -9,6 +9,7 @@ function read(): DashboardPreferences {
     selectedAccountIds: Array.isArray(saved.selectedAccountIds) ? saved.selectedAccountIds.map(String) : [],
     // An explicitly saved empty list means the user removed every card — respect it.
     cards: Array.isArray(saved.cards) ? sanitizeCards(saved.cards) : DEFAULT_DASHBOARD_PREFS.cards,
+    ...(Array.isArray(saved.categoryOrder) ? { categoryOrder: saved.categoryOrder.map(String) } : {}),
   };
 }
 
@@ -28,6 +29,11 @@ export async function PUT(req: NextRequest) {
       ? body.selectedAccountIds.map(String)
       : current.selectedAccountIds,
     cards: Array.isArray(body.cards) ? sanitizeCards(body.cards) : current.cards,
+    ...(Array.isArray(body.categoryOrder)
+      ? { categoryOrder: body.categoryOrder.map(String) }
+      : current.categoryOrder
+        ? { categoryOrder: current.categoryOrder }
+        : {}),
   };
   setKv("dashboard_prefs", next);
   return NextResponse.json({ data: next });

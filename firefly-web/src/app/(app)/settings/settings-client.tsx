@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Decimal from "decimal.js";
@@ -8,12 +8,15 @@ import {
   Check,
   Coins,
   ExternalLink,
+  Fingerprint,
+  Lock,
   LogOut,
   Monitor,
   Moon,
   Pencil,
   Plus,
   Server,
+  ShieldCheck,
   Sliders,
   Star,
   Sun,
@@ -22,9 +25,18 @@ import {
   Webhook as WebhookIcon,
 } from "lucide-react";
 import { api } from "@/lib/firefly/api";
-import { resetAllOfflineData, syncOfflineQueue, useOfflineSync } from "@/lib/offline-sync";
+import { companionFetch, resetAllOfflineData, syncOfflineQueue, useOfflineSync } from "@/lib/offline-sync";
+import {
+  checkNativeBiometric,
+  disconnectWalletSession,
+  getWalletSessionStatus,
+  isNativeStandalone,
+  lockNativeApp,
+  setNativeBiometricEnabled,
+  verifyNativeBiometric,
+} from "@/lib/native-wallet";
 import type { Currency } from "@/lib/firefly/types";
-import type { AiProviderType } from "@/app/api/companion/ramble/route";
+import type { AiProviderType } from "@/lib/ai-ramble-parser";
 import { formatRate } from "@/lib/fx/resolve";
 import { qk, useCurrencies, usePrimaryCurrency } from "@/lib/hooks";
 import { cn, formatDate, isoDate, parseAmount } from "@/lib/utils";
@@ -82,8 +94,32 @@ export function SettingsClient() {
 
   const sessionQ = useQuery({
     queryKey: ["session"],
-    queryFn: () => fetch("/api/session").then((r) => r.json() as Promise<{ connected: boolean; url: string | null }>),
+    queryFn: getWalletSessionStatus,
   });
+
+  const isNativeApp = useSyncExternalStore(
+    () => () => {},
+    isNativeStandalone,
+    () => false,
+  );
+  const [bioAvailable, setBioAvailable] = useState(false);
+  const [bioEnabled, setBioEnabled] = useState(true);
+  const [biometryType, setBiometryType] = useState("fingerprint");
+  const [bioBusy, setBioBusy] = useState(false);
+
+  useEffect(() => {
+    if (!isNativeApp) return;
+    let active = true;
+    void checkNativeBiometric().then((info) => {
+      if (!active) return;
+      setBioAvailable(info.available);
+      setBioEnabled(info.biometricEnabled);
+      setBiometryType(info.biometryType || "fingerprint");
+    });
+    return () => {
+      active = false;
+    };
+  }, [isNativeApp]);
   const aboutQ = useQuery({ queryKey: ["about"], queryFn: api.about });
   const userQ = useQuery({ queryKey: ["about-user"], queryFn: api.user });
   const primaryQ = usePrimaryCurrency();
@@ -250,30 +286,31 @@ export function SettingsClient() {
   const llmConfigQ = useQuery({
     queryKey: ["llm-config"],
     queryFn: async () => {
-      const res = await fetch("/api/companion/ramble");
-      if (!res.ok) {
-        return {
-          enabled: false,
-          provider: "disabled" as AiProviderType,
-          endpoint: "",
-          model: "gemini-2.5-flash",
-          hasApiKey: false,
-          verified: false,
-          verifiedAt: null as string | null,
-        };
+      try {
+        const json = await companionFetch<{
+          data?: {
+            enabled: boolean;
+            provider: AiProviderType;
+            endpoint: string;
+            model: string;
+            hasApiKey: boolean;
+            verified: boolean;
+            verifiedAt: string | null;
+          };
+        }>("/api/companion/ramble");
+        if (json?.data) return json.data;
+      } catch {
+        /* ignore */
       }
-      const json = (await res.json()) as {
-        data: {
-          enabled: boolean;
-          provider: AiProviderType;
-          endpoint: string;
-          model: string;
-          hasApiKey: boolean;
-          verified: boolean;
-          verifiedAt: string | null;
-        };
+      return {
+        enabled: false,
+        provider: "disabled" as AiProviderType,
+        endpoint: "",
+        model: "gemini-2.5-flash",
+        hasApiKey: false,
+        verified: false,
+        verifiedAt: null as string | null,
       };
-      return json.data;
     },
   });
   const [llmProvider, setLlmProvider] = useState<AiProviderType | "">("");
@@ -286,10 +323,10 @@ export function SettingsClient() {
 
   const saveLlmMut = useMutation({
     mutationFn: async () => {
-      const res = await fetch("/api/companion/ramble", {
+      return companionFetch("/api/companion/ramble", {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        label: "Save AI assistant settings",
+        body: {
           enabled: activeProvider !== "disabled",
           provider: activeProvider,
           endpoint: llmEndpoint || llmConfigQ.data?.endpoint || "",
@@ -298,11 +335,8 @@ export function SettingsClient() {
             llmConfigQ.data?.model ||
             (activeProvider === "gemini" ? "gemini-2.5-flash" : "gpt-4o-mini"),
           ...(llmKey ? { apiKey: llmKey } : {}),
-        }),
+        },
       });
-      const json = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) throw new Error(json.error || "Failed to verify and save AI configuration");
-      return json;
     },
     onSuccess: () => {
       toast(
@@ -325,9 +359,38 @@ export function SettingsClient() {
 
   async function disconnect() {
     await resetAllOfflineData();
-    await fetch("/api/session", { method: "DELETE" });
+    await disconnectWalletSession();
     qc.clear();
     router.replace("/login");
+  }
+
+  async function toggleBiometricLock(nextVal: boolean) {
+    if (!isNativeApp) return;
+    setBioBusy(true);
+    try {
+      if (bioAvailable) {
+        const res = await verifyNativeBiometric({
+          title: nextVal ? "Enable Fingerprint Lock" : "Disable Fingerprint Lock",
+          subtitle: nextVal
+            ? "Verify your fingerprint to turn on Wallet biometric lock"
+            : "Verify your fingerprint to turn off Wallet biometric lock",
+        });
+        if (!res.verified) {
+          toast(res.message || "Fingerprint verification cancelled.", "error");
+          return;
+        }
+      }
+      const saved = await setNativeBiometricEnabled(nextVal);
+      setBioEnabled(saved);
+      void qc.invalidateQueries({ queryKey: ["session"] });
+      toast(
+        saved
+          ? "Fingerprint verification enabled on login & app open."
+          : "Biometric lock disabled.",
+      );
+    } finally {
+      setBioBusy(false);
+    }
   }
 
   const offlineSync = useOfflineSync();
@@ -418,6 +481,81 @@ export function SettingsClient() {
             </Button>
           </div>
         </Card>
+
+      {/* Biometric Security (Standalone Android APK) */}
+      {isNativeApp && (
+        <Card id="security" className="scroll-mt-6 flex flex-col gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5">
+              <span className="flex size-9 items-center justify-center rounded-xl bg-primary-soft text-primary">
+                <Fingerprint className="size-4" aria-hidden />
+              </span>
+              <div>
+                <h2 className="font-semibold">Biometric Security</h2>
+                <p className="text-xs text-muted">
+                  Standalone APK encryption &amp; fingerprint verification ({biometryType})
+                </p>
+              </div>
+            </div>
+            <Badge tone={bioAvailable && bioEnabled ? "success" : "neutral"}>
+              {bioAvailable
+                ? bioEnabled
+                  ? "Protected"
+                  : "Disabled"
+                : "Not enrolled on device"}
+            </Badge>
+          </div>
+
+          <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-border p-3 hover:bg-surface-2">
+            <div className="min-w-0">
+              <p className="text-sm font-medium">Require Fingerprint to Open &amp; Login</p>
+              <p className="text-xs text-muted">
+                Prompt Android BiometricPrompt whenever launching or returning to Wallet.
+              </p>
+            </div>
+            <input
+              type="checkbox"
+              checked={bioAvailable && bioEnabled}
+              disabled={!bioAvailable || bioBusy}
+              onChange={(e) => void toggleBiometricLock(e.target.checked)}
+              aria-label="Require fingerprint to open and login"
+              className="size-4 shrink-0 accent-primary"
+            />
+          </label>
+
+          {bioAvailable && (
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={bioBusy}
+                onClick={async () => {
+                  const res = await verifyNativeBiometric({
+                    title: "Verify Fingerprint",
+                    subtitle: "Confirm your Samsung fingerprint works cleanly",
+                  });
+                  if (res.verified) toast("Fingerprint verified ✓");
+                  else toast(res.message || "Fingerprint verification failed.", "error");
+                }}
+              >
+                <ShieldCheck className="size-4" aria-hidden /> Test Fingerprint
+              </Button>
+              {bioEnabled && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  disabled={bioBusy}
+                  onClick={() => void lockNativeApp()}
+                >
+                  <Lock className="size-4" aria-hidden /> Lock Wallet Now
+                </Button>
+              )}
+            </div>
+          )}
+        </Card>
+      )}
 
       {/* Theme */}
       <Card className="flex flex-col gap-3">

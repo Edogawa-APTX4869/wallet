@@ -60,6 +60,7 @@ import { ExtraCard, inPeriod, isSystemContraAccount, type ExtraCardContext } fro
 import { useAccounts, usePrimaryCurrency, useRatesToPrimary } from "@/lib/hooks";
 import { mergePendingTransactionsIntoGroups } from "@/lib/offline-store";
 import { companionFetch, useOfflineSync } from "@/lib/offline-sync";
+import { accountHref } from "@/lib/native-wallet";
 import { cn, formatMoney, isoDate, monthRange, sumDecimal } from "@/lib/utils";
 import {
   COLOR_PALETTE,
@@ -1566,7 +1567,7 @@ export function DashboardClient() {
                   <div className="flex flex-wrap items-center gap-1.5">
                     {selectedIds.length > 0 && activeSelectedAccounts.length > 0 && (
                       <Link
-                        href={`/accounts/${activeSelectedAccounts[0].id}`}
+                        href={accountHref(activeSelectedAccounts[0].id)}
                         className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-2 px-3 py-1.5 text-xs font-semibold text-fg hover:bg-surface-3 transition active:scale-95 shadow-2xs"
                       >
                         <span>Account Detail</span>

@@ -21,13 +21,15 @@ import {
   X,
 } from "lucide-react";
 import { api } from "@/lib/firefly/api";
+import { companionFetch } from "@/lib/offline-sync";
+import { suppressNativeAutoLock } from "@/lib/native-wallet";
 import type { NewSplit } from "@/lib/firefly/types";
 import type {
   AiActionKind,
   AiProviderType,
   AttachmentPayload,
   ParsedTransactionDraft,
-} from "@/app/api/companion/ramble/route";
+} from "@/lib/ai-ramble-parser";
 import { ASSET_LIKE, useAccounts, usePrimaryCurrency } from "@/lib/hooks";
 import { useOptionalUniversalFilter } from "@/lib/filter-context";
 import {
@@ -76,20 +78,21 @@ export function useAiAssistantConfig() {
   return useQuery({
     queryKey: ["llm-config"],
     queryFn: async (): Promise<AiStatusData> => {
-      const res = await fetch("/api/companion/ramble");
-      if (!res.ok) {
-        return {
-          enabled: false,
-          provider: "disabled",
-          endpoint: "",
-          model: "gemini-2.5-flash",
-          hasApiKey: false,
-          verified: false,
-          verifiedAt: null,
-        };
+      try {
+        const json = await companionFetch<{ data?: AiStatusData }>("/api/companion/ramble");
+        if (json?.data) return json.data;
+      } catch {
+        /* ignore */
       }
-      const json = (await res.json()) as { data: AiStatusData };
-      return json.data;
+      return {
+        enabled: false,
+        provider: "disabled",
+        endpoint: "",
+        model: "gemini-2.5-flash",
+        hasApiKey: false,
+        verified: false,
+        verifiedAt: null,
+      };
     },
     staleTime: 30_000,
   });
@@ -266,10 +269,15 @@ export function MagicChatPanel({
         };
       });
 
-      const res = await fetch("/api/companion/ramble", {
+      void suppressNativeAutoLock();
+      return companionFetch<{
+        data: ParsedTransactionDraft[];
+        reply?: string;
+        engine: string;
+      }>("/api/companion/ramble", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        label: "AI Magic request",
+        body: {
           text: payload.promptText,
           attachments: payload.files,
           today: isoDate(),
@@ -299,17 +307,8 @@ export function MagicChatPanel({
             freq: b.attributes.repeat_freq,
             currency: b.attributes.currency_code || defaultCurrency,
           })),
-        }),
+        },
       });
-      if (!res.ok) {
-        const err = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(err.error || "Failed to parse request");
-      }
-      return (await res.json()) as {
-        data: ParsedTransactionDraft[];
-        reply?: string;
-        engine: string;
-      };
     },
     onSuccess: (res, payload) => {
       const userMsg: MagicChatMessage = {

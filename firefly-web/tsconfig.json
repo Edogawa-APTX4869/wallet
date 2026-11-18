@@ -30,5 +30,5 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules", "android", "capacitor-shell"]
+  "exclude": ["node_modules", "android", "capacitor-shell", "out", ".capacitor-api-backup"]
 }

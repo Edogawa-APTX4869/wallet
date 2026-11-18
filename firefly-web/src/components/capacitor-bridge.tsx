@@ -135,6 +135,13 @@ export function CapacitorBridge() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     window.__walletBack = () => {
+      if (typeof document !== "undefined" && document.querySelector('[data-testid="biometric-lock-screen"]')) {
+        return "exit";
+      }
+      const cleanPath = (window.location.pathname || "/").split("?")[0].replace(/\/+$/, "") || "/";
+      if (cleanPath === "/login") {
+        return "exit";
+      }
       const dismissedOverlay = globalEscapeStack.handleKeyDown("Escape");
       if (dismissedOverlay) {
         return "handled";

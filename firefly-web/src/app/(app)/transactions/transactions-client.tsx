@@ -9,6 +9,7 @@ import { Check, ChevronLeft, ChevronRight, Filter, Plus, RotateCcw, Search, X } 
 import { api } from "@/lib/firefly/api";
 import { mergePendingTransactionsIntoGroups } from "@/lib/offline-store";
 import { useOfflineSync } from "@/lib/offline-sync";
+import { accountHref } from "@/lib/native-wallet";
 import type { Resource, TransactionGroup } from "@/lib/firefly/types";
 import { ASSET_LIKE, useAccounts, usePrimaryCurrency } from "@/lib/hooks";
 import { cn, extractLocalDate, extractLocalTime, isoDateTimeWithOffset, monthRange, parseAmount } from "@/lib/utils";
@@ -517,7 +518,7 @@ export function TransactionsClient() {
           <div className="flex items-center gap-2">
             <span className="font-medium text-muted">Account filter:</span>
             <Link
-              href={`/accounts/${activeAccountObj.id}`}
+              href={accountHref(activeAccountObj.id)}
               className="font-bold text-primary hover:underline"
             >
               {activeAccountObj.attributes.name}
