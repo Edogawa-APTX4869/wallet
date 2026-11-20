@@ -35,6 +35,7 @@ import {
   ErrorBox,
   Field,
   Input,
+  ModalSheet,
   Money,
   PageHeader,
   Progress,
@@ -84,15 +85,6 @@ export function BudgetsClient() {
   const [editingAvail, setEditingAvail] = useState(false);
   const [availAmount, setAvailAmount] = useState("");
 
-  useEscapeDismiss(
-    editingLimitId !== null,
-    () => {
-      setEditingLimitId(null);
-      setEditingSliceId(null);
-      setEditLimitError(null);
-    },
-    "budget-edit-limit",
-  );
   useEscapeDismiss(editingAvail, () => setEditingAvail(false), "available-budget-edit");
 
   const createMut = useMutation({
@@ -278,6 +270,28 @@ export function BudgetsClient() {
     setLimitAmount(seed.gt(0) ? formatBudgetAmountInput(seed, dec) : "");
     setEditLimitError(null);
   };
+
+  const closeLimitEditor = () => {
+    setEditingLimitId(null);
+    setEditingSliceId(null);
+    setEditLimitError(null);
+  };
+
+  const editRow = editingLimitId ? rows.find((r) => r.id === editingLimitId) ?? null : null;
+  const editSlices = editRow?.periodLimits ?? [];
+  const editSlice = editRow
+    ? editSlices.find((s) => s.id === editingSliceId) ??
+      editSlices.find((s) => s.id === editRow.limitId) ??
+      editSlices[0] ??
+      null
+    : null;
+  const editTargetId = editSlice ? editSlice.id : editRow?.limitId ?? null;
+  const editTargetStart = editSlice ? editSlice.start : editRow?.limitStart ?? range.start;
+  const editTargetEnd = editSlice ? editSlice.end : editRow?.limitEnd ?? range.end;
+  const editTargetCode = editSlice?.currencyCode || editRow?.code || defaultCode;
+  const editTargetDecimals = editSlice?.decimals ?? editRow?.decimals;
+  const editTargetSpent = editSlice ? editSlice.spent : editRow?.spent ?? new Decimal(0);
+  const editTargetLimit = editSlice ? editSlice.amount : editRow?.limit ?? new Decimal(0);
 
   const createFromQuery = searchParams.get("create") === "1" || searchParams.get("create") === "true";
   const isConfigOpen = configOpen || createFromQuery;
@@ -513,49 +527,23 @@ export function BudgetsClient() {
             const tone = pct >= 100 ? "danger" : pct >= 80 ? "warning" : "primary";
             const isEditing = editingLimitId === r.id;
             const slices = r.periodLimits ?? [];
-            const activeEditingSlice = isEditing
-              ? slices.find((s) => s.id === editingSliceId) ??
-                slices.find((s) => s.id === r.limitId) ??
-                slices[0] ??
-                null
-              : null;
-            const editTargetId = activeEditingSlice ? activeEditingSlice.id : r.limitId;
-            const editTargetStart = activeEditingSlice ? activeEditingSlice.start : r.limitStart;
-            const editTargetEnd = activeEditingSlice ? activeEditingSlice.end : r.limitEnd;
-            const editTargetCode = activeEditingSlice?.currencyCode || r.code;
-            const editTargetDecimals = activeEditingSlice?.decimals ?? r.decimals;
 
             return (
-              <Card key={r.id} className="flex flex-col justify-between gap-4">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center gap-2.5 min-w-0">
+              <Card key={r.id} className="flex min-w-0 flex-col gap-3">
+                <div className="flex items-center justify-between gap-1.5">
+                  <div className="flex min-w-0 flex-1 items-center gap-2">
                     <ResourceIconBadge entityType="budget" entityId={r.id} defaultIcon="PiggyBank" />
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <h3 className="font-semibold truncate">{r.name}</h3>
-                        {r.isSubPeriod && (
-                          <Badge tone={r.hasActiveSlice ? "primary" : "neutral"} className="text-[10px] font-mono">
-                            {r.limitStart} → {r.limitEnd}
-                          </Badge>
-                        )}
-                      </div>
-                      <p className="text-xs text-muted">
-                        Spent <Money amount={r.spent.toString()} code={r.code} decimals={r.decimals} />
-                        {r.limit.gt(0) && (
-                          <>
-                            {" of "}
-                            <Money amount={r.limit.toString()} code={r.code} decimals={r.decimals} />
-                          </>
-                        )}
-                      </p>
-                    </div>
+                    <h3 className="min-w-0 truncate text-sm font-semibold sm:text-base" title={r.name}>
+                      {r.name}
+                    </h3>
                   </div>
-                  <div className="flex items-center gap-0.5 shrink-0">
+                  <div className="-mr-1 flex shrink-0 items-center gap-0.5">
                     {!r.active && <Badge tone="warning">Inactive</Badge>}
                     {rows.length >= 2 && (
                       <Button
                         variant="ghost"
                         size="icon"
+                        className="size-7 min-h-0 min-w-0 rounded-lg p-0"
                         onClick={() =>
                           setTransferState({
                             open: true,
@@ -572,6 +560,7 @@ export function BudgetsClient() {
                     <Button
                       variant="ghost"
                       size="icon"
+                      className="size-7 min-h-0 min-w-0 rounded-lg p-0"
                       onClick={() => setAdjustRow(r)}
                       title="Manual adjust (+/-) or clear limit"
                       aria-label={`Adjust limit for ${r.name}`}
@@ -581,6 +570,7 @@ export function BudgetsClient() {
                     <Button
                       variant="ghost"
                       size="icon"
+                      className="size-7 min-h-0 min-w-0 rounded-lg p-0"
                       onClick={() => openEditModal(r.raw)}
                       title="Configure budget"
                       aria-label={`Configure ${r.name}`}
@@ -588,21 +578,46 @@ export function BudgetsClient() {
                       <Settings2 className="size-3.5" aria-hidden />
                     </Button>
                     <Button
-                      variant="ghost"
-                      size="sm"
+                      variant={isEditing ? "secondary" : "ghost"}
+                      size="icon"
+                      className="size-7 min-h-0 min-w-0 rounded-lg p-0"
                       onClick={() => {
                         if (isEditing) {
-                          setEditingLimitId(null);
-                          setEditingSliceId(null);
-                          setEditLimitError(null);
+                          closeLimitEditor();
                         } else {
                           openInlineLimitEditor(r);
                         }
                       }}
+                      title={r.limit.gt(0) ? "Edit limit" : "Set limit"}
+                      aria-label={`${r.limit.gt(0) ? "Edit limit" : "Set limit"} for ${r.name}`}
+                      aria-pressed={isEditing}
                     >
-                      <Pencil className="size-3.5" aria-hidden /> {r.limit.gt(0) ? "Edit limit" : "Set limit"}
+                      <Pencil className="size-3.5" aria-hidden />
                     </Button>
                   </div>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+                  <p className="whitespace-nowrap text-xs text-muted tabular-nums">
+                    Spent{" "}
+                    <span className="font-medium text-fg">
+                      <Money amount={r.spent.toString()} code={r.code} decimals={r.decimals} />
+                    </span>
+                    {r.limit.gt(0) && (
+                      <>
+                        {" of "}
+                        <Money amount={r.limit.toString()} code={r.code} decimals={r.decimals} />
+                      </>
+                    )}
+                  </p>
+                  {r.isSubPeriod && (
+                    <Badge
+                      tone={r.hasActiveSlice ? "primary" : "neutral"}
+                      className="whitespace-nowrap font-mono text-[10px]"
+                    >
+                      {r.limitStart.slice(5)} → {r.limitEnd.slice(5)}
+                    </Badge>
+                  )}
                 </div>
 
                 {r.autoBudgetType && r.autoBudgetType !== "none" && r.autoBudgetAmount && (
@@ -620,10 +635,11 @@ export function BudgetsClient() {
                 )}
 
                 {slices.length > 1 && (
-                  <div className="flex flex-col gap-1 rounded-lg border border-border/70 bg-surface-2/40 px-2.5 py-2 text-[11px]">
+                  <div className="flex flex-col gap-1 rounded-lg border border-border/70 bg-surface-2/40 px-2 py-1.5 text-[11px]">
                     {slices.map((slice) => {
                       const sliceCode = slice.currencyCode || r.code;
-                      const sliceDec = slice.decimals ?? r.decimals;
+                      const sliceDec = slice.decimals ?? r.decimals ?? 2;
+                      const showSliceCode = sliceCode !== r.code;
                       return (
                         <button
                           key={slice.id}
@@ -635,32 +651,34 @@ export function BudgetsClient() {
                           )}
                           title={`Edit limit for ${slice.start} → ${slice.end}`}
                         >
-                          <span className="flex items-center gap-1.5 text-muted font-mono">
+                          <span className="flex min-w-0 items-center gap-1 whitespace-nowrap font-mono text-muted">
                             <span>
-                              {slice.start} → {slice.end}
+                              {slice.start.slice(5)} → {slice.end.slice(5)}
                             </span>
                             {slice.isActive && (
-                              <span className="rounded bg-primary/15 px-1 py-0.25 font-sans text-[10px] font-semibold text-primary">
+                              <span className="rounded bg-primary/15 px-1 py-0.25 font-sans text-[9px] font-semibold text-primary">
                                 Active
                               </span>
                             )}
                           </span>
-                          <span className="shrink-0 tabular-nums text-fg">
+                          <span className="shrink-0 whitespace-nowrap tabular-nums text-fg">
                             <span className={cn(slice.left.lt(0) ? "text-danger font-semibold" : "text-muted")}>
-                              <Money amount={slice.spent.toString()} code={sliceCode} decimals={sliceDec} />
+                              {showSliceCode ? `${sliceCode} ` : ""}
+                              {slice.spent.toFixed(sliceDec)}
                             </span>
                             <span className="text-muted"> / </span>
                             <span className="font-semibold">
-                              <Money amount={slice.amount.toString()} code={sliceCode} decimals={sliceDec} />
+                              {showSliceCode ? `${sliceCode} ` : ""}
+                              {slice.amount.toFixed(sliceDec)}
                             </span>
                           </span>
                         </button>
                       );
                     })}
                     {r.monthLimit && r.monthSpent && r.monthLeft && (
-                      <div className="mt-0.5 flex items-center justify-between gap-2 border-t border-border/60 pt-1.5 text-[11px] text-muted">
-                        <span>Month total ({range.label})</span>
-                        <span className="tabular-nums">
+                      <div className="mt-0.5 flex items-center justify-between gap-2 border-t border-border/60 px-1 pt-1.5 text-[11px] text-muted">
+                        <span className="truncate">Month total ({range.label})</span>
+                        <span className="shrink-0 whitespace-nowrap tabular-nums">
                           <Money amount={r.monthSpent.toString()} code={r.code} decimals={r.decimals} />
                           {" / "}
                           <Money amount={r.monthLimit.toString()} code={r.code} decimals={r.decimals} />
@@ -676,96 +694,10 @@ export function BudgetsClient() {
                   </p>
                 )}
 
-                {isEditing && (
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      setEditLimitError(null);
-                      limitMut.mutate({
-                        budgetId: r.id,
-                        limitId: editTargetId,
-                        limitStart: editTargetStart,
-                        limitEnd: editTargetEnd,
-                        amount: limitAmount,
-                        currencyCode: editTargetCode,
-                        decimals: editTargetDecimals,
-                      });
-                    }}
-                    className="flex flex-col gap-2 rounded-xl border border-primary/25 bg-surface-2/40 p-2.5"
-                  >
-                    {slices.length > 1 ? (
-                      <Field label="Period to edit">
-                        {(id) => (
-                          <Select
-                            id={id}
-                            value={editTargetId ?? ""}
-                            onChange={(e) => {
-                              const nextId = e.target.value;
-                              const nextSlice = slices.find((s) => s.id === nextId);
-                              setEditingSliceId(nextId);
-                              setEditLimitError(null);
-                              if (nextSlice) {
-                                setLimitAmount(
-                                  formatBudgetAmountInput(nextSlice.amount, nextSlice.decimals ?? r.decimals),
-                                );
-                              }
-                            }}
-                          >
-                            {slices.map((s) => (
-                              <option key={s.id} value={s.id}>
-                                {s.start} → {s.end}
-                                {s.isActive ? " (Active)" : ""} · {s.currencyCode || r.code}{" "}
-                                {s.amount.toFixed(s.decimals ?? r.decimals ?? 2)}
-                              </option>
-                            ))}
-                          </Select>
-                        )}
-                      </Field>
-                    ) : (
-                      <p className="text-[11px] font-medium text-muted">
-                        {editTargetId ? "Editing limit" : "Creating limit"} for{" "}
-                        <span className="font-mono text-fg">
-                          {editTargetStart} → {editTargetEnd}
-                        </span>
-                      </p>
-                    )}
-
-                    <div className="flex items-center gap-2">
-                      <Input
-                        inputMode="decimal"
-                        value={limitAmount}
-                        onChange={(e) => {
-                          setLimitAmount(e.target.value);
-                          if (editLimitError) setEditLimitError(null);
-                        }}
-                        placeholder={`Limit in ${editTargetCode}`}
-                        aria-label={`Limit for ${r.name}`}
-                        autoFocus
-                      />
-                      <Button type="submit" size="sm" loading={limitMut.isPending}>
-                        Save
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => {
-                          setEditingLimitId(null);
-                          setEditingSliceId(null);
-                          setEditLimitError(null);
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                    </div>
-                    <ErrorBox error={editLimitError} />
-                  </form>
-                )}
-
                 {r.limit.gt(0) ? (
-                  <div className="flex flex-col gap-1.5">
+                  <div className="mt-auto flex flex-col gap-1.5 pt-1">
                     <Progress value={pct} tone={tone} />
-                    <div className="flex justify-between text-xs text-muted">
+                    <div className="flex justify-between gap-2 whitespace-nowrap text-xs text-muted tabular-nums">
                       <span>{Math.round(pct)}% used</span>
                       <span>
                         {r.left.gte(0) ? (
@@ -781,13 +713,118 @@ export function BudgetsClient() {
                     </div>
                   </div>
                 ) : (
-                  <p className="text-xs text-muted">No limit set for {range.label}</p>
+                  <p className="mt-auto pt-1 text-xs text-muted">No limit set for {range.label}</p>
                 )}
               </Card>
             );
           })}
         </div>
       )}
+
+      <ModalSheet
+        open={editRow !== null}
+        onClose={closeLimitEditor}
+        title={editRow ? `${editTargetLimit.gt(0) ? "Edit limit" : "Set limit"} · ${editRow.name}` : "Edit limit"}
+        subtitle={
+          editRow ? (
+            <span className="font-mono">
+              {editTargetStart} → {editTargetEnd}
+            </span>
+          ) : undefined
+        }
+        maxWidth="max-w-md"
+      >
+        {editRow && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              setEditLimitError(null);
+              limitMut.mutate({
+                budgetId: editRow.id,
+                limitId: editTargetId,
+                limitStart: editTargetStart,
+                limitEnd: editTargetEnd,
+                amount: limitAmount,
+                currencyCode: editTargetCode,
+                decimals: editTargetDecimals,
+              });
+            }}
+            className="flex flex-col gap-4"
+          >
+            {editSlices.length > 1 && (
+              <Field label="Period">
+                {(id) => (
+                  <Select
+                    id={id}
+                    value={editTargetId ?? ""}
+                    onChange={(e) => {
+                      const nextId = e.target.value;
+                      const nextSlice = editSlices.find((s) => s.id === nextId);
+                      setEditingSliceId(nextId);
+                      setEditLimitError(null);
+                      if (nextSlice) {
+                        setLimitAmount(
+                          formatBudgetAmountInput(nextSlice.amount, nextSlice.decimals ?? editRow.decimals),
+                        );
+                      }
+                    }}
+                  >
+                    {editSlices.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.start} → {s.end}
+                        {s.isActive ? " (Active)" : ""}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </Field>
+            )}
+
+            <div className="grid grid-cols-2 gap-2 rounded-xl bg-surface-2/60 p-3 text-xs">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-muted">Spent</span>
+                <span className="font-semibold tabular-nums">
+                  <Money amount={editTargetSpent.toString()} code={editTargetCode} decimals={editTargetDecimals} />
+                </span>
+              </div>
+              <div className="flex flex-col gap-0.5">
+                <span className="text-muted">Current limit</span>
+                <span className="font-semibold tabular-nums">
+                  <Money amount={editTargetLimit.toString()} code={editTargetCode} decimals={editTargetDecimals} />
+                </span>
+              </div>
+            </div>
+
+            <Field label={`New limit (${editTargetCode})`}>
+              {(id) => (
+                <Input
+                  id={id}
+                  inputMode="decimal"
+                  value={limitAmount}
+                  onChange={(e) => {
+                    setLimitAmount(e.target.value);
+                    if (editLimitError) setEditLimitError(null);
+                  }}
+                  placeholder={formatBudgetAmountInput(0, editTargetDecimals) || "0"}
+                  className="tabular-nums"
+                  autoFocus
+                />
+              )}
+            </Field>
+
+            <ErrorBox error={editLimitError} />
+
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="ghost" onClick={closeLimitEditor}>
+                Cancel
+              </Button>
+              <Button type="submit" loading={limitMut.isPending}>
+                Save limit
+              </Button>
+            </div>
+          </form>
+        )}
+      </ModalSheet>
 
       <BudgetConfigModal
         open={isConfigOpen}

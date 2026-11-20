@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import Decimal from "decimal.js";
 import {
@@ -524,6 +524,8 @@ export function DashboardQuickFilterChips() {
 
 export interface EdgeResizeDragPhysics {
   effectiveDx: number;
+  widthDeltaPx: number;
+  willSnap: boolean;
   scaleX: number;
   scaleY: number;
   blurPx: number;
@@ -541,36 +543,48 @@ export function computeEdgeResizePhysics(
   const isBlockedDirection = (span === 1 && dx < 0) || (span === 2 && dx > 0);
 
   let effectiveDx = dx;
+  let widthDeltaPx = dx;
   if (isBlockedDirection) {
     // Logarithmic rubber-band resistance (~0.35 decay factor)
     const sign = Math.sign(dx);
     const abs = Math.abs(dx);
     effectiveDx = sign * Math.min(abs * 0.35, 65 * Math.log10(1 + abs / 35));
+    widthDeltaPx = sign * Math.min(26, abs * 0.18);
+  } else if (span === 1 && dx >= 0) {
+    // 1:1 edge-tracking across the sibling column up to full 2-col width (+16px grid gap), then gentle damping
+    const maxExpand = safeWidth + 16;
+    widthDeltaPx =
+      dx <= maxExpand ? dx : maxExpand + Math.min(56, (dx - maxExpand) * 0.22);
+    effectiveDx = Math.min(180, dx * 0.65);
   } else {
-    // Smooth elastic tracking up to +/- 180px
-    const sign = Math.sign(dx);
+    // span === 2 && dx < 0: 1:1 edge-tracking leftwards down to 1-col width, then gentle damping
+    const maxShrink = Math.max(180, (safeWidth - 16) * 0.5);
     const abs = Math.abs(dx);
-    effectiveDx = sign * Math.min(180, abs * 0.65);
+    widthDeltaPx =
+      abs <= maxShrink ? dx : -(maxShrink + Math.min(48, (abs - maxShrink) * 0.22));
+    effectiveDx = -Math.min(180, abs * 0.65);
   }
+
+  const snapThreshold = Math.min(75, safeWidth * 0.2);
+  const willSnap = !isBlockedDirection && Math.abs(dx) >= snapThreshold;
 
   const absEff = Math.abs(effectiveDx);
   const progress = Math.min(1, absEff / Math.min(160, safeWidth * 0.35));
 
-  // Stretch or compress card width dynamically during drag
+  // Backwards-compatible fields for physics unit tests
   const scaleDelta = (effectiveDx / safeWidth) * 0.22;
   const scaleX = Number(Math.max(0.88, Math.min(1.16, 1 + scaleDelta)).toFixed(4));
   const scaleY = Number((1 - progress * 0.012).toFixed(4));
-
-  // Progressive motion blur & depth softening (0px -> 10px)
   const blurPx = Number(Math.min(10, progress * 10).toFixed(2));
   const opacity = Number((1 - progress * 0.12).toFixed(3));
-  const shadow =
-    effectiveDx >= 0
-      ? "14px 0 28px -6px rgba(99, 102, 241, 0.38), 0 12px 24px -6px rgba(0, 0, 0, 0.35)"
-      : "-14px 0 28px -6px rgba(99, 102, 241, 0.38), 0 12px 24px -6px rgba(0, 0, 0, 0.35)";
+  const shadow = willSnap
+    ? "0 24px 48px -12px rgba(0, 0, 0, 0.32), 0 0 0 2px color-mix(in srgb, var(--primary) 70%, transparent)"
+    : "0 20px 40px -12px rgba(0, 0, 0, 0.25), 0 0 0 1.5px color-mix(in srgb, var(--primary) 40%, transparent)";
 
   return {
     effectiveDx,
+    widthDeltaPx,
+    willSnap,
     scaleX,
     scaleY,
     blurPx,
@@ -583,55 +597,80 @@ function CardEdgeResizeHandle({
   span,
   onSetSpan,
   onToggleSpan,
-  onDragPhysicsChange,
 }: {
   span: 1 | 2;
   onSetSpan: (s: 1 | 2) => void;
   onToggleSpan: () => void;
-  onDragPhysicsChange?: (state: {
-    isDragging: boolean;
-    isRubberBanding: boolean;
-    physics: EdgeResizeDragPhysics | null;
-  }) => void;
 }) {
   const [isDragging, setIsDragging] = useState(false);
+  const [snapReady, setSnapReady] = useState(false);
   const gestureRef = useRef<{
+    pointerId: number;
     startX: number;
     lastX: number;
     lastTime: number;
     velocityX: number;
     cardWidth: number;
     initialSpan: 1 | 2;
+    shellEl: HTMLElement | null;
+    snapReady: boolean;
   }>({
+    pointerId: -1,
     startX: 0,
     lastX: 0,
     lastTime: 0,
     velocityX: 0,
     cardWidth: 400,
     initialSpan: span,
+    shellEl: null,
+    snapReady: false,
   });
+
+  const settleShellBounce = (shellEl: HTMLElement | null) => {
+    if (!shellEl) return;
+    shellEl.classList.remove("is-resizing");
+    shellEl.classList.add("is-rubber-banding");
+    shellEl.style.setProperty("--resize-delta-w", "0px");
+    shellEl.style.removeProperty("--resize-shadow");
+    window.setTimeout(() => {
+      shellEl.classList.remove("is-rubber-banding");
+      shellEl.style.removeProperty("--resize-delta-w");
+    }, 300);
+  };
 
   return (
     <div
       role="button"
       tabIndex={0}
       aria-label={span === 2 ? "Shrink card width to 1 column" : "Expand card width to 2 columns"}
-      title={span === 2 ? "Click or swipe left to shrink card (1 col)" : "Click or swipe right to expand card (2 cols)"}
+      title={span === 2 ? "Click or pull left to shrink card (1 col)" : "Click or pull right to expand card (2 cols)"}
       onPointerDown={(e) => {
+        if (e.button !== 0 && e.pointerType === "mouse") return;
         e.preventDefault();
         e.stopPropagation();
+        const shellEl = (e.currentTarget as HTMLElement).closest(".resizable-bento-card") as HTMLElement | null;
         const cardEl = (e.currentTarget as HTMLElement).closest("[data-card-key]") as HTMLElement | null;
-        const rect = cardEl?.getBoundingClientRect();
+        const rect = (shellEl ?? cardEl)?.getBoundingClientRect();
+
+        if (shellEl) {
+          shellEl.classList.remove("is-rubber-banding");
+          shellEl.classList.add("is-resizing");
+          shellEl.style.setProperty("--resize-delta-w", "0px");
+        }
+
         setIsDragging(true);
+        setSnapReady(false);
         gestureRef.current = {
+          pointerId: e.pointerId,
           startX: e.clientX,
           lastX: e.clientX,
           lastTime: performance.now(),
           velocityX: 0,
           cardWidth: rect?.width || 400,
           initialSpan: span,
+          shellEl,
+          snapReady: false,
         };
-        onDragPhysicsChange?.({ isDragging: true, isRubberBanding: false, physics: null });
         try {
           (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
         } catch {
@@ -639,8 +678,8 @@ function CardEdgeResizeHandle({
         }
       }}
       onPointerMove={(e) => {
-        if (!isDragging) return;
         const g = gestureRef.current;
+        if (!isDragging || e.pointerId !== g.pointerId) return;
         const dx = e.clientX - g.startX;
         const now = performance.now();
         const dt = Math.max(1, now - g.lastTime);
@@ -650,57 +689,87 @@ function CardEdgeResizeHandle({
         g.lastTime = now;
 
         const physics = computeEdgeResizePhysics(dx, g.cardWidth, g.initialSpan);
-        onDragPhysicsChange?.({
-          isDragging: true,
-          isRubberBanding: false,
-          physics,
-        });
+        if (g.shellEl) {
+          g.shellEl.style.setProperty("--resize-delta-w", `${physics.widthDeltaPx.toFixed(1)}px`);
+          g.shellEl.style.setProperty("--resize-shadow", physics.shadow);
+        }
+        if (physics.willSnap !== g.snapReady) {
+          g.snapReady = physics.willSnap;
+          setSnapReady(physics.willSnap);
+        }
       }}
       onPointerUp={(e) => {
-        if (!isDragging) return;
-        setIsDragging(false);
         const g = gestureRef.current;
+        if (!isDragging || e.pointerId !== g.pointerId) return;
+        try {
+          if ((e.currentTarget as HTMLElement).hasPointerCapture?.(e.pointerId)) {
+            (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+          }
+        } catch {
+          // ignore
+        }
+        setIsDragging(false);
+        setSnapReady(false);
+
         const dx = e.clientX - g.startX;
         const absDx = Math.abs(dx);
         const absVel = Math.abs(g.velocityX);
 
         // Tap / click toggle (< 6px movement)
         if (absDx < 6) {
-          onDragPhysicsChange?.({ isDragging: false, isRubberBanding: false, physics: null });
+          if (g.shellEl) {
+            g.shellEl.classList.remove("is-resizing");
+            g.shellEl.style.removeProperty("--resize-delta-w");
+            g.shellEl.style.removeProperty("--resize-shadow");
+          }
           onToggleSpan();
           return;
         }
 
-        // Velocity-aware threshold: >= 20% card width OR >= 55px drag OR flick velocity > 0.45 px/ms
+        // Velocity-aware threshold: >= 20% card width OR >= 75px drag OR flick velocity > 0.45 px/ms
         const thresholdMet = absDx >= Math.min(75, g.cardWidth * 0.2) || absVel > 0.45;
 
         if (thresholdMet && dx > 0 && g.initialSpan === 1) {
-          onDragPhysicsChange?.({ isDragging: false, isRubberBanding: false, physics: null });
+          // Keep --resize-delta-w during synchronous onSetSpan call so FLIP captures the live pulled width!
           onSetSpan(2);
+          if (g.shellEl) {
+            g.shellEl.classList.remove("is-resizing");
+            g.shellEl.style.removeProperty("--resize-delta-w");
+            g.shellEl.style.removeProperty("--resize-shadow");
+          }
         } else if (thresholdMet && dx < 0 && g.initialSpan === 2) {
-          onDragPhysicsChange?.({ isDragging: false, isRubberBanding: false, physics: null });
           onSetSpan(1);
+          if (g.shellEl) {
+            g.shellEl.classList.remove("is-resizing");
+            g.shellEl.style.removeProperty("--resize-delta-w");
+            g.shellEl.style.removeProperty("--resize-shadow");
+          }
         } else {
-          // Rubber-band bounce back
-          onDragPhysicsChange?.({ isDragging: false, isRubberBanding: true, physics: null });
+          // Smooth spring return to current column width
+          settleShellBounce(g.shellEl);
         }
       }}
       onPointerCancel={() => {
+        const g = gestureRef.current;
         setIsDragging(false);
-        onDragPhysicsChange?.({ isDragging: false, isRubberBanding: true, physics: null });
+        setSnapReady(false);
+        settleShellBounce(g.shellEl);
       }}
-      className="group/edge absolute -right-3 inset-y-6 hidden w-6 cursor-grab active:cursor-grabbing items-center justify-center lg:flex select-none touch-none z-20"
+      className="group/edge absolute -right-3 inset-y-6 hidden w-6 cursor-ew-resize items-center justify-center lg:flex select-none touch-none z-20"
     >
       {/* Tactile Capsule Resize Pill with 2-position indicator dots (1 col vs 2 cols) */}
       <div
         className={cn(
-          "flex h-14 w-2.5 flex-col items-center justify-center gap-1 rounded-full border border-border/60 bg-surface-2/90 backdrop-blur-md shadow-xs transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover/edge:w-3.5 group-hover/edge:border-primary/60 group-hover/edge:bg-primary/20 group-hover/edge:shadow-[0_0_14px_rgba(99,102,241,0.45)]",
-          isDragging && "w-4 border-primary bg-primary text-primary-fg ring-4 ring-primary/25 scale-y-110 shadow-[0_0_20px_rgba(99,102,241,0.65)]",
+          "flex h-14 w-2.5 flex-col items-center justify-center gap-1 rounded-full border border-border/60 bg-surface-2/90 backdrop-blur-md shadow-xs transition-all duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover/edge:w-3.5 group-hover/edge:border-primary/60 group-hover/edge:bg-primary/20 group-hover/edge:shadow-[0_0_14px_rgba(99,102,241,0.45)]",
+          isDragging &&
+            (snapReady
+              ? "w-4 border-primary bg-primary text-primary-fg ring-4 ring-primary/30 scale-y-115 shadow-[0_0_22px_rgba(99,102,241,0.75)]"
+              : "w-3.5 border-primary/80 bg-primary/85 text-primary-fg ring-2 ring-primary/20 scale-y-105"),
         )}
       >
         <span
           className={cn(
-            "rounded-full transition-all duration-300",
+            "rounded-full transition-all duration-200",
             span === 1
               ? "h-3 w-1 bg-primary group-hover/edge:bg-primary"
               : "size-1 bg-muted/60",
@@ -709,7 +778,7 @@ function CardEdgeResizeHandle({
         />
         <span
           className={cn(
-            "rounded-full transition-all duration-300",
+            "rounded-full transition-all duration-200",
             span === 2
               ? "h-3 w-1 bg-primary group-hover/edge:bg-primary"
               : "size-1 bg-muted/60",
@@ -717,8 +786,23 @@ function CardEdgeResizeHandle({
           )}
         />
       </div>
-      <span className="pointer-events-none absolute -bottom-7 right-0 hidden rounded-lg border border-border/50 bg-fg/95 backdrop-blur-md px-2.5 py-1 text-[10px] font-semibold text-bg shadow-lg group-hover/edge:block whitespace-nowrap z-30">
-        {span === 2 ? "← Swipe / click to shrink (1 col)" : "Swipe / click to expand (2 cols) →"}
+      <span
+        className={cn(
+          "pointer-events-none absolute -bottom-7 right-0 rounded-lg border border-border/50 bg-fg/95 backdrop-blur-md px-2.5 py-1 text-[10px] font-semibold text-bg shadow-lg whitespace-nowrap z-30 transition-opacity duration-150",
+          isDragging ? "block opacity-100" : "hidden group-hover/edge:block",
+        )}
+      >
+        {isDragging
+          ? snapReady
+            ? span === 2
+              ? "← Release to snap to 1 col"
+              : "Release to snap to 2 cols →"
+            : span === 2
+              ? "← Pull left to shrink (1 col)"
+              : "Pull right to expand (2 cols) →"
+          : span === 2
+            ? "← Pull or click to shrink (1 col)"
+            : "Pull or click to expand (2 cols) →"}
       </span>
     </div>
   );
@@ -2181,7 +2265,10 @@ function DashboardCardsGrid({
           if (!c.visible) continue;
           const el = document.getElementById(`card-${c.key}`);
           if (el) {
-            map.set(c.key, el.getBoundingClientRect());
+            // Measure `.resizable-bento-card` so if the user actively pulled the card wider/narrower,
+            // FLIP starts from the exact live pulled width rather than jumping back first!
+            const shell = el.querySelector(".resizable-bento-card") as HTMLElement | null;
+            map.set(c.key, (shell ?? el).getBoundingClientRect());
           }
         }
         resizePrevRectsRef.current = map;
@@ -2191,12 +2278,12 @@ function DashboardCardsGrid({
     [cards, updateCardConfig],
   );
 
-  // Trigger smooth spring FLIP animation whenever any card's span changes
+  // Trigger smooth spring FLIP animation synchronously before paint whenever any card's span changes
   const spanSignature = useMemo(
     () => cards.map((c) => `${c.key}:${c.span}`).join(","),
     [cards],
   );
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (typeof window === "undefined" || !resizePrevRectsRef.current) return;
     const prevRects = resizePrevRectsRef.current;
     resizePrevRectsRef.current = null;
@@ -2210,35 +2297,58 @@ function DashboardCardsGrid({
       const first = prevRects.get(c.key);
       if (!el || !first) continue;
 
-      const last = el.getBoundingClientRect();
+      const shell = el.querySelector(".resizable-bento-card") as HTMLElement | null;
+      if (shell) {
+        shell.classList.remove("is-resizing", "is-rubber-banding");
+        shell.style.removeProperty("--resize-delta-w");
+        shell.style.removeProperty("--resize-shadow");
+      }
+
+      const targetEl = shell ?? el;
+      const last = targetEl.getBoundingClientRect();
       const dx = first.left - last.left;
       const dy = first.top - last.top;
-      const scaleW = last.width > 0 ? first.width / last.width : 1;
+      const dw = Math.abs(first.width - last.width);
 
-      if (Math.abs(dx) > 1 || Math.abs(dy) > 1 || Math.abs(scaleW - 1) > 0.02) {
-        if (typeof el.animate === "function") {
-          el.animate(
-            [
-              {
-                transformOrigin: "left top",
-                transform: `translate3d(${dx}px, ${dy}px, 0) scaleX(${scaleW.toFixed(3)})`,
-                filter: Math.abs(scaleW - 1) > 0.05 ? "blur(6px)" : "blur(0px)",
-                opacity: Math.abs(scaleW - 1) > 0.05 ? 0.82 : 1,
-              },
-              {
-                transformOrigin: "left top",
-                transform: "translate3d(0, 0, 0) scaleX(1)",
-                filter: "blur(0px)",
-                opacity: 1,
-              },
-            ],
+      if (typeof targetEl.animate !== "function") continue;
+
+      if (dw > 2) {
+        // Resized card: smoothly glide its actual layout width from the live pulled width to the new column width
+        // with ZERO blur and ZERO scaleX text/gauge distortion!
+        targetEl.animate(
+          [
             {
-              duration: 360,
-              easing: "cubic-bezier(0.22, 1, 0.36, 1)",
-              fill: "none",
+              width: `${first.width.toFixed(1)}px`,
+              transform: `translate3d(${dx.toFixed(1)}px, ${dy.toFixed(1)}px, 0)`,
             },
-          );
-        }
+            {
+              width: `${last.width.toFixed(1)}px`,
+              transform: "translate3d(0, 0, 0)",
+            },
+          ],
+          {
+            duration: 320,
+            easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+            fill: "none",
+          },
+        );
+      } else if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
+        // Sibling cards: glide smoothly to their new grid coordinates without blurring or stretching
+        el.animate(
+          [
+            {
+              transform: `translate3d(${dx.toFixed(1)}px, ${dy.toFixed(1)}px, 0)`,
+            },
+            {
+              transform: "translate3d(0, 0, 0)",
+            },
+          ],
+          {
+            duration: 340,
+            easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+            fill: "none",
+          },
+        );
       }
     }
   }, [spanSignature, cards]);
@@ -2466,15 +2576,6 @@ function DashboardCardShell({
 }) {
   const entry = CATALOG_BY_KEY.get(card.key);
   const span = card.span ?? entry?.defaultSpan ?? 1;
-  const [resizeDragState, setResizeDragState] = useState<{
-    isDragging: boolean;
-    isRubberBanding: boolean;
-    physics: EdgeResizeDragPhysics | null;
-  }>({
-    isDragging: false,
-    isRubberBanding: false,
-    physics: null,
-  });
 
   const subtitle =
     card.key === "gauges"
@@ -2483,35 +2584,14 @@ function DashboardCardShell({
         ? `Last ${card.periodDays} days · ${entry.description}`
         : entry?.description;
 
-  const rp = resizeDragState.physics;
-  const resizeCssVars = rp
-    ? ({
-        "--resize-x": `${(rp.effectiveDx * 0.18).toFixed(1)}px`,
-        "--resize-scale-x": String(rp.scaleX),
-        "--resize-scale-y": String(rp.scaleY),
-        "--resize-blur": `${rp.blurPx}px`,
-        "--resize-content-blur": `${(rp.blurPx * 0.35).toFixed(1)}px`,
-        "--resize-opacity": String(rp.opacity),
-        "--resize-shadow": rp.shadow,
-      } as React.CSSProperties)
-    : undefined;
-
   return (
-    <div
-      style={resizeCssVars}
-      className={cn(
-        "resizable-bento-card h-full flex flex-col",
-        resizeDragState.isDragging && "is-resizing",
-        resizeDragState.isRubberBanding && "is-rubber-banding",
-      )}
-    >
+    <div className="resizable-bento-card @container h-full flex flex-col">
     <Card className="relative flex flex-col gap-3 h-full">
       {/* Outside edge resizer (swipe left/right or click to expand/shrink card) */}
       <CardEdgeResizeHandle
         span={span as 1 | 2}
         onSetSpan={(nextSpan) => onUpdate({ span: nextSpan })}
         onToggleSpan={() => onUpdate({ span: span === 2 ? 1 : 2 })}
-        onDragPhysicsChange={setResizeDragState}
       />
 
       <div className="flex items-start justify-between gap-2">
@@ -2658,75 +2738,8 @@ function DashboardCardShell({
 }
 
 // ============================================================================
-// 1. MODERN FINANCIAL HEALTH METRIC CARDS & RADIAL METERS (No needles)
+// 1. MODERN FINANCIAL HEALTH METRIC CARDS & SPEEDOMETER GAUGES
 // ============================================================================
-
-function RadialArcMeter({
-  value,
-  label,
-  pct,
-  tone = "primary",
-  size = "md",
-}: {
-  value: React.ReactNode;
-  label: string;
-  pct: number;
-  tone?: "primary" | "success" | "danger" | "warning";
-  size?: "lg" | "md";
-}) {
-  const clampedPct = Math.max(0, Math.min(100, pct));
-  const ratio = clampedPct / 100;
-  // Semicircle arc: radius 40, center (50, 48)
-  // Arc length = PI * 40 ≈ 125.66
-  const arcLength = 125.66;
-  const strokeOffset = arcLength * (1 - ratio);
-
-  const strokeColors = {
-    primary: "var(--primary)",
-    success: "var(--success)",
-    danger: "var(--danger)",
-    warning: "var(--warning)",
-  };
-
-  return (
-    <div className="flex flex-col items-center justify-center text-center min-w-0">
-      <div className={cn("relative flex items-center justify-center", size === "lg" ? "w-24 h-16 sm:w-28 sm:h-18" : "w-20 h-14 sm:w-24 sm:h-16")}>
-        <svg viewBox="0 0 100 56" className="w-full h-full overflow-visible">
-          {/* Background Track */}
-          <path
-            d="M 10 48 A 40 40 0 0 1 90 48"
-            fill="none"
-            stroke="var(--border)"
-            strokeWidth="9"
-            strokeLinecap="round"
-          />
-          {/* Active Animated Progress Arc */}
-          <path
-            d="M 10 48 A 40 40 0 0 1 90 48"
-            fill="none"
-            stroke={strokeColors[tone]}
-            strokeWidth="9"
-            strokeLinecap="round"
-            strokeDasharray={arcLength}
-            strokeDashoffset={strokeOffset}
-            style={{
-              transition: "stroke-dashoffset 800ms cubic-bezier(0.16, 1, 0.3, 1), stroke 300ms ease",
-            }}
-          />
-        </svg>
-        {/* Value Inside Arc */}
-        <div className="absolute inset-x-0 bottom-0 flex flex-col items-center justify-end">
-          <span className={cn("tabular font-bold tracking-tight text-fg whitespace-nowrap max-w-full px-1", size === "lg" ? "text-sm sm:text-base" : "text-xs")}>
-            {value}
-          </span>
-        </div>
-      </div>
-      <span className="mt-1 text-[10px] sm:text-[11px] font-semibold uppercase tracking-wider text-muted whitespace-nowrap max-w-full">
-        {label}
-      </span>
-    </div>
-  );
-}
 
 const WalletGaugesCard = React.memo(function WalletGaugesCard({
   primaryCode,

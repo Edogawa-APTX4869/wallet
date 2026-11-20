@@ -116,13 +116,70 @@ const ACTION_BADGE: Record<AiActionKind, string> = {
   account: "New Account",
 };
 
+export const CHATBAR_MIN_WIDTH = 360;
+export const CHATBAR_DEFAULT_WIDTH = 672;
+export const CHATBAR_MAX_WIDTH = 1040;
+export const CHATBAR_COLLAPSE_WIDTH = 280;
+export const CHATBAR_SNAP_POINTS = [420, 540, 672, 840, 1040] as const;
+
+export function computeChatbarDragWidth(params: {
+  startWidth: number;
+  startX: number;
+  currentX: number;
+  side: "left" | "right";
+  maxWidth?: number;
+}): number {
+  const { startWidth, startX, currentX, side, maxWidth = CHATBAR_MAX_WIDTH } = params;
+  const upperBound = Math.max(CHATBAR_MIN_WIDTH, maxWidth);
+  // Centered dock (mx-auto): multiplying edge delta by 2 keeps the active edge locked 1:1 under the pointer.
+  const signedDelta = side === "right" ? (currentX - startX) * 2 : (startX - currentX) * 2;
+  const raw = startWidth + signedDelta;
+
+  if (raw < CHATBAR_COLLAPSE_WIDTH) {
+    const undershoot = CHATBAR_COLLAPSE_WIDTH - raw;
+    return Math.max(220, CHATBAR_COLLAPSE_WIDTH - undershoot * 0.25);
+  }
+  if (raw > upperBound) {
+    const overshoot = raw - upperBound;
+    return Math.min(upperBound + 48, upperBound + overshoot * 0.2);
+  }
+  return raw;
+}
+
+export function settleChatbarWidth(params: {
+  rawWidth: number;
+  maxWidth?: number;
+}): { collapsed: boolean; width: number } {
+  const { rawWidth, maxWidth = CHATBAR_MAX_WIDTH } = params;
+  const upperBound = Math.max(CHATBAR_MIN_WIDTH, maxWidth);
+  if (rawWidth <= CHATBAR_COLLAPSE_WIDTH) {
+    return { collapsed: true, width: CHATBAR_DEFAULT_WIDTH };
+  }
+  const clamped = Math.min(upperBound, Math.max(CHATBAR_MIN_WIDTH, Math.round(rawWidth)));
+  let bestSnap = clamped;
+  let bestDist = 19; // snap within 18px
+  for (const snap of CHATBAR_SNAP_POINTS) {
+    if (snap > upperBound) continue;
+    const dist = Math.abs(clamped - snap);
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestSnap = snap;
+    }
+  }
+  return { collapsed: false, width: bestSnap };
+}
+
 export function MagicChatPanel({
   mode = "dock",
   alwaysShow = false,
+  isMinimized = false,
+  isResizing = false,
   onClose,
 }: {
   mode?: "dock" | "inline";
   alwaysShow?: boolean;
+  isMinimized?: boolean;
+  isResizing?: boolean;
   onClose?: () => void;
 }) {
   const qc = useQueryClient();
@@ -191,6 +248,7 @@ export function MagicChatPanel({
   const inputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const threadRef = useRef<HTMLDivElement | null>(null);
+  const msgSeqRef = useRef(0);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null);
 
@@ -311,8 +369,10 @@ export function MagicChatPanel({
       });
     },
     onSuccess: (res, payload) => {
+      msgSeqRef.current += 1;
+      const seq = msgSeqRef.current;
       const userMsg: MagicChatMessage = {
-        id: `u-${Date.now()}`,
+        id: `u-${seq}`,
         role: "user",
         text: payload.promptText || (payload.files.length > 0 ? `${payload.files.length} file(s)` : ""),
         attachments: payload.files,
@@ -321,12 +381,12 @@ export function MagicChatPanel({
       const draftsWithIds: ChatDraftItem[] = (res.data ?? []).map((d, idx) => ({
         ...d,
         action_type: d.action_type ?? "transaction",
-        id: `d-${Date.now()}-${idx}`,
+        id: `d-${seq}-${idx}`,
         saved: false,
         attachments: payload.files,
       }));
       const assistantMsg: MagicChatMessage = {
-        id: `a-${Date.now() + 1}`,
+        id: `a-${seq}`,
         role: "assistant",
         engine: res.engine,
         drafts: draftsWithIds,
@@ -746,12 +806,33 @@ export function MagicChatPanel({
   return (
     <div
       className={cn(
-        "flex flex-col overflow-hidden rounded-2xl border border-border bg-surface transition-all",
-        mode === "dock" ? "shadow-xl backdrop-blur-md" : "shadow-xs",
+        "ai-chatbar-surface flex flex-col overflow-hidden rounded-2xl border bg-surface/95",
+        mode === "dock"
+          ? cn(
+              "backdrop-blur-md",
+              isResizing
+                ? "border-primary/50 shadow-2xl ring-2 ring-primary/20"
+                : expanded
+                  ? "border-primary/35 shadow-2xl"
+                  : "border-border shadow-xl",
+            )
+          : "border-border shadow-xs",
       )}
     >
-      {(expanded || mode === "inline") && (
-        <div className="flex flex-col border-b border-border">
+      <div
+        className={cn(
+          mode === "dock"
+            ? cn("ai-chatbar-drawer-grid", expanded && !isMinimized && "is-expanded")
+            : "flex flex-col",
+        )}
+        aria-hidden={mode === "dock" && !expanded}
+      >
+        <div
+          className={cn(
+            "min-h-0 overflow-hidden flex flex-col",
+            (expanded || mode === "inline") && "border-b border-border",
+          )}
+        >
           {mode === "dock" && (
             <div className="flex items-center justify-between gap-2 border-b border-border bg-surface-2/60 px-3 py-1.5">
               <div className="flex items-center gap-1.5">
@@ -1144,7 +1225,7 @@ export function MagicChatPanel({
             )}
           </div>
         </div>
-      )}
+      </div>
 
       {attachments.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5 border-b border-border bg-surface-2/50 px-2.5 py-1">
@@ -1170,7 +1251,10 @@ export function MagicChatPanel({
 
       <form
         onSubmit={(e) => handleSend(e)}
-        className="flex items-center gap-1.5 bg-surface px-2 py-1.5"
+        className={cn(
+          "ai-chatbar-controls flex items-center gap-1.5 whitespace-nowrap bg-surface px-2 py-1.5",
+          mode === "dock" && (isMinimized ? "scale-[0.96] opacity-0" : "scale-100 opacity-100"),
+        )}
       >
         {mode === "dock" && (
           <button
@@ -1178,13 +1262,13 @@ export function MagicChatPanel({
             onClick={() => setExpanded((e) => !e)}
             aria-label={expanded ? "Collapse AI chat history" : "Expand AI chat history"}
             className={cn(
-              "flex size-9 shrink-0 items-center justify-center rounded-xl border transition-colors",
+              "flex size-9 shrink-0 items-center justify-center rounded-xl border transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] active:scale-95",
               expanded
                 ? "border-primary bg-primary-soft text-primary"
                 : "border-border bg-surface-2 text-primary hover:border-primary",
             )}
           >
-            {expanded ? <ChevronDown className="size-4" /> : <Wand2 className="size-4" />}
+            {expanded ? <ChevronDown className="size-4 shrink-0" /> : <Wand2 className="size-4 shrink-0" />}
           </button>
         )}
 
@@ -1201,13 +1285,13 @@ export function MagicChatPanel({
           onClick={() => fileInputRef.current?.click()}
           aria-label="Attach receipt image or PDF"
           className={cn(
-            "flex size-9 shrink-0 items-center justify-center rounded-xl border transition-colors",
+            "flex size-9 shrink-0 items-center justify-center rounded-xl border transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] active:scale-95",
             attachments.length > 0
               ? "border-primary bg-primary-soft text-primary"
               : "border-border bg-surface-2 text-muted hover:border-primary hover:text-fg",
           )}
         >
-          <Paperclip className="size-4" aria-hidden />
+          <Paperclip className="size-4 shrink-0" aria-hidden />
         </button>
 
         <div className="relative flex shrink-0 items-center justify-center">
@@ -1219,13 +1303,13 @@ export function MagicChatPanel({
             onClick={toggleVoiceDictation}
             aria-label={listening ? "Stop voice dictation" : "Start voice dictation"}
             className={cn(
-              "relative z-10 flex size-9 shrink-0 items-center justify-center rounded-xl border transition-all active:scale-95",
+              "relative z-10 flex size-9 shrink-0 items-center justify-center rounded-xl border transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] active:scale-95",
               listening
                 ? "border-danger bg-danger text-white shadow-md"
                 : "border-border bg-surface-2 text-muted hover:border-primary hover:text-fg",
             )}
           >
-            {listening ? <MicOff className="size-4" /> : <Mic className="size-4" />}
+            {listening ? <MicOff className="size-4 shrink-0" /> : <Mic className="size-4 shrink-0" />}
           </button>
         </div>
 
@@ -1239,7 +1323,7 @@ export function MagicChatPanel({
           onChange={(e) => setInput(e.target.value)}
           placeholder={listening ? "Listening…" : "Ask or command AI…"}
           aria-label="AI Magic Assistant chat input"
-          className="h-9 min-w-0 flex-1 rounded-xl border border-border bg-surface-2/60 px-2.5 text-xs text-fg placeholder:text-muted focus:border-primary focus:bg-surface focus:outline-none sm:text-sm"
+          className="h-9 min-w-0 flex-1 truncate rounded-xl border border-border bg-surface-2/60 px-2.5 text-xs text-fg placeholder:text-muted focus:border-primary focus:bg-surface focus:outline-none sm:text-sm"
         />
 
         <Button
@@ -1247,9 +1331,9 @@ export function MagicChatPanel({
           size="sm"
           loading={parseMut.isPending}
           disabled={!input.trim() && attachments.length === 0}
-          className="h-9 shrink-0 rounded-xl px-2.5 text-xs font-semibold"
+          className="h-9 shrink-0 whitespace-nowrap rounded-xl px-2.5 text-xs font-semibold"
         >
-          <Send className="size-3.5" aria-hidden />
+          <Send className="size-3.5 shrink-0" aria-hidden />
           <span className="hidden sm:inline">Send</span>
         </Button>
 
@@ -1257,9 +1341,9 @@ export function MagicChatPanel({
           <button
             type="button"
             onClick={() => setExpanded(true)}
-            className="flex h-9 shrink-0 items-center gap-1 rounded-xl bg-primary-soft px-2 text-xs font-semibold text-primary"
+            className="flex h-9 shrink-0 items-center gap-1 whitespace-nowrap rounded-xl bg-primary-soft px-2 text-xs font-semibold text-primary"
           >
-            <ChevronUp className="size-3.5" aria-hidden />
+            <ChevronUp className="size-3.5 shrink-0" aria-hidden />
             <span>{totalUnsavedDrafts > 0 ? totalUnsavedDrafts : "Chat"}</span>
           </button>
         )}
@@ -1325,6 +1409,19 @@ export function MagicChatbar({
   const aiConfigQ = useAiAssistantConfig();
   const [minimized, setMinimized] = useState(false);
   const [mobileSheetOpen, setMobileSheetOpen] = useState(false);
+  const [barWidth, setBarWidth] = useState<number>(CHATBAR_DEFAULT_WIDTH);
+  const [isResizing, setIsResizing] = useState(false);
+  const [activeHandle, setActiveHandle] = useState<"left" | "right" | null>(null);
+
+  const dockRef = useRef<HTMLDivElement | null>(null);
+  const dragStateRef = useRef<{
+    pointerId: number;
+    side: "left" | "right";
+    startX: number;
+    startWidth: number;
+    liveWidth: number;
+    maxWidth: number;
+  } | null>(null);
 
   useEffect(() => {
     function onOpen() {
@@ -1340,6 +1437,120 @@ export function MagicChatbar({
 
   if (pathname === "/new") return null;
   if (!aiConfigQ.data?.enabled || !aiConfigQ.data?.verified) return null;
+
+  const computeAvailableMaxWidth = () => {
+    if (typeof window === "undefined") return CHATBAR_MAX_WIDTH;
+    // Account for left sidebar (288px) + right FAB clearance (96px) + margin
+    const avail = window.innerWidth - 404;
+    return Math.min(CHATBAR_MAX_WIDTH, Math.max(CHATBAR_MIN_WIDTH, avail));
+  };
+
+  const handleResizePointerDown = (
+    e: React.PointerEvent<HTMLDivElement>,
+    side: "left" | "right",
+  ) => {
+    if (e.button !== 0 && e.pointerType === "mouse") return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // Ignore if synthetic test event lacks setPointerCapture support
+    }
+
+    const measured = dockRef.current?.getBoundingClientRect().width;
+    const startWidth = measured && measured > 0 ? measured : barWidth;
+    const maxWidth = computeAvailableMaxWidth();
+
+    dragStateRef.current = {
+      pointerId: e.pointerId,
+      side,
+      startX: e.clientX,
+      startWidth,
+      liveWidth: startWidth,
+      maxWidth,
+    };
+
+    if (dockRef.current) {
+      dockRef.current.classList.add("is-resizing");
+      dockRef.current.style.width = `${Math.round(startWidth)}px`;
+    }
+    setActiveHandle(side);
+    setIsResizing(true);
+  };
+
+  const handleResizePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const st = dragStateRef.current;
+    if (!st || e.pointerId !== st.pointerId) return;
+
+    const nextWidth = computeChatbarDragWidth({
+      startWidth: st.startWidth,
+      startX: st.startX,
+      currentX: e.clientX,
+      side: st.side,
+      maxWidth: st.maxWidth,
+    });
+    st.liveWidth = nextWidth;
+
+    if (dockRef.current) {
+      dockRef.current.style.width = `${Math.round(nextWidth)}px`;
+      const nearCollapse = nextWidth <= CHATBAR_COLLAPSE_WIDTH;
+      dockRef.current.style.opacity = nearCollapse ? "0.72" : "1";
+      dockRef.current.style.transform = nearCollapse
+        ? "translate3d(0, 4px, 0) scale(0.97)"
+        : "translate3d(0, 0, 0) scale(1)";
+    }
+  };
+
+  const finishResize = (e: React.PointerEvent<HTMLDivElement>) => {
+    const st = dragStateRef.current;
+    if (!st || e.pointerId !== st.pointerId) return;
+    dragStateRef.current = null;
+
+    try {
+      if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
+    } catch {
+      // Ignore release errors
+    }
+
+    // Re-enable smooth spring transitions immediately before settling
+    if (dockRef.current) {
+      dockRef.current.classList.remove("is-resizing");
+      dockRef.current.style.opacity = "";
+      dockRef.current.style.transform = "";
+    }
+    setIsResizing(false);
+    setActiveHandle(null);
+
+    const settled = settleChatbarWidth({
+      rawWidth: st.liveWidth,
+      maxWidth: st.maxWidth,
+    });
+
+    if (settled.collapsed) {
+      setMinimized(true);
+      setBarWidth(CHATBAR_DEFAULT_WIDTH);
+      if (dockRef.current) {
+        dockRef.current.style.width = `${CHATBAR_DEFAULT_WIDTH}px`;
+      }
+    } else {
+      setBarWidth(settled.width);
+      if (dockRef.current) {
+        dockRef.current.style.width = `${settled.width}px`;
+      }
+    }
+  };
+
+  const handleResetWidth = () => {
+    const next = Math.min(CHATBAR_DEFAULT_WIDTH, computeAvailableMaxWidth());
+    setBarWidth(next);
+    if (dockRef.current) {
+      dockRef.current.style.width = `${next}px`;
+    }
+  };
 
   const handleTriggerClick = () => {
     onOpenSheet?.();
@@ -1369,7 +1580,7 @@ export function MagicChatbar({
       <div
         className={cn(
           "fixed left-4 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-35 md:bottom-6 md:left-72",
-          !minimized && "md:hidden",
+          !minimized && "md:pointer-events-none md:opacity-0 md:scale-95",
           mobileSheetOpen && "hidden",
         )}
       >
@@ -1377,29 +1588,92 @@ export function MagicChatbar({
           type="button"
           onClick={handleTriggerClick}
           aria-label="Ask AI Assistant"
-          className="flex items-center gap-1.5 sm:gap-2 rounded-full border border-primary/30 bg-surface/95 px-2.5 py-1.5 sm:px-3.5 sm:py-2 text-xs font-semibold text-primary shadow-lg backdrop-blur transition-all duration-200 hover:scale-105 active:scale-95 hover:bg-primary-soft hover:shadow-xl"
+          className="ai-chatbar-pill flex items-center gap-1.5 sm:gap-2 rounded-full border border-primary/30 bg-surface/95 px-2.5 py-1.5 sm:px-3.5 sm:py-2 text-xs font-semibold text-primary shadow-lg backdrop-blur hover:scale-105 active:scale-95 hover:bg-primary-soft hover:shadow-xl"
         >
-          <Sparkles className="size-3 sm:size-3.5" aria-hidden />
-          <span>Ask AI / Ramble</span>
+          <Sparkles className="size-3 sm:size-3.5 shrink-0" aria-hidden />
+          <span className="whitespace-nowrap">Ask AI / Ramble</span>
         </button>
       </div>
 
-      {!minimized && (
-        <div className="sheet-up fixed inset-x-2.5 bottom-[calc(4.25rem+env(safe-area-inset-bottom))] z-35 mx-auto max-w-2xl hidden md:block md:right-24 md:bottom-5 md:left-72">
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setMinimized(true)}
-              aria-label="Minimize AI chatbar to pill"
-              title="Minimize chatbar"
-              className="absolute -top-2.5 -right-2 z-10 flex size-5 items-center justify-center rounded-full border border-border bg-surface text-muted shadow-xs hover:text-fg"
-            >
-              <X className="size-3" aria-hidden />
-            </button>
-            <MagicChatPanel mode="dock" />
+      <div
+        className={cn(
+          "fixed inset-x-2.5 bottom-[calc(4.25rem+env(safe-area-inset-bottom))] z-35 hidden md:flex md:right-24 md:bottom-5 md:left-72 md:justify-center",
+          minimized && "pointer-events-none",
+        )}
+        aria-hidden={minimized}
+      >
+        <div
+          ref={dockRef}
+          style={{ width: `${barWidth}px`, maxWidth: "100%" }}
+          className={cn(
+            "ai-chatbar-dock relative",
+            isResizing && "is-resizing",
+            minimized
+              ? "pointer-events-none translate-y-2.5 scale-[0.96] opacity-0"
+              : "translate-y-0 scale-100 opacity-100",
+          )}
+        >
+          {/* Left tactile resize / pull handle */}
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize AI command bar from left edge"
+            data-resize-handle="left"
+            title="Drag to resize · Double-click to reset"
+            onPointerDown={(e) => handleResizePointerDown(e, "left")}
+            onPointerMove={handleResizePointerMove}
+            onPointerUp={finishResize}
+            onPointerCancel={finishResize}
+            onDoubleClick={handleResetWidth}
+            className="group/handle absolute inset-y-1.5 -left-3 z-20 flex w-4 cursor-ew-resize touch-none select-none items-center justify-center"
+          >
+            <span
+              className={cn(
+                "h-6 w-1 rounded-full transition-all duration-150 ease-[cubic-bezier(0.22,1,0.36,1)]",
+                activeHandle === "left"
+                  ? "h-8 w-1.5 scale-y-110 bg-primary opacity-100 shadow-[0_0_8px_var(--primary)]"
+                  : "bg-muted/35 opacity-0 group-hover/handle:h-7 group-hover/handle:bg-primary/70 group-hover/handle:opacity-100",
+              )}
+            />
           </div>
+
+          {/* Right tactile resize / pull handle */}
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize AI command bar from right edge"
+            data-resize-handle="right"
+            title="Drag to resize · Double-click to reset"
+            onPointerDown={(e) => handleResizePointerDown(e, "right")}
+            onPointerMove={handleResizePointerMove}
+            onPointerUp={finishResize}
+            onPointerCancel={finishResize}
+            onDoubleClick={handleResetWidth}
+            className="group/handle absolute inset-y-1.5 -right-3 z-20 flex w-4 cursor-ew-resize touch-none select-none items-center justify-center"
+          >
+            <span
+              className={cn(
+                "h-6 w-1 rounded-full transition-all duration-150 ease-[cubic-bezier(0.22,1,0.36,1)]",
+                activeHandle === "right"
+                  ? "h-8 w-1.5 scale-y-110 bg-primary opacity-100 shadow-[0_0_8px_var(--primary)]"
+                  : "bg-muted/35 opacity-0 group-hover/handle:h-7 group-hover/handle:bg-primary/70 group-hover/handle:opacity-100",
+              )}
+            />
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setMinimized(true)}
+            aria-label="Minimize AI chatbar to pill"
+            title="Minimize chatbar"
+            className="absolute -top-2.5 -right-2 z-20 flex size-5 items-center justify-center rounded-full border border-border bg-surface text-muted shadow-xs transition-transform duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] hover:scale-110 hover:text-fg active:scale-95"
+          >
+            <X className="size-3" aria-hidden />
+          </button>
+
+          <MagicChatPanel mode="dock" isMinimized={minimized} isResizing={isResizing} />
         </div>
-      )}
+      </div>
     </>
   );
 }

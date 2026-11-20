@@ -713,33 +713,93 @@ html.is-dashboard-dragging {
   transition: none !important;
 }
 
-/* Smooth Edge-Swipe Card Resize Physics (1 col <-> 2 cols) */
+/* Smooth Edge-Swipe Card Resize Physics (1 col <-> 2 cols) — Crisp 1:1 Width Pull (Zero Blur / Distortion) */
 .resizable-bento-card {
-  will-change: transform, opacity, filter, backdrop-filter, box-shadow;
+  position: relative;
+  width: calc(100% + var(--resize-delta-w, 0px));
+  will-change: width, transform, box-shadow;
   transform-origin: left center;
-  transform: translate3d(var(--resize-x, 0px), 0, 0) scaleX(var(--resize-scale-x, 1)) scaleY(var(--resize-scale-y, 1));
-  backdrop-filter: blur(var(--resize-blur, 0px));
-  filter: blur(var(--resize-content-blur, 0px));
-  opacity: var(--resize-opacity, 1);
-  transition: transform 350ms cubic-bezier(0.22, 1, 0.36, 1),
-              backdrop-filter 300ms ease-out,
-              filter 300ms ease-out,
-              opacity 300ms ease-out,
-              box-shadow 300ms ease-out;
+  transform: translate3d(0, 0, 0);
+  transition:
+    width 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 260ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .resizable-bento-card.is-rubber-banding {
-  transition: transform 250ms cubic-bezier(0.34, 1.56, 0.64, 1),
-              backdrop-filter 250ms ease-out,
-              filter 250ms ease-out,
-              opacity 250ms ease-out,
-              box-shadow 250ms ease-out;
+  transition:
+    width 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 240ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .resizable-bento-card.is-resizing {
   transition: none !important;
   z-index: 30;
-  box-shadow: var(--resize-shadow, -12px 0 24px -6px rgba(0, 0, 0, 0.45));
+  box-shadow: var(--resize-shadow, 0 22px 44px -12px rgba(0, 0, 0, 0.28), 0 0 0 1.5px color-mix(in srgb, var(--primary) 45%, transparent));
+}
+
+/* Floating AI Command Bar — Zero-Lag Resize & Spring Physics */
+.ai-chatbar-dock {
+  contain: layout style;
+  will-change: width, transform, opacity;
+  transform-origin: center bottom;
+  transition:
+    width 340ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 340ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.ai-chatbar-surface {
+  will-change: transform, box-shadow, backdrop-filter;
+  backdrop-filter: blur(var(--chatbar-blur, 14px));
+  -webkit-backdrop-filter: blur(var(--chatbar-blur, 14px));
+  transition:
+    transform 340ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    backdrop-filter 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.ai-chatbar-controls {
+  will-change: transform, opacity;
+  transform-origin: center center;
+  transition:
+    transform 300ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.ai-chatbar-pill {
+  will-change: transform, opacity, box-shadow, backdrop-filter;
+  transition:
+    transform 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 240ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 260ms cubic-bezier(0.22, 1, 0.36, 1),
+    backdrop-filter 260ms cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 200ms ease,
+    border-color 200ms ease;
+}
+
+.ai-chatbar-drawer-grid {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.ai-chatbar-drawer-grid.is-expanded {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.ai-chatbar-dock.is-resizing,
+.ai-chatbar-dock.is-resizing .ai-chatbar-surface,
+.ai-chatbar-dock.is-resizing .ai-chatbar-controls {
+  transition: none !important;
+  user-select: none !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -751,7 +811,12 @@ html.is-dashboard-dragging {
   .animate-swipe-prev,
   .resizable-bento-card,
   .resizable-bento-card.is-rubber-banding,
-  .resizable-bento-card.is-resizing {
+  .resizable-bento-card.is-resizing,
+  .ai-chatbar-dock,
+  .ai-chatbar-surface,
+  .ai-chatbar-controls,
+  .ai-chatbar-pill,
+  .ai-chatbar-drawer-grid {
     animation: none !important;
     transform: none !important;
     backdrop-filter: none !important;

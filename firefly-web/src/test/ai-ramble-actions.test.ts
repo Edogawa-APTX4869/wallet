@@ -6,6 +6,13 @@ import {
   parseWithSmartHeuristics,
   type SmartParseContext,
 } from "@/lib/ai-ramble-parser";
+import {
+  CHATBAR_COLLAPSE_WIDTH,
+  CHATBAR_DEFAULT_WIDTH,
+  CHATBAR_MIN_WIDTH,
+  computeChatbarDragWidth,
+  settleChatbarWidth,
+} from "@/components/magic-chatbar";
 
 const baseCtx: SmartParseContext = {
   text: "",
@@ -203,5 +210,75 @@ describe("AI Ramble full-system action parser & live Q&A", () => {
     expect(settingsSrc).not.toContain("Google restricts third-party self-hosted Docker apps");
     expect(magicSrc).toContain("alwaysShow");
     expect(newTxSrc).not.toContain("AI MAGIC");
+  });
+
+  it("supports zero-lag 1:1 pointer resize, snap points, collapse-to-pill, and spring transitions on MagicChatbar", () => {
+    // 1:1 symmetric edge tracking from right handle (+50px cursor move -> +100px centered width so right edge moves +50px)
+    expect(
+      computeChatbarDragWidth({
+        startWidth: 672,
+        startX: 500,
+        currentX: 550,
+        side: "right",
+        maxWidth: 1040,
+      }),
+    ).toBe(772);
+
+    // 1:1 symmetric edge tracking from left handle (-40px cursor move left -> +80px centered width)
+    expect(
+      computeChatbarDragWidth({
+        startWidth: 672,
+        startX: 300,
+        currentX: 260,
+        side: "left",
+        maxWidth: 1040,
+      }),
+    ).toBe(752);
+
+    // Snaps within 18px of snap points (420, 540, 672, 840, 1040)
+    expect(settleChatbarWidth({ rawWidth: 681, maxWidth: 1040 })).toEqual({
+      collapsed: false,
+      width: CHATBAR_DEFAULT_WIDTH,
+    });
+    expect(settleChatbarWidth({ rawWidth: 530, maxWidth: 1040 })).toEqual({
+      collapsed: false,
+      width: 540,
+    });
+
+    // Preserves custom width outside snap thresholds and clamps to min/max bounds
+    expect(settleChatbarWidth({ rawWidth: 600, maxWidth: 1040 })).toEqual({
+      collapsed: false,
+      width: 600,
+    });
+    expect(settleChatbarWidth({ rawWidth: 310, maxWidth: 1040 })).toEqual({
+      collapsed: false,
+      width: CHATBAR_MIN_WIDTH,
+    });
+
+    // Collapses to compact pill when pulled at or below CHATBAR_COLLAPSE_WIDTH
+    expect(settleChatbarWidth({ rawWidth: CHATBAR_COLLAPSE_WIDTH, maxWidth: 1040 })).toEqual({
+      collapsed: true,
+      width: CHATBAR_DEFAULT_WIDTH,
+    });
+
+    const magicSrc = readFileSync(
+      path.resolve(__dirname, "../components/magic-chatbar.tsx"),
+      "utf8",
+    );
+    const globalsCss = readFileSync(
+      path.resolve(__dirname, "../app/globals.css"),
+      "utf8",
+    );
+
+    expect(magicSrc).toContain("setPointerCapture");
+    expect(magicSrc).toContain("releasePointerCapture");
+    expect(magicSrc).toContain('data-resize-handle="left"');
+    expect(magicSrc).toContain('data-resize-handle="right"');
+    expect(magicSrc).toContain("cursor-ew-resize");
+    expect(magicSrc).toContain("is-resizing");
+    expect(magicSrc).toContain("scale-[0.96]");
+    expect(globalsCss).toContain(".ai-chatbar-dock");
+    expect(globalsCss).toContain("cubic-bezier(0.22, 1, 0.36, 1)");
+    expect(globalsCss).toContain(".ai-chatbar-dock.is-resizing");
   });
 });
