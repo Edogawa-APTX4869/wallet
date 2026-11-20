@@ -141,10 +141,13 @@ export interface BudgetLimit {
   start: string;
   end: string;
   amount: string;
+  period?: string | null;
+  currency_id?: string;
   currency_code?: string;
   currency_symbol?: string;
   currency_decimal_places?: number;
   spent?: string | SpentEntry[] | null;
+  pc_spent?: SpentEntry[] | null;
   notes?: string | null;
 }
 

@@ -108,6 +108,7 @@ export function BudgetTransferModal({
 
   return (
     <BudgetTransferModalContent
+      key={`${initialSourceId ?? ""}:${initialDestId ?? ""}`}
       open={open}
       onClose={onClose}
       rows={rows}
@@ -161,16 +162,6 @@ function BudgetTransferModalContent({
   const [amount, setAmount] = useState<string>("");
   const [note, setNote] = useState<string>("");
 
-  useEffect(() => {
-    if (!open) return;
-    const next = pickDefaults();
-    setSourceId(next.src);
-    setDestId(next.dst);
-    setAmount("");
-    setNote("");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, initialSourceId, initialDestId]);
-
   const sourceRow = rows.find((r) => r.id === sourceId) ?? rows[0];
   const destRow = rows.find((r) => r.id === destId) ?? rows.find((r) => r.id !== sourceRow?.id);
 
@@ -182,6 +173,7 @@ function BudgetTransferModalContent({
       start: match?.start ?? (row.limitStart || start),
       end: match?.end ?? (row.limitEnd || end),
       amount: match?.amount ?? row.limit,
+      spent: match?.spent ?? row.spent,
     };
   };
 
@@ -193,9 +185,9 @@ function BudgetTransferModalContent({
     try {
       const res = computeBudgetTransfer({
         sourceLimit: srcSlice.amount,
-        sourceSpent: sourceRow.spent,
+        sourceSpent: srcSlice.spent,
         destLimit: dstSlice.amount,
-        destSpent: destRow.spent,
+        destSpent: dstSlice.spent,
         amount,
         decimals: sourceRow.decimals,
         sourceId: sourceRow.id,
@@ -221,9 +213,9 @@ function BudgetTransferModalContent({
       if (!sourceRow || !destRow || !srcSlice || !dstSlice) throw new Error("Choose two budgets.");
       const calc = computeBudgetTransfer({
         sourceLimit: srcSlice.amount,
-        sourceSpent: sourceRow.spent,
+        sourceSpent: srcSlice.spent,
         destLimit: dstSlice.amount,
-        destSpent: destRow.spent,
+        destSpent: dstSlice.spent,
         amount,
         decimals: sourceRow.decimals,
         sourceId: sourceRow.id,

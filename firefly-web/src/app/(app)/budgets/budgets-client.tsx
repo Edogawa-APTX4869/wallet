@@ -16,11 +16,16 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/firefly/api";
 import type { Budget, Resource } from "@/lib/firefly/types";
-import { usePrimaryCurrency } from "@/lib/hooks";
+import {
+  formatBudgetAmountInput,
+  resolveBudgetPeriodRow,
+  type BudgetPeriodRow,
+} from "@/lib/budget-periods";
+import { useCurrencies, usePrimaryCurrency } from "@/lib/hooks";
 import { cn, isoDate, monthRange, parseAmount, sumDecimal } from "@/lib/utils";
 import { ResourceIconBadge } from "@/components/resource-icon";
 import { BudgetConfigModal } from "@/components/budget-config-modal";
-import { BudgetAdjustModal, type BudgetPeriodRow } from "@/components/budget-adjust-modal";
+import { BudgetAdjustModal } from "@/components/budget-adjust-modal";
 import { BudgetTransferModal } from "@/components/budget-transfer-modal";
 import {
   Badge,
@@ -33,6 +38,7 @@ import {
   Money,
   PageHeader,
   Progress,
+  Select,
   Skeleton,
 } from "@/components/ui";
 import { useToast } from "@/components/providers";
@@ -46,6 +52,7 @@ export function BudgetsClient() {
   const [monthOffset, setMonthOffset] = useState(0);
   const range = useMemo(() => monthRange(monthOffset), [monthOffset]);
   const primaryQ = usePrimaryCurrency();
+  const currenciesQ = useCurrencies();
 
   const budgetsQ = useQuery({
     queryKey: ["budgets", range.start, range.end],
@@ -62,7 +69,9 @@ export function BudgetsClient() {
 
   const [newName, setNewName] = useState("");
   const [editingLimitId, setEditingLimitId] = useState<string | null>(null);
+  const [editingSliceId, setEditingSliceId] = useState<string | null>(null);
   const [limitAmount, setLimitAmount] = useState("");
+  const [editLimitError, setEditLimitError] = useState<string | null>(null);
   const [configOpen, setConfigOpen] = useState(false);
   const [configBudget, setConfigBudget] = useState<Resource<Budget> | null>(null);
   const [configInitialName, setConfigInitialName] = useState("");
@@ -75,7 +84,15 @@ export function BudgetsClient() {
   const [editingAvail, setEditingAvail] = useState(false);
   const [availAmount, setAvailAmount] = useState("");
 
-  useEscapeDismiss(editingLimitId !== null, () => setEditingLimitId(null), "budget-edit-limit");
+  useEscapeDismiss(
+    editingLimitId !== null,
+    () => {
+      setEditingLimitId(null);
+      setEditingSliceId(null);
+      setEditLimitError(null);
+    },
+    "budget-edit-limit",
+  );
   useEscapeDismiss(editingAvail, () => setEditingAvail(false), "available-budget-edit");
 
   const createMut = useMutation({
@@ -101,6 +118,7 @@ export function BudgetsClient() {
       limitEnd,
       amount,
       currencyCode,
+      decimals,
     }: {
       budgetId: string;
       limitId: string | null;
@@ -108,31 +126,55 @@ export function BudgetsClient() {
       limitEnd?: string;
       amount: string;
       currencyCode?: string;
+      decimals?: number;
     }) => {
       const parsed = parseAmount(amount);
-      if (!parsed || new Decimal(parsed).lte(0)) throw new Error("Enter a valid limit amount.");
+      if (!parsed || new Decimal(parsed).lte(0)) throw new Error("Enter a valid limit amount greater than 0.");
+      const formattedAmount = formatBudgetAmountInput(parsed, decimals) || parsed;
       return api.upsertBudgetLimit({
         budgetId,
         limitId,
-        amount: parsed,
-        start: limitStart || range.start,
-        end: limitEnd || range.end,
+        amount: formattedAmount,
+        start: (limitStart || range.start).slice(0, 10),
+        end: (limitEnd || range.end).slice(0, 10),
         currency_code: currencyCode || primaryQ.data?.code,
       });
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       toast("Budget limit updated");
       setEditingLimitId(null);
+      setEditingSliceId(null);
       setLimitAmount("");
-      qc.invalidateQueries({ queryKey: ["budget-limits"] });
-      qc.invalidateQueries({ queryKey: ["budgets"] });
-      qc.invalidateQueries({ queryKey: ["available-budgets"] });
+      setEditLimitError(null);
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["budget-limits"] }),
+        qc.invalidateQueries({ queryKey: ["budgets"] }),
+        qc.invalidateQueries({ queryKey: ["budgets-list"] }),
+        qc.invalidateQueries({ queryKey: ["available-budgets"] }),
+      ]);
     },
-    onError: (e) => toast((e as Error).message, "error"),
+    onError: (e) => {
+      const msg = (e as Error).message || "Failed to update budget limit.";
+      setEditLimitError(msg);
+      toast(msg, "error");
+    },
   });
 
   const defaultCode = primaryQ.data?.code || "USD";
   const defaultDecimals = primaryQ.data?.decimal_places;
+
+  const currencyDecimalsByCode = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const c of currenciesQ.data ?? []) {
+      if (c.attributes.code && typeof c.attributes.decimal_places === "number") {
+        map[c.attributes.code.toUpperCase()] = c.attributes.decimal_places;
+      }
+    }
+    if (primaryQ.data?.code && typeof primaryQ.data.decimal_places === "number") {
+      map[primaryQ.data.code.toUpperCase()] = primaryQ.data.decimal_places;
+    }
+    return map;
+  }, [currenciesQ.data, primaryQ.data]);
 
   const availEntry = useMemo(() => {
     const list = availableBudgetsQ.data ?? [];
@@ -175,75 +217,44 @@ export function BudgetsClient() {
     const budgets = budgetsQ.data ?? [];
     const limits = limitsQ.data ?? [];
     const today = isoDate();
-    return budgets.map((b) => {
-      const matchingLimits = limits
-        .filter((l) => l.attributes.budget_id === b.id)
-        .sort((a, z) => (z.attributes.start || "").localeCompare(a.attributes.start || ""));
-
-      const periodLimits = matchingLimits.map((l) => ({
-        id: l.id,
-        start: (l.attributes.start || range.start).slice(0, 10),
-        end: (l.attributes.end || range.end).slice(0, 10),
-        amount: new Decimal(l.attributes.amount || 0),
-        currencyCode: l.attributes.currency_code,
-        decimals: l.attributes.currency_decimal_places,
-        notes: l.attributes.notes ?? null,
-      }));
-
-      const primaryLim =
-        periodLimits.find((l) => l.start <= today && l.end >= today) ?? periodLimits[0] ?? null;
-      const limitVal =
-        periodLimits.length > 0
-          ? sumDecimal(periodLimits.map((l) => l.amount))
-          : new Decimal(b.attributes.auto_budget_amount ?? 0);
-      const spentEntries = b.attributes.spent ?? [];
-      const spentVal = sumDecimal(spentEntries.map((s) => new Decimal(s.sum).abs()));
-      const leftVal = limitVal.minus(spentVal);
-      const code =
-        primaryLim?.currencyCode ||
-        spentEntries[0]?.currency_code ||
-        b.attributes.auto_budget_currency_code ||
-        defaultCode;
-      const decimals =
-        primaryLim?.decimals ??
-        spentEntries[0]?.currency_decimal_places ??
-        defaultDecimals;
-      return {
-        raw: b,
-        id: b.id,
-        limitId: primaryLim?.id ?? null,
-        limitStart: primaryLim?.start ?? range.start,
-        limitEnd: primaryLim?.end ?? range.end,
-        limitNotes: primaryLim?.notes ?? null,
-        periodLimits,
-        name: b.attributes.name,
-        active: b.attributes.active,
-        autoBudgetType: b.attributes.auto_budget_type,
-        autoBudgetAmount: b.attributes.auto_budget_amount,
-        autoBudgetPeriod: b.attributes.auto_budget_period,
-        autoBudgetCurrencyCode: b.attributes.auto_budget_currency_code,
-        limit: limitVal,
-        spent: spentVal,
-        left: leftVal,
-        code,
-        decimals,
-      };
-    });
-  }, [budgetsQ.data, limitsQ.data, range.start, range.end, defaultCode, defaultDecimals]);
+    return budgets.map((b) =>
+      resolveBudgetPeriodRow({
+        budget: b,
+        limits,
+        rangeStart: range.start,
+        rangeEnd: range.end,
+        today,
+        defaultCode,
+        defaultDecimals,
+        currencyDecimalsByCode,
+      }),
+    );
+  }, [
+    budgetsQ.data,
+    limitsQ.data,
+    range.start,
+    range.end,
+    defaultCode,
+    defaultDecimals,
+    currencyDecimalsByCode,
+  ]);
 
   const summary = useMemo(() => {
     const summaryCode = availEntry?.attributes.currency_code || defaultCode;
     const primaryRows = rows.filter((r) => r.code === summaryCode);
     const activeRows = primaryRows.length > 0 ? primaryRows : rows;
-    const totalBudgeted = sumDecimal(activeRows.map((r) => r.limit));
-    const totalSpent = sumDecimal(activeRows.map((r) => r.spent));
+    const totalBudgeted = sumDecimal(activeRows.map((r) => r.monthLimit ?? r.limit));
+    const totalSpent = sumDecimal(activeRows.map((r) => r.monthSpent ?? r.spent));
     const totalRemaining = totalBudgeted.minus(totalSpent);
     const availablePool = availEntry ? new Decimal(availEntry.attributes.amount || 0) : null;
     const unallocated = availablePool ? availablePool.minus(totalBudgeted) : null;
     const overspentRow = rows.find((r) => r.left.lt(0)) ?? null;
     return {
       code: summaryCode,
-      decimals: availEntry?.attributes.currency_decimal_places ?? defaultDecimals,
+      decimals:
+        availEntry?.attributes.currency_decimal_places ??
+        currencyDecimalsByCode[summaryCode.toUpperCase()] ??
+        defaultDecimals,
       totalBudgeted,
       totalSpent,
       totalRemaining,
@@ -251,7 +262,22 @@ export function BudgetsClient() {
       unallocated,
       overspentRow,
     };
-  }, [rows, availEntry, defaultCode, defaultDecimals]);
+  }, [rows, availEntry, defaultCode, defaultDecimals, currencyDecimalsByCode]);
+
+  const openInlineLimitEditor = (row: BudgetPeriodRow, targetSliceId?: string | null) => {
+    const slices = row.periodLimits ?? [];
+    const selectedSlice =
+      (targetSliceId ? slices.find((s) => s.id === targetSliceId) : null) ??
+      slices.find((s) => s.id === row.limitId) ??
+      slices[0] ??
+      null;
+    const seed = selectedSlice ? selectedSlice.amount : row.limit;
+    const dec = selectedSlice?.decimals ?? row.decimals;
+    setEditingLimitId(row.id);
+    setEditingSliceId(selectedSlice?.id ?? null);
+    setLimitAmount(seed.gt(0) ? formatBudgetAmountInput(seed, dec) : "");
+    setEditLimitError(null);
+  };
 
   const createFromQuery = searchParams.get("create") === "1" || searchParams.get("create") === "true";
   const isConfigOpen = configOpen || createFromQuery;
@@ -486,13 +512,33 @@ export function BudgetsClient() {
             const pct = r.limit.gt(0) ? r.spent.div(r.limit).mul(100).toNumber() : 0;
             const tone = pct >= 100 ? "danger" : pct >= 80 ? "warning" : "primary";
             const isEditing = editingLimitId === r.id;
+            const slices = r.periodLimits ?? [];
+            const activeEditingSlice = isEditing
+              ? slices.find((s) => s.id === editingSliceId) ??
+                slices.find((s) => s.id === r.limitId) ??
+                slices[0] ??
+                null
+              : null;
+            const editTargetId = activeEditingSlice ? activeEditingSlice.id : r.limitId;
+            const editTargetStart = activeEditingSlice ? activeEditingSlice.start : r.limitStart;
+            const editTargetEnd = activeEditingSlice ? activeEditingSlice.end : r.limitEnd;
+            const editTargetCode = activeEditingSlice?.currencyCode || r.code;
+            const editTargetDecimals = activeEditingSlice?.decimals ?? r.decimals;
+
             return (
               <Card key={r.id} className="flex flex-col justify-between gap-4">
                 <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center gap-2.5">
+                  <div className="flex items-center gap-2.5 min-w-0">
                     <ResourceIconBadge entityType="budget" entityId={r.id} defaultIcon="PiggyBank" />
-                    <div>
-                      <h3 className="font-semibold">{r.name}</h3>
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <h3 className="font-semibold truncate">{r.name}</h3>
+                        {r.isSubPeriod && (
+                          <Badge tone={r.hasActiveSlice ? "primary" : "neutral"} className="text-[10px] font-mono">
+                            {r.limitStart} → {r.limitEnd}
+                          </Badge>
+                        )}
+                      </div>
                       <p className="text-xs text-muted">
                         Spent <Money amount={r.spent.toString()} code={r.code} decimals={r.decimals} />
                         {r.limit.gt(0) && (
@@ -504,7 +550,7 @@ export function BudgetsClient() {
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-0.5">
+                  <div className="flex items-center gap-0.5 shrink-0">
                     {!r.active && <Badge tone="warning">Inactive</Badge>}
                     {rows.length >= 2 && (
                       <Button
@@ -545,11 +591,13 @@ export function BudgetsClient() {
                       variant="ghost"
                       size="sm"
                       onClick={() => {
-                        setEditingLimitId(isEditing ? null : r.id);
-                        const activeSlice =
-                          r.periodLimits?.find((s) => s.id === r.limitId) ?? r.periodLimits?.[0];
-                        const seed = activeSlice ? activeSlice.amount : r.limit;
-                        setLimitAmount(seed.gt(0) ? seed.toString() : "");
+                        if (isEditing) {
+                          setEditingLimitId(null);
+                          setEditingSliceId(null);
+                          setEditLimitError(null);
+                        } else {
+                          openInlineLimitEditor(r);
+                        }
                       }}
                     >
                       <Pencil className="size-3.5" aria-hidden /> {r.limit.gt(0) ? "Edit limit" : "Set limit"}
@@ -571,22 +619,54 @@ export function BudgetsClient() {
                   </div>
                 )}
 
-                {r.periodLimits && r.periodLimits.length > 1 && (
-                  <div className="flex flex-col gap-1 rounded-lg border border-border/70 bg-surface-2/40 px-2.5 py-1.5 text-[11px]">
-                    {r.periodLimits.map((slice) => (
-                      <div key={slice.id} className="flex items-center justify-between gap-2">
-                        <span className="text-muted font-mono">
-                          {slice.start} → {slice.end}
-                        </span>
-                        <span className="font-semibold text-fg">
-                          <Money
-                            amount={slice.amount.toString()}
-                            code={slice.currencyCode || r.code}
-                            decimals={slice.decimals ?? r.decimals}
-                          />
+                {slices.length > 1 && (
+                  <div className="flex flex-col gap-1 rounded-lg border border-border/70 bg-surface-2/40 px-2.5 py-2 text-[11px]">
+                    {slices.map((slice) => {
+                      const sliceCode = slice.currencyCode || r.code;
+                      const sliceDec = slice.decimals ?? r.decimals;
+                      return (
+                        <button
+                          key={slice.id}
+                          type="button"
+                          onClick={() => openInlineLimitEditor(r, slice.id)}
+                          className={cn(
+                            "flex items-center justify-between gap-2 rounded-md px-1.5 py-1 text-left transition hover:bg-surface-2",
+                            slice.id === r.limitId && "bg-primary-soft/25 font-medium",
+                          )}
+                          title={`Edit limit for ${slice.start} → ${slice.end}`}
+                        >
+                          <span className="flex items-center gap-1.5 text-muted font-mono">
+                            <span>
+                              {slice.start} → {slice.end}
+                            </span>
+                            {slice.isActive && (
+                              <span className="rounded bg-primary/15 px-1 py-0.25 font-sans text-[10px] font-semibold text-primary">
+                                Active
+                              </span>
+                            )}
+                          </span>
+                          <span className="shrink-0 tabular-nums text-fg">
+                            <span className={cn(slice.left.lt(0) ? "text-danger font-semibold" : "text-muted")}>
+                              <Money amount={slice.spent.toString()} code={sliceCode} decimals={sliceDec} />
+                            </span>
+                            <span className="text-muted"> / </span>
+                            <span className="font-semibold">
+                              <Money amount={slice.amount.toString()} code={sliceCode} decimals={sliceDec} />
+                            </span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                    {r.monthLimit && r.monthSpent && r.monthLeft && (
+                      <div className="mt-0.5 flex items-center justify-between gap-2 border-t border-border/60 pt-1.5 text-[11px] text-muted">
+                        <span>Month total ({range.label})</span>
+                        <span className="tabular-nums">
+                          <Money amount={r.monthSpent.toString()} code={r.code} decimals={r.decimals} />
+                          {" / "}
+                          <Money amount={r.monthLimit.toString()} code={r.code} decimals={r.decimals} />
                         </span>
                       </div>
-                    ))}
+                    )}
                   </div>
                 )}
 
@@ -600,28 +680,85 @@ export function BudgetsClient() {
                   <form
                     onSubmit={(e) => {
                       e.preventDefault();
+                      setEditLimitError(null);
                       limitMut.mutate({
                         budgetId: r.id,
-                        limitId: r.limitId,
-                        limitStart: r.limitStart,
-                        limitEnd: r.limitEnd,
+                        limitId: editTargetId,
+                        limitStart: editTargetStart,
+                        limitEnd: editTargetEnd,
                         amount: limitAmount,
-                        currencyCode: r.code,
+                        currencyCode: editTargetCode,
+                        decimals: editTargetDecimals,
                       });
                     }}
-                    className="flex items-center gap-2"
+                    className="flex flex-col gap-2 rounded-xl border border-primary/25 bg-surface-2/40 p-2.5"
                   >
-                    <Input
-                      inputMode="decimal"
-                      value={limitAmount}
-                      onChange={(e) => setLimitAmount(e.target.value)}
-                      placeholder={`Limit in ${r.code}`}
-                      aria-label={`Monthly limit for ${r.name}`}
-                      autoFocus
-                    />
-                    <Button type="submit" size="sm" loading={limitMut.isPending}>
-                      Save
-                    </Button>
+                    {slices.length > 1 ? (
+                      <Field label="Period to edit">
+                        {(id) => (
+                          <Select
+                            id={id}
+                            value={editTargetId ?? ""}
+                            onChange={(e) => {
+                              const nextId = e.target.value;
+                              const nextSlice = slices.find((s) => s.id === nextId);
+                              setEditingSliceId(nextId);
+                              setEditLimitError(null);
+                              if (nextSlice) {
+                                setLimitAmount(
+                                  formatBudgetAmountInput(nextSlice.amount, nextSlice.decimals ?? r.decimals),
+                                );
+                              }
+                            }}
+                          >
+                            {slices.map((s) => (
+                              <option key={s.id} value={s.id}>
+                                {s.start} → {s.end}
+                                {s.isActive ? " (Active)" : ""} · {s.currencyCode || r.code}{" "}
+                                {s.amount.toFixed(s.decimals ?? r.decimals ?? 2)}
+                              </option>
+                            ))}
+                          </Select>
+                        )}
+                      </Field>
+                    ) : (
+                      <p className="text-[11px] font-medium text-muted">
+                        {editTargetId ? "Editing limit" : "Creating limit"} for{" "}
+                        <span className="font-mono text-fg">
+                          {editTargetStart} → {editTargetEnd}
+                        </span>
+                      </p>
+                    )}
+
+                    <div className="flex items-center gap-2">
+                      <Input
+                        inputMode="decimal"
+                        value={limitAmount}
+                        onChange={(e) => {
+                          setLimitAmount(e.target.value);
+                          if (editLimitError) setEditLimitError(null);
+                        }}
+                        placeholder={`Limit in ${editTargetCode}`}
+                        aria-label={`Limit for ${r.name}`}
+                        autoFocus
+                      />
+                      <Button type="submit" size="sm" loading={limitMut.isPending}>
+                        Save
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          setEditingLimitId(null);
+                          setEditingSliceId(null);
+                          setEditLimitError(null);
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                    <ErrorBox error={editLimitError} />
                   </form>
                 )}
 

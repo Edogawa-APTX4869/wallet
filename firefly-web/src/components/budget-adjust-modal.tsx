@@ -5,41 +5,16 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Decimal from "decimal.js";
 import { Minus, Plus, SlidersHorizontal, Trash2 } from "lucide-react";
 import { api } from "@/lib/firefly/api";
-import type { Budget, Resource } from "@/lib/firefly/types";
+import {
+  formatBudgetAmountInput,
+  type BudgetLimitSlice,
+  type BudgetPeriodRow,
+} from "@/lib/budget-periods";
 import { cn, parseAmount } from "@/lib/utils";
 import { Button, Field, Input, ModalSheet, Money, Select } from "@/components/ui";
 import { useToast } from "@/components/providers";
 
-export interface BudgetLimitSlice {
-  id: string;
-  start: string;
-  end: string;
-  amount: Decimal;
-  currencyCode?: string;
-  decimals?: number;
-  notes: string | null;
-}
-
-export interface BudgetPeriodRow {
-  raw: Resource<Budget>;
-  id: string;
-  limitId: string | null;
-  limitStart: string;
-  limitEnd: string;
-  limitNotes: string | null;
-  periodLimits?: BudgetLimitSlice[];
-  name: string;
-  active: boolean;
-  autoBudgetType?: string | null;
-  autoBudgetAmount?: string | null;
-  autoBudgetPeriod?: string | null;
-  autoBudgetCurrencyCode?: string | null;
-  limit: Decimal;
-  spent: Decimal;
-  left: Decimal;
-  code: string;
-  decimals?: number;
-}
+export type { BudgetLimitSlice, BudgetPeriodRow };
 
 export type AdjustMode = "set" | "add" | "subtract";
 
@@ -111,6 +86,7 @@ export function BudgetAdjustModal({
 
   return (
     <BudgetAdjustModalContent
+      key={`${row.id}:${row.limitId ?? ""}`}
       open={open}
       onClose={onClose}
       row={row}
@@ -146,22 +122,14 @@ function BudgetAdjustModalContent({
   const activeStart = activeSlice ? activeSlice.start : row.limitStart || start;
   const activeEnd = activeSlice ? activeSlice.end : row.limitEnd || end;
   const activeCurrentLimit = activeSlice ? activeSlice.amount : row.limit;
+  const activeSliceSpent = activeSlice?.spent ?? row.spent;
+  const activeSliceLeft = activeCurrentLimit.minus(activeSliceSpent);
+  const activeCurrencyCode = activeSlice?.currencyCode || row.code;
+  const activeDecimals = activeSlice?.decimals ?? row.decimals;
 
   const [mode, setMode] = useState<AdjustMode>(() => (activeCurrentLimit.gt(0) ? "add" : "set"));
   const [amount, setAmount] = useState<string>("");
   const [notes, setNotes] = useState<string>(() => activeSlice?.notes ?? row.limitNotes ?? "");
-
-  useEffect(() => {
-    if (!open) return;
-    const initSliceId = row.limitId ?? slices[0]?.id ?? "";
-    const initSlice = slices.find((s) => s.id === initSliceId) ?? slices[0] ?? null;
-    const initLim = initSlice ? initSlice.amount : row.limit;
-    setSelectedSliceId(initSliceId);
-    setMode(initLim.gt(0) ? "add" : "set");
-    setAmount("");
-    setNotes(initSlice?.notes ?? row.limitNotes ?? "");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, row.id]);
 
   const preview = useMemo(() => {
     if (!amount.trim()) return null;
@@ -170,20 +138,21 @@ function BudgetAdjustModalContent({
         currentLimit: activeCurrentLimit,
         mode,
         inputAmount: amount,
-        decimals: row.decimals,
+        decimals: activeDecimals,
       });
-      const totalAfter = slices.length > 1 ? row.limit.minus(activeCurrentLimit).plus(res.newLimit) : res.newLimit;
-      return { ok: true as const, ...res, newLeft: totalAfter.minus(row.spent) };
+      return { ok: true as const, ...res, newLeft: res.newLimit.minus(activeSliceSpent) };
     } catch (e) {
       return { ok: false as const, error: (e as Error).message };
     }
-  }, [activeCurrentLimit, slices.length, row.limit, row.spent, row.decimals, mode, amount]);
+  }, [activeCurrentLimit, activeSliceSpent, activeDecimals, mode, amount]);
 
-  const invalidateAll = () => {
-    qc.invalidateQueries({ queryKey: ["budget-limits"] });
-    qc.invalidateQueries({ queryKey: ["budgets"] });
-    qc.invalidateQueries({ queryKey: ["budgets-list"] });
-    qc.invalidateQueries({ queryKey: ["available-budgets"] });
+  const invalidateAll = async () => {
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: ["budget-limits"] }),
+      qc.invalidateQueries({ queryKey: ["budgets"] }),
+      qc.invalidateQueries({ queryKey: ["budgets-list"] }),
+      qc.invalidateQueries({ queryKey: ["available-budgets"] }),
+    ]);
   };
 
   const saveMut = useMutation({
@@ -192,7 +161,7 @@ function BudgetAdjustModalContent({
         currentLimit: activeCurrentLimit,
         mode,
         inputAmount: amount,
-        decimals: row.decimals,
+        decimals: activeDecimals,
       });
       if (newLimit.eq(0)) {
         if (activeLimitId) {
@@ -206,13 +175,13 @@ function BudgetAdjustModalContent({
         amount: formatted,
         start: activeStart,
         end: activeEnd,
-        currency_code: row.code,
+        currency_code: activeCurrencyCode,
         notes: notes.trim() || null,
       });
       return { cleared: false };
     },
     onSuccess: (res) => {
-      invalidateAll();
+      void invalidateAll();
       toast(res.cleared ? `Cleared limit for ${row.name}` : `Updated ${row.name} limit`);
       onClose();
     },
@@ -225,14 +194,16 @@ function BudgetAdjustModalContent({
       await api.deleteBudgetLimit(row.id, activeLimitId);
     },
     onSuccess: () => {
-      invalidateAll();
+      void invalidateAll();
       toast(`Cleared limit for ${row.name}`);
       onClose();
     },
     onError: (e) => toast((e as Error).message, "error"),
   });
 
-  const overspentAmount = row.spent.gt(row.limit) ? row.spent.minus(row.limit) : new Decimal(0);
+  const overspentAmount = activeSliceSpent.gt(activeCurrentLimit)
+    ? activeSliceSpent.minus(activeCurrentLimit)
+    : new Decimal(0);
 
   return (
     <ModalSheet
@@ -264,7 +235,9 @@ function BudgetAdjustModalContent({
               >
                 {slices.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.start} → {s.end} ({row.code} {s.amount.toFixed(row.decimals ?? 2)})
+                    {s.start} → {s.end}
+                    {s.isActive ? " (Active)" : ""} ({s.currencyCode || row.code}{" "}
+                    {s.amount.toFixed(s.decimals ?? row.decimals ?? 2)})
                   </option>
                 ))}
               </Select>
@@ -275,21 +248,21 @@ function BudgetAdjustModalContent({
         {/* Current status summary */}
         <div className="grid grid-cols-3 gap-2 rounded-xl border border-border bg-surface-2/40 p-3 text-xs">
           <div>
-            <span className="text-muted block">{slices.length > 1 ? "Slice limit" : "Current limit"}</span>
+            <span className="text-muted block">{slices.length > 1 ? "Period limit" : "Current limit"}</span>
             <span className="font-semibold text-fg">
-              <Money amount={activeCurrentLimit.toString()} code={row.code} decimals={row.decimals} />
+              <Money amount={activeCurrentLimit.toString()} code={activeCurrencyCode} decimals={activeDecimals} />
             </span>
           </div>
           <div>
-            <span className="text-muted block">Spent</span>
+            <span className="text-muted block">{slices.length > 1 ? "Period spent" : "Spent"}</span>
             <span className="font-semibold text-fg">
-              <Money amount={row.spent.toString()} code={row.code} decimals={row.decimals} />
+              <Money amount={activeSliceSpent.toString()} code={activeCurrencyCode} decimals={activeDecimals} />
             </span>
           </div>
           <div>
-            <span className="text-muted block">{row.left.gte(0) ? "Remaining" : "Over budget"}</span>
-            <span className={cn("font-semibold", row.left.lt(0) ? "text-danger" : "text-success")}>
-              <Money amount={row.left.abs().toString()} code={row.code} decimals={row.decimals} />
+            <span className="text-muted block">{activeSliceLeft.gte(0) ? "Remaining" : "Over budget"}</span>
+            <span className={cn("font-semibold", activeSliceLeft.lt(0) ? "text-danger" : "text-success")}>
+              <Money amount={activeSliceLeft.abs().toString()} code={activeCurrencyCode} decimals={activeDecimals} />
             </span>
           </div>
         </div>
@@ -347,7 +320,13 @@ function BudgetAdjustModalContent({
               inputMode="decimal"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-              placeholder={mode === "set" && row.limit.gt(0) ? row.limit.toString() : "0.000"}
+              placeholder={
+                mode === "set" && activeCurrentLimit.gt(0)
+                  ? formatBudgetAmountInput(activeCurrentLimit, activeDecimals)
+                  : activeDecimals !== undefined
+                    ? new Decimal(0).toFixed(activeDecimals)
+                    : "0.000"
+              }
               required
               autoFocus
             />
@@ -377,29 +356,21 @@ function BudgetAdjustModalContent({
               type="button"
               onClick={() => {
                 setMode("add");
-                setAmount(
-                  row.decimals !== undefined
-                    ? overspentAmount.toFixed(row.decimals)
-                    : overspentAmount.toString(),
-                );
+                setAmount(formatBudgetAmountInput(overspentAmount, activeDecimals));
               }}
               className="rounded-full border border-warning/40 bg-warning/10 px-2.5 py-1 text-xs font-semibold text-warning hover:bg-warning/20 transition"
             >
-              Cover overspent (+{overspentAmount.toFixed(row.decimals ?? 2)})
+              Cover overspent (+{overspentAmount.toFixed(activeDecimals ?? 2)})
             </button>
           )}
 
-          {mode === "set" && row.spent.gt(0) && (
+          {mode === "set" && activeSliceSpent.gt(0) && (
             <button
               type="button"
-              onClick={() =>
-                setAmount(
-                  row.decimals !== undefined ? row.spent.toFixed(row.decimals) : row.spent.toString(),
-                )
-              }
+              onClick={() => setAmount(formatBudgetAmountInput(activeSliceSpent, activeDecimals))}
               className="rounded-full border border-primary/30 bg-primary-soft/40 px-2.5 py-1 text-xs font-semibold text-primary hover:bg-primary-soft/70 transition"
             >
-              Match spent ({row.spent.toFixed(row.decimals ?? 2)})
+              Match spent ({activeSliceSpent.toFixed(activeDecimals ?? 2)})
             </button>
           )}
         </div>

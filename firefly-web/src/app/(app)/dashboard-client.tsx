@@ -61,7 +61,8 @@ import { useAccounts, usePrimaryCurrency, useRatesToPrimary } from "@/lib/hooks"
 import { mergePendingTransactionsIntoGroups } from "@/lib/offline-store";
 import { companionFetch, useOfflineSync } from "@/lib/offline-sync";
 import { accountHref } from "@/lib/native-wallet";
-import { cn, formatMoney, isoDate, monthRange, sumDecimal } from "@/lib/utils";
+import { resolveBudgetPeriodRow } from "@/lib/budget-periods";
+import { cn, formatMoney, isoDate, monthRange } from "@/lib/utils";
 import {
   COLOR_PALETTE,
   inferAccountDefaultStyle,
@@ -1393,25 +1394,29 @@ export function DashboardClient() {
       Balance: Math.round(balance * 100) / 100,
     }));
 
-  // Budgets progress
+  // Budgets progress (respecting active weekly/sub-period budget limits)
   const activeBudgets = (budgetsQ.data ?? []).filter((b) => b.attributes.active);
   const limitsList = limitsQ.data ?? [];
+  const todayIso = isoDate();
   const budgetRows = activeBudgets
     .map((b) => {
-      const lim = limitsList.find((l) => l.attributes.budget_id === b.id);
-      const limitAmt = Number(lim?.attributes.amount ?? b.attributes.auto_budget_amount ?? 0);
-      const spentArr = b.attributes.spent ?? [];
-      const spentAmt = sumDecimal(spentArr.map((s) => Math.abs(Number(s.sum)))).toNumber();
-      const code =
-        lim?.attributes.currency_code ||
-        spentArr[0]?.currency_code ||
-        b.attributes.auto_budget_currency_code ||
-        primaryCode;
-      const decimals =
-        lim?.attributes.currency_decimal_places ??
-        spentArr[0]?.currency_decimal_places ??
-        primaryDecimals;
-      return { id: b.id, name: b.attributes.name, spent: spentAmt, limit: limitAmt, code, decimals };
+      const resolved = resolveBudgetPeriodRow({
+        budget: b,
+        limits: limitsList,
+        rangeStart: currentMonth.start,
+        rangeEnd: currentMonth.end,
+        today: todayIso,
+        defaultCode: primaryCode,
+        defaultDecimals: primaryDecimals,
+      });
+      return {
+        id: resolved.id,
+        name: resolved.name,
+        spent: resolved.spent.toNumber(),
+        limit: resolved.limit.toNumber(),
+        code: resolved.code,
+        decimals: resolved.decimals ?? primaryDecimals,
+      };
     })
     .filter((r) => r.limit > 0 || r.spent > 0);
 

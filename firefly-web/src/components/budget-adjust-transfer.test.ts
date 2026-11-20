@@ -4,13 +4,21 @@ import path from "node:path";
 import Decimal from "decimal.js";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi, afterEach } from "vitest";
 import {
   BudgetAdjustModal,
   type BudgetPeriodRow,
   computeAdjustedBudgetLimit,
 } from "./budget-adjust-modal";
 import { BudgetTransferModal, computeBudgetTransfer } from "./budget-transfer-modal";
+import {
+  formatBudgetAmountInput,
+  parseBudgetLimitSpent,
+  resolveBudgetPeriodRow,
+  selectActiveBudgetLimit,
+} from "@/lib/budget-periods";
+import { api } from "@/lib/firefly/api";
+import type { Budget, BudgetLimit, Resource } from "@/lib/firefly/types";
 
 const API_SRC = readFileSync(path.resolve(__dirname, "../lib/firefly/api.ts"), "utf8");
 const BUDGETS_CLIENT_SRC = readFileSync(
@@ -231,20 +239,49 @@ describe("Firefly III v6 budget API and modal rendering", () => {
     expect(html).toContain("Auto-budget rule stays unchanged");
   });
 
-  it("renders weekly sub-period slice selector in BudgetAdjustModal when a budget has multiple limits", () => {
+  it("renders weekly sub-period slice selector in BudgetAdjustModal and uses active-slice spent", () => {
     const qc = createTestQueryClient();
     const row = makeRow({
       id: "b-petrol",
       name: "Petrol",
-      limitId: "lim-w2",
-      limitStart: "2026-11-09",
-      limitEnd: "2026-11-15",
-      limit: new Decimal(20),
-      spent: new Decimal(18.75),
-      left: new Decimal(1.25),
+      limitId: "lim-w3",
+      limitStart: "2026-11-16",
+      limitEnd: "2026-11-22",
+      limit: new Decimal(10),
+      spent: new Decimal(0),
+      left: new Decimal(10),
+      monthLimit: new Decimal(20),
+      monthSpent: new Decimal(18.75),
+      monthLeft: new Decimal(1.25),
+      isSubPeriod: true,
+      hasActiveSlice: true,
       periodLimits: [
-        { id: "lim-w2", start: "2026-11-09", end: "2026-11-15", amount: new Decimal(10), notes: null },
-        { id: "lim-w1", start: "2026-11-02", end: "2026-11-08", amount: new Decimal(10), notes: null },
+        {
+          id: "lim-w3",
+          start: "2026-11-16",
+          end: "2026-11-22",
+          amount: new Decimal(10),
+          spent: new Decimal(0),
+          left: new Decimal(10),
+          hasExplicitSpent: true,
+          isActive: true,
+          currencyCode: "BHD",
+          decimals: 3,
+          notes: null,
+        },
+        {
+          id: "lim-w1",
+          start: "2026-11-02",
+          end: "2026-11-08",
+          amount: new Decimal(10),
+          spent: new Decimal(18.75),
+          left: new Decimal(-8.75),
+          hasExplicitSpent: true,
+          isActive: false,
+          currencyCode: "BHD",
+          decimals: 3,
+          notes: null,
+        },
       ],
     });
 
@@ -264,8 +301,10 @@ describe("Firefly III v6 budget API and modal rendering", () => {
     );
 
     expect(html).toContain("Target period slice (weekly / sub-period)");
-    expect(html).toContain("2026-11-09 → 2026-11-15 (BHD 10.000)");
-    expect(html).toContain("2026-11-02 → 2026-11-08 (BHD 10.000)");
+    expect(html).toContain("2026-11-16 → 2026-11-22");
+    expect(html).toContain("2026-11-02 → 2026-11-08");
+    // Active week spent is 0.000 / 10.000, so Cover overspent must NOT be offered.
+    expect(html).not.toContain("Cover overspent");
   });
 
   it("renders BudgetTransferModal markup with smart chips and budget selectors", () => {
@@ -310,5 +349,203 @@ describe("Firefly III v6 budget API and modal rendering", () => {
     expect(html).toContain("Move all remaining (120.000)");
     expect(html).toContain("Cover overspending (20.000)");
     expect(html).toContain("Confirm transfer");
+  });
+});
+
+describe("weekly vs monthly budget sub-period resolution", () => {
+  it("parses Firefly III spent payloads across arrays, negative strings, nulls, and undefined", () => {
+    expect(parseBudgetLimitSpent([], "BHD")?.toFixed(3)).toBe("0.000");
+    expect(parseBudgetLimitSpent(null, "BHD")?.toFixed(3)).toBe("0.000");
+    expect(parseBudgetLimitSpent("", "BHD")?.toFixed(3)).toBe("0.000");
+    expect(parseBudgetLimitSpent("-18.750", "BHD")?.toFixed(3)).toBe("18.750");
+    expect(
+      parseBudgetLimitSpent(
+        [
+          { sum: "-18.750", currency_code: "BHD", currency_decimal_places: 3 },
+          { sum: "-5.00", currency_code: "USD", currency_decimal_places: 2 },
+        ],
+        "BHD",
+      )?.toFixed(3),
+    ).toBe("18.750");
+    expect(parseBudgetLimitSpent(undefined, "BHD")).toBeNull();
+    expect(formatBudgetAmountInput(new Decimal("10"), 3)).toBe("10.000");
+  });
+
+  it("uses the currently active weekly limit for primary stats while preserving full-month totals", () => {
+    const petrolBudget: Resource<Budget> = {
+      id: "7",
+      type: "budgets",
+      attributes: {
+        name: "Petrol",
+        active: true,
+        auto_budget_type: "reset",
+        auto_budget_amount: "10.000",
+        auto_budget_period: "weekly",
+        auto_budget_currency_code: "BHD",
+        spent: [{ sum: "-18.750", currency_code: "BHD", currency_decimal_places: 3 }],
+      },
+    };
+
+    const limits: Resource<BudgetLimit>[] = [
+      {
+        id: "101",
+        type: "budget_limits",
+        attributes: {
+          budget_id: "7",
+          start: "2026-11-02T00:00:00+03:00",
+          end: "2026-11-08T23:59:59+03:00",
+          amount: "10.000",
+          currency_code: "BHD",
+          currency_decimal_places: 3,
+          spent: [{ sum: "-18.750", currency_code: "BHD", currency_decimal_places: 3 }],
+        },
+      },
+      {
+        id: "102",
+        type: "budget_limits",
+        attributes: {
+          budget_id: "7",
+          start: "2026-11-16T00:00:00+03:00",
+          end: "2026-11-22T23:59:59+03:00",
+          amount: "10.000",
+          currency_code: "BHD",
+          currency_decimal_places: 3,
+          spent: [],
+        },
+      },
+    ];
+
+    const row = resolveBudgetPeriodRow({
+      budget: petrolBudget,
+      limits,
+      rangeStart: "2026-11-01",
+      rangeEnd: "2026-11-30",
+      today: "2026-11-20",
+      defaultCode: "BHD",
+      defaultDecimals: 3,
+      currencyDecimalsByCode: { BHD: 3 },
+    });
+
+    // Primary stats reflect the currently active week (2026-11-16 -> 2026-11-22)
+    expect(row.limitId).toBe("102");
+    expect(row.limitStart).toBe("2026-11-16");
+    expect(row.limitEnd).toBe("2026-11-22");
+    expect(row.isSubPeriod).toBe(true);
+    expect(row.hasActiveSlice).toBe(true);
+    expect(row.decimals).toBe(3);
+    expect(row.limit.toFixed(3)).toBe("10.000");
+    expect(row.spent.toFixed(3)).toBe("0.000");
+    expect(row.left.toFixed(3)).toBe("10.000");
+
+    // Monthly cumulative totals remain available for summary bar & breakdown footer
+    expect(row.monthLimit?.toFixed(3)).toBe("20.000");
+    expect(row.monthSpent?.toFixed(3)).toBe("18.750");
+    expect(row.monthLeft?.toFixed(3)).toBe("1.250");
+
+    // Sub-period list keeps each week's independent spent/left
+    expect(row.periodLimits).toHaveLength(2);
+    expect(row.periodLimits?.[0].id).toBe("102");
+    expect(row.periodLimits?.[0].isActive).toBe(true);
+    expect(row.periodLimits?.[0].spent.toFixed(3)).toBe("0.000");
+    expect(row.periodLimits?.[1].id).toBe("101");
+    expect(row.periodLimits?.[1].isActive).toBe(false);
+    expect(row.periodLimits?.[1].spent.toFixed(3)).toBe("18.750");
+    expect(row.periodLimits?.[1].left.toFixed(3)).toBe("-8.750");
+  });
+
+  it("falls back to the most recent limit when today is outside all limit windows", () => {
+    const slices = [
+      {
+        id: "lim-recent",
+        start: "2026-10-26",
+        end: "2026-11-01",
+        amount: new Decimal(10),
+        spent: new Decimal(4),
+        left: new Decimal(6),
+        hasExplicitSpent: true,
+        isActive: false,
+        notes: null,
+      },
+      {
+        id: "lim-older",
+        start: "2026-10-19",
+        end: "2026-10-25",
+        amount: new Decimal(10),
+        spent: new Decimal(10),
+        left: new Decimal(0),
+        hasExplicitSpent: true,
+        isActive: false,
+        notes: null,
+      },
+    ];
+
+    expect(selectActiveBudgetLimit(slices, "2026-11-20")?.id).toBe("lim-recent");
+  });
+});
+
+describe("api.upsertBudgetLimit Firefly III payloads", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("sends PUT /budgets/{id}/limits/{limit_id} with normalized dates and budget_id when limitId exists", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ data: { id: "102", type: "budget_limits", attributes: {} } }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    await api.upsertBudgetLimit({
+      budgetId: "7",
+      limitId: "102",
+      amount: "15.000",
+      start: "2026-11-16T00:00:00+03:00",
+      end: "2026-11-22T23:59:59+03:00",
+      currency_code: "BHD",
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain("/api/ff/budgets/7/limits/102");
+    expect(init?.method).toBe("PUT");
+    expect(JSON.parse(String(init?.body))).toEqual({
+      budget_id: "7",
+      amount: "15.000",
+      start: "2026-11-16",
+      end: "2026-11-22",
+      currency_code: "BHD",
+    });
+  });
+
+  it("sends POST /budgets/{id}/limits when no limitId exists yet", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ data: { id: "103", type: "budget_limits", attributes: {} } }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    await api.upsertBudgetLimit({
+      budgetId: "7",
+      limitId: null,
+      amount: "12.500",
+      start: "2026-11-01",
+      end: "2026-11-30",
+      currency_code: "BHD",
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain("/api/ff/budgets/7/limits");
+    expect(String(url)).not.toContain("/limits/null");
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(String(init?.body))).toEqual({
+      budget_id: "7",
+      amount: "12.500",
+      start: "2026-11-01",
+      end: "2026-11-30",
+      currency_code: "BHD",
+    });
   });
 });

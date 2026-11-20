@@ -495,10 +495,11 @@ export const api = {
     notes?: string | null,
   ) =>
     ff.post<SingleResponse<BudgetLimit>>(`budgets/${encodeURIComponent(budgetId)}/limits`, {
+      budget_id: String(budgetId),
       amount,
-      start,
-      end,
-      currency_code,
+      start: start.slice(0, 10),
+      end: end.slice(0, 10),
+      ...(currency_code ? { currency_code } : {}),
       ...(notes !== undefined ? { notes } : {}),
     }),
   updateBudgetLimit: (
@@ -513,10 +514,11 @@ export const api = {
     ff.put<SingleResponse<BudgetLimit>>(
       `budgets/${encodeURIComponent(budgetId)}/limits/${encodeURIComponent(limitId)}`,
       {
+        budget_id: String(budgetId),
         amount,
-        start,
-        end,
-        currency_code,
+        start: start.slice(0, 10),
+        end: end.slice(0, 10),
+        ...(currency_code ? { currency_code } : {}),
         ...(notes !== undefined ? { notes } : {}),
       },
     ),
@@ -530,25 +532,25 @@ export const api = {
     end: string;
     currency_code?: string;
     notes?: string | null;
-  }) =>
-    params.limitId
+  }) => {
+    const payload = {
+      budget_id: String(params.budgetId),
+      amount: params.amount,
+      start: params.start.slice(0, 10),
+      end: params.end.slice(0, 10),
+      ...(params.currency_code ? { currency_code: params.currency_code } : {}),
+      ...(params.notes !== undefined ? { notes: params.notes } : {}),
+    };
+    return params.limitId
       ? ff.put<SingleResponse<BudgetLimit>>(
           `budgets/${encodeURIComponent(params.budgetId)}/limits/${encodeURIComponent(params.limitId)}`,
-          {
-            amount: params.amount,
-            start: params.start,
-            end: params.end,
-            currency_code: params.currency_code,
-            ...(params.notes !== undefined ? { notes: params.notes } : {}),
-          },
+          payload,
         )
-      : ff.post<SingleResponse<BudgetLimit>>(`budgets/${encodeURIComponent(params.budgetId)}/limits`, {
-          amount: params.amount,
-          start: params.start,
-          end: params.end,
-          currency_code: params.currency_code,
-          ...(params.notes !== undefined ? { notes: params.notes } : {}),
-        }),
+      : ff.post<SingleResponse<BudgetLimit>>(
+          `budgets/${encodeURIComponent(params.budgetId)}/limits`,
+          payload,
+        );
+  },
 
   availableBudgets: async (start: string, end: string): Promise<Resource<AvailableBudget>[]> => {
     try {
