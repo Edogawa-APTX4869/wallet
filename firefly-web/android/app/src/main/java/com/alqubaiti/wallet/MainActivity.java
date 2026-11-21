@@ -1,11 +1,14 @@
 package com.alqubaiti.wallet;
 
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.view.View;
 import android.webkit.WebBackForwardList;
 import android.webkit.WebHistoryItem;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
+import android.webkit.WebSettings;
 import android.webkit.WebView;
 
 import androidx.activity.OnBackPressedCallback;
@@ -53,10 +56,10 @@ public class MainActivity extends BridgeActivity {
     "st.id='wallet-apk-runtime-style';" +
     "st.textContent=" +
     "'.swipeable-card{touch-action:pan-y!important;user-select:none!important;-webkit-user-select:none!important;overflow:hidden!important;}'+" +
-    "'@keyframes wallet-swipe-enter-next{0%{opacity:0.15;transform:translate3d(44px,0,0) scale(0.985);filter:blur(2.5px);}100%{opacity:1;transform:translate3d(0,0,0) scale(1);filter:blur(0px);}}'+" +
-    "'@keyframes wallet-swipe-enter-prev{0%{opacity:0.15;transform:translate3d(-44px,0,0) scale(0.985);filter:blur(2.5px);}100%{opacity:1;transform:translate3d(0,0,0) scale(1);filter:blur(0px);}}'+" +
-    "'.swipeable-card.wallet-anim-next>*,.animate-swipe-next{animation:wallet-swipe-enter-next 320ms cubic-bezier(0.22,1,0.36,1) both!important;will-change:transform,opacity,filter!important;}'+" +
-    "'.swipeable-card.wallet-anim-prev>*,.animate-swipe-prev{animation:wallet-swipe-enter-prev 320ms cubic-bezier(0.22,1,0.36,1) both!important;will-change:transform,opacity,filter!important;}'+" +
+    "'@keyframes wallet-swipe-enter-next{0%{opacity:0.15;transform:translate3d(44px,0,0) scale(0.985);}100%{opacity:1;transform:translate3d(0,0,0) scale(1);}}'+" +
+    "'@keyframes wallet-swipe-enter-prev{0%{opacity:0.15;transform:translate3d(-44px,0,0) scale(0.985);}100%{opacity:1;transform:translate3d(0,0,0) scale(1);}}'+" +
+    "'.swipeable-card.wallet-anim-next>*,.animate-swipe-next{animation:wallet-swipe-enter-next 220ms cubic-bezier(0.22,1,0.36,1) both!important;will-change:transform,opacity!important;}'+" +
+    "'.swipeable-card.wallet-anim-prev>*,.animate-swipe-prev{animation:wallet-swipe-enter-prev 220ms cubic-bezier(0.22,1,0.36,1) both!important;will-change:transform,opacity!important;}'+" +
     "'[aria-label=\"View pagination\"]{display:flex!important;align-items:center!important;justify-content:center!important;gap:5px!important;padding:2px 0!important;margin:2px 0 0 0!important;min-height:0!important;height:10px!important;opacity:0!important;pointer-events:none!important;transition:opacity 0.25s ease!important;}'+" +
     "'[aria-label=\"View pagination\"].wallet-dots-visible{opacity:0.9!important;}'+" +
     "'[aria-label=\"View pagination\"] button,[aria-label=\"View pagination\"] [role=\"tab\"]{min-width:0!important;min-height:0!important;width:5px!important;height:5px!important;padding:0!important;margin:0!important;border-radius:9999px!important;flex:0 0 auto!important;}'+" +
@@ -167,8 +170,6 @@ public class MainActivity extends BridgeActivity {
     "c.style.setProperty('--swipe-x',effDx.toFixed(1)+'px');" +
     "c.style.setProperty('--swipe-scale',(1-prog*0.03).toFixed(3));" +
     "c.style.setProperty('--swipe-opacity',(1-prog*0.15).toFixed(3));" +
-    "c.style.setProperty('--swipe-blur',(prog*5).toFixed(1)+'px');" +
-    "c.style.setProperty('--swipe-content-blur',(prog*1.8).toFixed(1)+'px');" +
     "},{passive:false,capture:true});" +
     "function finishLegacyTouch(e){" +
     "if(!swipeState)return;" +
@@ -244,11 +245,13 @@ public class MainActivity extends BridgeActivity {
     "}" +
     "}" +
     "window.__walletSyncOverlay=syncOverlayState;" +
-    "var origPush=history.pushState;history.pushState=function(){var r=origPush.apply(this,arguments);setTimeout(syncOverlayState,0);return r;};" +
-    "var origRep=history.replaceState;history.replaceState=function(){var r=origRep.apply(this,arguments);setTimeout(syncOverlayState,0);return r;};" +
-    "window.addEventListener('popstate',function(){setTimeout(syncOverlayState,0);});" +
-    "var mo=new MutationObserver(function(){syncOverlayState();});" +
-    "mo.observe(document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:['class','aria-modal','data-nav-hidden']});" +
+    "var syncPending=false;" +
+    "function scheduleSyncOverlay(){if(syncPending)return;syncPending=true;requestAnimationFrame(function(){syncPending=false;syncOverlayState();});}" +
+    "var origPush=history.pushState;history.pushState=function(){var r=origPush.apply(this,arguments);scheduleSyncOverlay();return r;};" +
+    "var origRep=history.replaceState;history.replaceState=function(){var r=origRep.apply(this,arguments);scheduleSyncOverlay();return r;};" +
+    "window.addEventListener('popstate',scheduleSyncOverlay);" +
+    "var mo=new MutationObserver(scheduleSyncOverlay);" +
+    "mo.observe(document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:['aria-modal','data-nav-hidden','data-testid']});" +
     "syncOverlayState();" +
     "}else if(typeof window.__walletSyncOverlay==='function'){" +
     "window.__walletSyncOverlay();" +
@@ -297,6 +300,17 @@ public class MainActivity extends BridgeActivity {
     super.onCreate(savedInstanceState);
 
     if (getBridge() != null) {
+      WebView wv = getBridge().getWebView();
+      if (wv != null) {
+        wv.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+        wv.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        WebSettings ws = wv.getSettings();
+        ws.setCacheMode(WebSettings.LOAD_DEFAULT);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+          ws.setOffscreenPreRaster(true);
+        }
+      }
+
       getBridge().setWebViewClient(new BridgeWebViewClient(getBridge()) {
         @Override
         public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
@@ -364,7 +378,7 @@ public class MainActivity extends BridgeActivity {
       stream = getBridge().getLocalServer().getJavaScriptInjectedStream(stream);
       Map<String, String> headers = new HashMap<>();
       headers.put("Content-Type", "text/html; charset=utf-8");
-      headers.put("Cache-Control", "no-store");
+      headers.put("Cache-Control", "no-cache");
       return new WebResourceResponse("text/html", "UTF-8", 200, "OK", headers, stream);
     } catch (IOException ignored) {
       return null;

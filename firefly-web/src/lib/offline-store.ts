@@ -325,6 +325,8 @@ export async function clearOfflineQueue(): Promise<void> {
 
 /** HTTP GET Response Cache in IndexedDB (+ localStorage/memory fallback). */
 export async function getHttpCache<T>(cacheKey: string): Promise<{ data: T; cachedAt: string } | null> {
+  const mem = memoryKv.get(cacheKey);
+  if (mem) return { data: mem.data as T, cachedAt: mem.cachedAt };
   if (hasIndexedDb()) {
     try {
       const db = await openDb();
@@ -334,17 +336,22 @@ export async function getHttpCache<T>(cacheKey: string): Promise<{ data: T; cach
         req.onsuccess = () => resolve(req.result as { key: string; data: T; cachedAt: string } | undefined);
         req.onerror = () => reject(req.error);
       });
-      if (row) return { data: row.data, cachedAt: row.cachedAt };
+      if (row) {
+        memoryKv.set(cacheKey, { data: row.data, cachedAt: row.cachedAt });
+        return { data: row.data, cachedAt: row.cachedAt };
+      }
     } catch {
       /* fallback below */
     }
   }
-  const mem = memoryKv.get(cacheKey);
-  if (mem) return { data: mem.data as T, cachedAt: mem.cachedAt };
   if (hasLocalStorage()) {
     try {
       const raw = localStorage.getItem(`${LS_HTTP_PREFIX}${cacheKey}`);
-      if (raw) return JSON.parse(raw) as { data: T; cachedAt: string };
+      if (raw) {
+        const parsed = JSON.parse(raw) as { data: T; cachedAt: string };
+        memoryKv.set(cacheKey, parsed);
+        return parsed;
+      }
     } catch {
       /* ignore */
     }
@@ -364,8 +371,9 @@ export async function setHttpCache<T>(cacheKey: string, data: T): Promise<void> 
         tx.oncomplete = () => resolve();
         tx.onerror = () => reject(tx.error);
       });
+      return;
     } catch {
-      /* ignore */
+      /* fall back to localStorage only if IndexedDB fails */
     }
   }
   if (hasLocalStorage()) {

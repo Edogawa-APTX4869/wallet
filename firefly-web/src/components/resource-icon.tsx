@@ -440,10 +440,13 @@ export function useResourceMeta() {
     staleTime: 60_000,
   });
 
-  const map = new Map<string, CompanionMetaItem>();
-  for (const item of query.data ?? []) {
-    map.set(`${item.entity_type}:${item.entity_id}`, item);
-  }
+  const map = useMemo(() => {
+    const m = new Map<string, CompanionMetaItem>();
+    for (const item of query.data ?? []) {
+      m.set(`${item.entity_type}:${item.entity_id}`, item);
+    }
+    return m;
+  }, [query.data]);
 
   return {
     ...query,
@@ -508,20 +511,21 @@ export function ResourceIconBadge({
 
   useEffect(() => {
     if (!open && rendered) {
-      const timer = window.setTimeout(() => setRendered(false), 200);
+      const timer = window.setTimeout(() => {
+        setRendered(false);
+        setIconQuery("");
+      }, 200);
       return () => window.clearTimeout(timer);
-    }
-    if (open) {
-      setIconQuery("");
     }
   }, [open, rendered]);
 
   const filteredIcons = useMemo(() => {
+    if (!open && !rendered) return [];
     const q = iconQuery.trim().toLowerCase();
     const entries = Object.entries(ICON_CATALOG);
     if (!q) return entries;
     return entries.filter(([name]) => name.toLowerCase().includes(q));
-  }, [iconQuery]);
+  }, [iconQuery, open, rendered]);
 
   const isClosing = !open && rendered;
   const showPicker = open || isClosing;

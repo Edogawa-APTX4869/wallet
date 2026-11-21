@@ -23,7 +23,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
         defaultOptions: {
           queries: {
             networkMode: "always",
-            refetchOnWindowFocus: true,
+            staleTime: 60_000,
+            gcTime: 30 * 60_000,
+            refetchOnWindowFocus: false,
             retry: (count, err) =>
               !(err instanceof FireflyError && (err.status === 0 || err.status < 500)) && count < 2,
           },

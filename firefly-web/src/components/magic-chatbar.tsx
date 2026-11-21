@@ -190,41 +190,53 @@ export function MagicChatPanel({
   const aiConfigQ = useAiAssistantConfig();
   const month = monthRange(0);
 
+  const [input, setInput] = useState("");
+  const [attachments, setAttachments] = useState<AttachmentPayload[]>([]);
+  const [listening, setListening] = useState(false);
+  const [expanded, setExpanded] = useState(mode === "inline");
+  const isChatActive =
+    mode === "inline" ||
+    expanded ||
+    listening ||
+    input.trim().length > 0 ||
+    attachments.length > 0;
+
   const categoriesQ = useQuery({
     queryKey: ["categories-list"],
     queryFn: () => api.categories(),
+    enabled: isChatActive,
     staleTime: 5 * 60_000,
   });
   const budgetsQ = useQuery({
     queryKey: ["budgets-list"],
     queryFn: () => api.budgets(month.start, month.end),
+    enabled: isChatActive,
     staleTime: 5 * 60_000,
   });
   const budgetLimitsQ = useQuery({
     queryKey: ["budget-limits", month.start, month.end],
     queryFn: () => api.budgetLimits(month.start, month.end),
+    enabled: isChatActive,
     staleTime: 60_000,
   });
   const piggyBanksQ = useQuery({
     queryKey: ["piggy-banks"],
     queryFn: api.piggyBanks,
+    enabled: isChatActive,
     staleTime: 60_000,
   });
   const billsQ = useQuery({
     queryKey: ["bills", month.start, month.end],
     queryFn: () => api.bills(month.start, month.end),
+    enabled: isChatActive,
     staleTime: 60_000,
   });
   const tagsQ = useQuery({
     queryKey: ["tags-list"],
     queryFn: api.tags,
+    enabled: isChatActive,
     staleTime: 5 * 60_000,
   });
-
-  const [input, setInput] = useState("");
-  const [attachments, setAttachments] = useState<AttachmentPayload[]>([]);
-  const [listening, setListening] = useState(false);
-  const [expanded, setExpanded] = useState(mode === "inline");
   useEscapeDismiss(
     mode === "dock" && expanded,
     () => setExpanded(false),

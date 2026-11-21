@@ -1241,11 +1241,11 @@ export function DashboardClient() {
     staleTime: 60_000,
   });
 
-  // Fetch recent transactions (up to 50) so we can dynamically filter by selected accounts & compute Cash Flow Table
+  // Fetch recent transactions (up to 60) so we can dynamically filter by selected accounts & compute Cash Flow Table
   const recentTxQ = useQuery({
     queryKey: ["transactions", "dashboard-pool"],
-    queryFn: () => api.transactions(1, { limit: 250 }),
-    staleTime: 30_000,
+    queryFn: () => api.transactions(1, { limit: 60 }),
+    staleTime: 60_000,
   });
 
   // Net-Worth asset accounts eligible for the Wallet grid:
@@ -2479,6 +2479,7 @@ const DashboardCardItem = React.memo(function DashboardCardItem({
       className={cn(
         "@container scroll-mt-6 rounded-2xl transition-opacity duration-200 h-full flex flex-col",
         span === 2 ? "lg:col-span-2 2xl:col-span-2 3xl:col-span-2" : "lg:col-span-1 2xl:col-span-1 3xl:col-span-1",
+        index >= 2 && "cv-auto-card",
         isDraggingAny && !isCurrent && "widget-card-recessed widget-card-sibling",
         isDraggingAny && "will-change-transform [backface-visibility:hidden] [transform:translate3d(0,0,0)]",
       )}

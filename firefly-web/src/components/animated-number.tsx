@@ -16,7 +16,7 @@ export function useAnimatedNumber(
   targetValue: number,
   options: UseAnimatedNumberOptions = {},
 ): number {
-  const { duration = 650, decimals } = options;
+  const { duration = 350, decimals } = options;
   const [displayValue, setDisplayValue] = useState(targetValue);
   const prevTargetRef = useRef(targetValue);
   const currentValRef = useRef(targetValue);
@@ -26,20 +26,35 @@ export function useAnimatedNumber(
     // If target has not changed, keep current
     if (prevTargetRef.current === targetValue) return;
 
-    // Check prefers-reduced-motion
-    if (typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    const isCoarsePointer =
+      typeof window !== "undefined" &&
+      Boolean(window.matchMedia?.("(pointer: coarse)")?.matches);
+    const prefersReduced =
+      typeof window !== "undefined" &&
+      Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches);
+
+    // On touch/mobile devices or reduced motion, snap in a single frame to avoid
+    // running dozens of parallel 60fps React state loops on mobile CPUs.
+    if (isCoarsePointer || prefersReduced) {
       prevTargetRef.current = targetValue;
       currentValRef.current = targetValue;
       animFrameRef.current = requestAnimationFrame(() => {
         setDisplayValue(targetValue);
       });
-      return;
+      return () => {
+        if (animFrameRef.current !== null) {
+          cancelAnimationFrame(animFrameRef.current);
+          animFrameRef.current = null;
+        }
+      };
     }
 
     const startVal = currentValRef.current;
     const endVal = targetValue;
     prevTargetRef.current = targetValue;
     const startTime = performance.now();
+    let lastEmitTime = 0;
+    let lastEmittedVal = startVal;
 
     if (animFrameRef.current !== null) {
       cancelAnimationFrame(animFrameRef.current);
@@ -54,9 +69,13 @@ export function useAnimatedNumber(
 
       currentValRef.current = nextVal;
       const rounded = typeof decimals === "number" ? Number(nextVal.toFixed(decimals)) : nextVal;
-      setDisplayValue(rounded);
 
       if (progress < 1) {
+        if (now - lastEmitTime >= 40 && rounded !== lastEmittedVal) {
+          lastEmitTime = now;
+          lastEmittedVal = rounded;
+          setDisplayValue(rounded);
+        }
         animFrameRef.current = requestAnimationFrame(step);
       } else {
         currentValRef.current = endVal;
@@ -87,7 +106,7 @@ export function AnimatedMoney({
   colored,
   skipCurrency,
   className,
-  duration = 650,
+  duration = 350,
 }: {
   amount: string | number | null | undefined;
   code?: string | null;
@@ -126,7 +145,7 @@ export function AnimatedNumber({
   prefix = "",
   suffix = "",
   className,
-  duration = 650,
+  duration = 350,
 }: {
   value: number;
   decimals?: number;

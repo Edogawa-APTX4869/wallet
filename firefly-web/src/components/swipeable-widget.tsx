@@ -233,14 +233,19 @@ export function SwipeableWidget({
   }, [activeIndex]);
 
   const [dotsVisible, setDotsVisible] = useState(false);
+  const dotsVisibleRef = useRef(false);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suppressClickRef = useRef(false);
   const suppressClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const revealDotsBriefly = useCallback(() => {
-    setDotsVisible(true);
+    if (!dotsVisibleRef.current) {
+      dotsVisibleRef.current = true;
+      setDotsVisible(true);
+    }
     if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     hideTimerRef.current = setTimeout(() => {
+      dotsVisibleRef.current = false;
       setDotsVisible(false);
     }, 1800);
   }, []);
@@ -254,6 +259,7 @@ export function SwipeableWidget({
 
   const gestureRef = useRef<{
     active: boolean;
+    wasDragging: boolean;
     source: "touch" | "pointer" | null;
     lockedAxis: "x" | "y" | null;
     startX: number;
@@ -264,6 +270,7 @@ export function SwipeableWidget({
     width: number;
   }>({
     active: false,
+    wasDragging: false,
     source: null,
     lockedAxis: null,
     startX: 0,
@@ -285,6 +292,18 @@ export function SwipeableWidget({
     );
   };
 
+  const clearContainerDragVars = useCallback(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    el.classList.remove("is-dragging");
+    el.style.removeProperty("--swipe-x");
+    el.style.removeProperty("--swipe-scale");
+    el.style.removeProperty("--swipe-opacity");
+    el.style.removeProperty("--swipe-shadow");
+    el.style.removeProperty("--incoming-scale");
+    el.style.removeProperty("--incoming-opacity");
+  }, []);
+
   const beginGesture = useCallback(
     (clientX: number, clientY: number, source: "touch" | "pointer", target: EventTarget | null) => {
       if (disabled || totalViews <= 1) return;
@@ -294,6 +313,7 @@ export function SwipeableWidget({
       const rect = containerRef.current?.getBoundingClientRect();
       gestureRef.current = {
         active: true,
+        wasDragging: false,
         source,
         lockedAxis: null,
         startX: clientX,
@@ -337,16 +357,33 @@ export function SwipeableWidget({
       g.lastTimestamp = now;
 
       const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
-      const maxBlur = isMobile ? 6 : 10;
+      const maxBlur = isMobile ? 0 : 10;
       const physics = computeSwipePhysics(dx, g.width, canSwipePrev, canSwipeNext, maxBlur);
 
-      setDragState({
-        isDragging: true,
-        isRubberBanding: false,
-        physics,
-      });
+      const el = containerRef.current;
+      if (el) {
+        el.classList.remove("is-rubber-banding");
+        el.classList.add("is-dragging");
+        el.style.setProperty("--swipe-x", `${physics.effectiveDeltaX.toFixed(1)}px`);
+        el.style.setProperty("--swipe-scale", String(physics.scale));
+        el.style.setProperty("--swipe-opacity", String(physics.opacity));
+        el.style.setProperty("--swipe-shadow", physics.shadow);
+        el.style.setProperty("--incoming-scale", String(physics.incomingScale));
+        el.style.setProperty("--incoming-opacity", String(physics.incomingOpacity));
+      }
+
+      if (!g.wasDragging) {
+        g.wasDragging = true;
+        if (incomingPreview) {
+          setDragState({
+            isDragging: true,
+            isRubberBanding: false,
+            physics,
+          });
+        }
+      }
     },
-    [canSwipePrev, canSwipeNext, revealDotsBriefly],
+    [canSwipePrev, canSwipeNext, revealDotsBriefly, incomingPreview],
   );
 
   const finishGesture = useCallback(
@@ -354,10 +391,16 @@ export function SwipeableWidget({
       const g = gestureRef.current;
       if (!g.active) return;
       g.active = false;
+      const wasDragging = g.wasDragging;
+      g.wasDragging = false;
       revealDotsBriefly();
 
+      clearContainerDragVars();
+
       if (g.lockedAxis !== "x") {
-        setDragState({ isDragging: false, isRubberBanding: false, physics: null });
+        if (wasDragging && incomingPreview) {
+          setDragState({ isDragging: false, isRubberBanding: false, physics: null });
+        }
         return;
       }
 
@@ -383,18 +426,22 @@ export function SwipeableWidget({
         prevIndexRef.current = activeIndex + 1;
         setTransitionState((prev) => ({ dir: "next", gen: prev.gen + 1 }));
         onIndexChange(activeIndex + 1);
-        setDragState({ isDragging: false, isRubberBanding: false, physics: null });
+        if (wasDragging && incomingPreview) {
+          setDragState({ isDragging: false, isRubberBanding: false, physics: null });
+        }
       } else if (decision === "prev") {
         triggerNativeHaptic(ImpactStyle.Light).catch(() => {});
         prevIndexRef.current = activeIndex - 1;
         setTransitionState((prev) => ({ dir: "prev", gen: prev.gen + 1 }));
         onIndexChange(activeIndex - 1);
-        setDragState({ isDragging: false, isRubberBanding: false, physics: null });
+        if (wasDragging && incomingPreview) {
+          setDragState({ isDragging: false, isRubberBanding: false, physics: null });
+        }
       } else {
         setDragState({ isDragging: false, isRubberBanding: true, physics: null });
       }
     },
-    [activeIndex, canSwipeNext, canSwipePrev, onIndexChange, revealDotsBriefly],
+    [activeIndex, canSwipeNext, canSwipePrev, onIndexChange, revealDotsBriefly, clearContainerDragVars, incomingPreview],
   );
 
   // Attach native non-passive touch listeners so Android WebView / mobile Safari never

@@ -583,8 +583,8 @@ export function TransactionsClient() {
         ) : (
           <>
             <div className="flex flex-col divide-y divide-border">
-              {monthlySections.map((sec) => (
-                <div key={sec.key} className="flex flex-col">
+              {monthlySections.map((sec, secIdx) => (
+                <div key={sec.key} className={cn("flex flex-col", secIdx >= 2 && "cv-auto-card")}>
                   {/* Monthly Section Header (e.g., NOV 2026 | -BHD 1,110.00) */}
                   <div className="flex items-center justify-between bg-surface-2/70 px-4 py-2 text-xs border-b border-border/60">
                     <span className="font-bold uppercase tracking-wider text-muted">
