@@ -3,9 +3,12 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import Decimal from "decimal.js";
 import {
+  ArrowDownLeft,
   ArrowLeftRight,
+  ArrowUpRight,
   Building2,
   ChevronDown,
   ChevronUp,
@@ -17,7 +20,15 @@ import {
   Wallet,
   X,
 } from "lucide-react";
-import type { Account, Resource } from "@/lib/firefly/types";
+import { api } from "@/lib/firefly/api";
+import type { Account, Category, Resource } from "@/lib/firefly/types";
+import type { DashboardPreferences } from "@/lib/dashboard-cards";
+import {
+  buildLiabilityActionHref,
+  isLiabilityAccount,
+  type LiabilityCategoryPrefs,
+} from "@/lib/liability-actions";
+import { companionFetch } from "@/lib/offline-sync";
 import { useAccounts, usePrimaryCurrency, useRatesToPrimary } from "@/lib/hooks";
 import { cn, formatDate, isoDate } from "@/lib/utils";
 import { inferAccountDefaultStyle, ResourceIconBadge } from "@/components/resource-icon";
@@ -43,6 +54,23 @@ const GROUPS: { key: GroupKey; label: string; icon: typeof Wallet; types: Set<st
 export function AccountsClient() {
   const accountsQ = useAccounts("all");
   const primaryQ = usePrimaryCurrency();
+  const categoriesQ = useQuery({
+    queryKey: ["categories-list"],
+    queryFn: () => api.categories(),
+    staleTime: 5 * 60_000,
+  });
+  const dashboardPrefsQ = useQuery({
+    queryKey: ["dashboard-prefs"],
+    queryFn: async () => {
+      try {
+        const json = await companionFetch<{ data?: DashboardPreferences }>("/api/companion/dashboard");
+        return json.data ?? null;
+      } catch {
+        return null;
+      }
+    },
+    staleTime: 60_000,
+  });
   const searchParams = useSearchParams();
   const router = useRouter();
   const rawTab = searchParams.get("tab") as GroupKey | null;
@@ -409,6 +437,8 @@ export function AccountsClient() {
               rateToPrimary={
                 acc.attributes.currency_code ? ratesQ.data?.[acc.attributes.currency_code]?.rate?.toString() : undefined
               }
+              liabilityPrefs={dashboardPrefsQ.data?.liabilityCategories}
+              categories={categoriesQ.data}
             />
           ))}
         </div>
@@ -429,49 +459,69 @@ function AccountCard({
   primaryCode,
   primaryDecimals,
   rateToPrimary,
+  liabilityPrefs,
+  categories,
 }: {
   acc: Resource<Account>;
   primaryCode?: string;
   primaryDecimals: number;
   rateToPrimary?: string;
+  liabilityPrefs?: Partial<LiabilityCategoryPrefs> | null;
+  categories?: Array<Resource<Category>>;
 }) {
+  const router = useRouter();
   const a = acc.attributes;
   const bal = a.current_balance ?? "0";
   const inferred = inferAccountDefaultStyle(a, Number(acc.id) || 0);
   const isForeign = primaryCode && a.currency_code && a.currency_code !== primaryCode;
   const converted =
     isForeign && rateToPrimary ? new Decimal(bal).mul(rateToPrimary).toFixed(primaryDecimals) : null;
+  const isLiab = isLiabilityAccount(acc);
+  const isCredit = a.liability_direction === "credit";
 
   return (
-    <Link href={accountHref(acc.id)} className="group block cursor-pointer">
-      <Card className="card-hover-spring flex h-full flex-col justify-between gap-3 cursor-pointer group-hover:border-primary/50 group-hover:shadow-md">
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-2.5">
-            <ResourceIconBadge
-              entityType="account"
-              entityId={acc.id}
-              defaultIcon={inferred.icon}
-              defaultColor={inferred.color}
-            />
-            <div className="min-w-0">
-              <h3 className="truncate font-semibold transition-colors group-hover:text-primary">{a.name}</h3>
-              <p className="truncate text-xs text-muted">
-                {formatAccountRole(a.account_role || a.liability_type || a.type)}
-                {a.iban ? ` · ${a.iban}` : a.account_number ? ` · ${a.account_number}` : ""}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-1.5 flex-wrap justify-end">
-            {a.liability_direction && (
-              <Badge tone={a.liability_direction === "credit" ? "success" : "danger"}>
-                {a.liability_direction === "credit" ? "Owed to me" : "I owe"}
-              </Badge>
-            )}
-            {a.active === false && <Badge tone="warning">Inactive</Badge>}
-            {a.currency_code && <Badge tone="neutral">{a.currency_code}</Badge>}
+    <Card
+      onClick={() => router.push(accountHref(acc.id))}
+      role="link"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          router.push(accountHref(acc.id));
+        }
+      }}
+      className="group card-hover-spring flex h-full flex-col justify-between gap-3 cursor-pointer hover:border-primary/50 hover:shadow-md"
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <ResourceIconBadge
+            entityType="account"
+            entityId={acc.id}
+            defaultIcon={inferred.icon}
+            defaultColor={inferred.color}
+          />
+          <div className="min-w-0">
+            <h3 className="truncate font-semibold transition-colors group-hover:text-primary" title={a.name}>
+              {a.name}
+            </h3>
+            <p className="truncate text-xs text-muted">
+              {formatAccountRole(a.account_role || a.liability_type || a.type)}
+              {a.iban ? ` · ${a.iban}` : a.account_number ? ` · ${a.account_number}` : ""}
+            </p>
           </div>
         </div>
+        <div className="flex shrink-0 items-center gap-1 flex-wrap justify-end">
+          {a.liability_direction && (
+            <Badge tone={isCredit ? "success" : "danger"}>
+              {isCredit ? "Owed to me" : "I owe"}
+            </Badge>
+          )}
+          {a.active === false && <Badge tone="warning">Inactive</Badge>}
+          {a.currency_code && <Badge tone="neutral">{a.currency_code}</Badge>}
+        </div>
+      </div>
 
+      <div className="flex flex-col gap-2.5">
         <div>
           <p className="text-xl font-bold tracking-tight">
             <Money
@@ -499,7 +549,66 @@ function AccountCard({
             <p className="mt-1 text-[11px] text-muted">As of {formatDate(a.current_balance_date)}</p>
           )}
         </div>
-      </Card>
-    </Link>
+
+        {isLiab && (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+            className="flex items-center gap-1.5 border-t border-border/60 pt-2.5"
+          >
+            <Link
+              href={buildLiabilityActionHref({
+                account: acc,
+                action: "repay",
+                prefs: liabilityPrefs,
+                categories,
+              })}
+              className={cn(
+                "inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-xs font-semibold transition active:scale-95",
+                isCredit
+                  ? "border-success/35 bg-success-soft/60 text-success hover:bg-success-soft"
+                  : "border-primary/35 bg-primary-soft/60 text-primary hover:bg-primary-soft",
+              )}
+              title={
+                isCredit
+                  ? `Record repayment from ${a.name} into your account (Income)`
+                  : `Record payment from your account towards ${a.name} (Expense)`
+              }
+            >
+              {isCredit ? (
+                <>
+                  <ArrowDownLeft className="size-3.5 shrink-0" aria-hidden />
+                  <span>They paid me</span>
+                </>
+              ) : (
+                <>
+                  <ArrowUpRight className="size-3.5 shrink-0" aria-hidden />
+                  <span>I&apos;m paying</span>
+                </>
+              )}
+            </Link>
+
+            <Link
+              href={buildLiabilityActionHref({
+                account: acc,
+                action: "advance",
+                prefs: liabilityPrefs,
+                categories,
+                prefillAmount: false,
+              })}
+              className="inline-flex items-center justify-center gap-1 rounded-xl border border-border bg-surface-2/70 px-2.5 py-1.5 text-xs font-medium text-fg hover:bg-surface-2 transition active:scale-95"
+              title={
+                isCredit
+                  ? `Lend more money to ${a.name} (Expense)`
+                  : `Record borrowing more from ${a.name} (Income)`
+              }
+            >
+              <Plus className="size-3 shrink-0" aria-hidden />
+              <span>{isCredit ? "Lend" : "Borrow"}</span>
+            </Link>
+          </div>
+        )}
+      </div>
+    </Card>
   );
 }

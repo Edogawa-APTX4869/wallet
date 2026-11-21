@@ -37,9 +37,15 @@ import {
 } from "@/lib/native-wallet";
 import type { Currency } from "@/lib/firefly/types";
 import type { AiProviderType } from "@/lib/ai-ramble-parser";
+import type { DashboardPreferences } from "@/lib/dashboard-cards";
+import {
+  resolveLiabilityCategory,
+  saveLocalLiabilityCategoryPrefs,
+  type LiabilityCategoryPrefs,
+} from "@/lib/liability-actions";
 import { formatRate } from "@/lib/fx/resolve";
 import { qk, useCurrencies, usePrimaryCurrency } from "@/lib/hooks";
-import { cn, formatDate, isoDate, parseAmount } from "@/lib/utils";
+import { cn, formatDate, formatDateTime, isoDate, parseAmount } from "@/lib/utils";
 import {
   Badge,
   Button,
@@ -127,6 +133,84 @@ export function SettingsClient() {
   const ratesQ = useQuery({ queryKey: ["rates", "all"], queryFn: api.exchangeRates });
   const configQ = useQuery({ queryKey: ["configuration"], queryFn: api.configuration });
   const webhooksQ = useQuery({ queryKey: ["webhooks"], queryFn: api.webhooks });
+  const categoriesQ = useQuery({
+    queryKey: ["categories-list"],
+    queryFn: () => api.categories(),
+    staleTime: 5 * 60_000,
+  });
+  const dashboardPrefsQ = useQuery({
+    queryKey: ["dashboard-prefs"],
+    queryFn: async () => {
+      try {
+        const json = await companionFetch<{ data?: DashboardPreferences }>("/api/companion/dashboard");
+        return json.data ?? null;
+      } catch {
+        return null;
+      }
+    },
+    staleTime: 60_000,
+  });
+
+  const [owedToMeCatDraft, setOwedToMeCatDraft] = useState<string | null>(null);
+  const [iOweCatDraft, setIOweCatDraft] = useState<string | null>(null);
+  const [newLoanCatName, setNewLoanCatName] = useState("");
+
+  const effectiveOwedToMeCat =
+    owedToMeCatDraft ??
+    resolveLiabilityCategory({
+      direction: "credit",
+      prefs: dashboardPrefsQ.data?.liabilityCategories,
+      categories: categoriesQ.data,
+    });
+
+  const effectiveIOweCat =
+    iOweCatDraft ??
+    resolveLiabilityCategory({
+      direction: "debit",
+      prefs: dashboardPrefsQ.data?.liabilityCategories,
+      categories: categoriesQ.data,
+    });
+
+  const saveLiabilityCatsMut = useMutation({
+    mutationFn: async (nextPrefs: LiabilityCategoryPrefs) => {
+      saveLocalLiabilityCategoryPrefs(nextPrefs);
+      try {
+        await companionFetch("/api/companion/dashboard", {
+          method: "PUT",
+          label: "Save liability category mapping",
+          body: { liabilityCategories: nextPrefs },
+        });
+      } catch {
+        // LocalStorage fallback already saved for offline / standalone APK mode
+      }
+      return nextPrefs;
+    },
+    onSuccess: (saved) => {
+      setOwedToMeCatDraft(saved.owedToMeCategory);
+      setIOweCatDraft(saved.iOweCategory);
+      qc.invalidateQueries({ queryKey: ["dashboard-prefs"] });
+      toast("Liability category mapping saved");
+    },
+    onError: (e) => toast((e as Error).message, "error"),
+  });
+
+  const createLoanCatMut = useMutation({
+    mutationFn: async () => {
+      const trimmed = newLoanCatName.trim();
+      if (!trimmed) throw new Error("Enter a category name.");
+      return api.createCategory(trimmed);
+    },
+    onSuccess: (res) => {
+      const createdName = res.data.attributes.name;
+      setNewLoanCatName("");
+      setOwedToMeCatDraft((prev) => prev || createdName);
+      setIOweCatDraft((prev) => prev || createdName);
+      qc.invalidateQueries({ queryKey: ["categories-list"] });
+      qc.invalidateQueries({ queryKey: ["categories"] });
+      toast(`Category "${createdName}" created`);
+    },
+    onError: (e) => toast((e as Error).message, "error"),
+  });
 
   const [selectedFromCode, setFromCode] = useState("");
   const [selectedToCode, setToCode] = useState("");
@@ -453,7 +537,7 @@ export function SettingsClient() {
                 {offlineSync.queue.length > 0
                   ? `${offlineSync.queue.length} offline change${offlineSync.queue.length === 1 ? "" : "s"} pending`
                   : offlineSync.lastSyncedAt
-                    ? `Last synced ${formatDate(offlineSync.lastSyncedAt)}`
+                    ? `Last synced ${formatDateTime(offlineSync.lastSyncedAt)}`
                     : "All changes synced"}
               </span>
             </div>
@@ -590,6 +674,132 @@ export function SettingsClient() {
               </button>
             );
           })}
+        </div>
+      </Card>
+
+      {/* Liability & Loan Categories Mapping */}
+      <Card id="liability-categories" className="scroll-mt-6 flex flex-col gap-4">
+        <div className="flex items-center gap-2.5">
+          <span className="flex size-9 items-center justify-center rounded-xl bg-primary-soft text-primary">
+            <Sliders className="size-4" aria-hidden />
+          </span>
+          <div>
+            <h2 className="font-semibold">Liability & Loan Categories</h2>
+            <p className="text-xs text-muted">
+              Connect your Firefly III categories to fast-access debt and loan actions (&ldquo;They paid me&rdquo;, &ldquo;I&apos;m paying&rdquo;, &ldquo;+ Lend&rdquo;, &ldquo;+ Borrow&rdquo;) so every repayment or loan transaction is prefilled with the proper category.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field
+            label="Category for “Owed to me” (They paid me / Lend)"
+            hint="Used when collecting repayments from someone who owes you, or lending money out."
+          >
+            {(id) => (
+              <>
+                <Input
+                  id={id}
+                  list={`${id}-list`}
+                  value={effectiveOwedToMeCat}
+                  onChange={(e) => setOwedToMeCatDraft(e.target.value)}
+                  placeholder="e.g. Loan (Owed to me)"
+                />
+                <datalist id={`${id}-list`}>
+                  {(categoriesQ.data ?? []).map((c) => (
+                    <option key={c.id} value={c.attributes.name} />
+                  ))}
+                </datalist>
+              </>
+            )}
+          </Field>
+
+          <Field
+            label="Category for “I owe” (I'm paying / Borrow)"
+            hint="Used when paying off a loan/debt you owe, or recording a borrowed amount."
+          >
+            {(id) => (
+              <>
+                <Input
+                  id={id}
+                  list={`${id}-list`}
+                  value={effectiveIOweCat}
+                  onChange={(e) => setIOweCatDraft(e.target.value)}
+                  placeholder="e.g. Loan (Owed to me) or Debt Payment"
+                />
+                <datalist id={`${id}-list`}>
+                  {(categoriesQ.data ?? []).map((c) => (
+                    <option key={c.id} value={c.attributes.name} />
+                  ))}
+                </datalist>
+              </>
+            )}
+          </Field>
+        </div>
+
+        {(categoriesQ.data?.length ?? 0) > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+            <span className="text-muted">Quick pick from existing categories:</span>
+            {(categoriesQ.data ?? []).slice(0, 12).map((c) => {
+              const name = c.attributes.name;
+              const isSelected = effectiveOwedToMeCat === name || effectiveIOweCat === name;
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => {
+                    setOwedToMeCatDraft(name);
+                    setIOweCatDraft(name);
+                  }}
+                  className={cn(
+                    "rounded-full border px-2.5 py-1 text-xs font-medium transition",
+                    isSelected
+                      ? "border-primary bg-primary-soft text-primary"
+                      : "border-border bg-surface hover:bg-surface-2",
+                  )}
+                >
+                  {name}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-3">
+          <div className="flex flex-1 items-center gap-2 min-w-[220px]">
+            <Input
+              value={newLoanCatName}
+              onChange={(e) => setNewLoanCatName(e.target.value)}
+              placeholder="Or create new category in Firefly III…"
+              className="h-9 text-xs"
+            />
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              loading={createLoanCatMut.isPending}
+              disabled={!newLoanCatName.trim()}
+              onClick={() => createLoanCatMut.mutate()}
+              className="h-9 min-h-0 shrink-0 px-3 text-xs"
+            >
+              <Plus className="size-3.5" aria-hidden /> Create category
+            </Button>
+          </div>
+
+          <Button
+            type="button"
+            size="sm"
+            loading={saveLiabilityCatsMut.isPending}
+            onClick={() =>
+              saveLiabilityCatsMut.mutate({
+                owedToMeCategory: effectiveOwedToMeCat.trim() || "Loan (Owed to me)",
+                iOweCategory: effectiveIOweCat.trim() || "Loan",
+              })
+            }
+            className="h-9 min-h-0 px-4 text-xs"
+          >
+            <Check className="size-3.5" aria-hidden /> Save category mapping
+          </Button>
         </div>
       </Card>
 

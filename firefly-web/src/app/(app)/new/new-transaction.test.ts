@@ -9,16 +9,26 @@ import { AccountPicker } from "@/components/account-picker";
 import { CategoryCascadeSelect } from "@/components/category-cascade";
 import {
   FullScreenAccountSelectView,
+  FullScreenBudgetSelectView,
   FullScreenCategorySelectView,
 } from "@/components/wallet-selection-views";
 import {
   extractLocalDate,
   extractLocalTime,
   formatDateTime,
+  formatTime,
   isoDateTimeWithOffset,
   isoTime,
 } from "@/lib/utils";
+import { parseTime24h, stepTime24h, TimeInput24h } from "@/components/time-input-24h";
+import { buildEditTransactionPayload } from "@/components/edit-transaction-modal";
 import { evaluateCalcExpression } from "./new-transaction";
+import {
+  buildLiabilityActionHref,
+  isLiabilityAccount,
+  resolveLiabilityCategory,
+} from "@/lib/liability-actions";
+import type { Account, Resource } from "@/lib/firefly/types";
 
 const NEW_TX_SRC = readFileSync(path.resolve(__dirname, "new-transaction.tsx"), "utf8");
 const LINKED_AMOUNTS_SRC = readFileSync(
@@ -79,7 +89,8 @@ describe("NewTransaction regression guards", () => {
     expect(NEW_TX_SRC).toContain("animate-swipe-prev");
     expect(NEW_TX_SRC).not.toContain("More details (Category, Budget, Tags)");
     expect(NEW_TX_SRC).not.toContain("Details & Category →");
-    expect(NEW_TX_SRC).toContain("className=\"hidden lg:flex items-center gap-2\"");
+    expect(NEW_TX_SRC).not.toContain("Save as 1-tap Template");
+    expect(NEW_TX_SRC).toContain("aria-label=\"Save transaction\"");
   });
 
   it("uses full-screen drill-down selection views for accounts and categories with no pop-up modals", () => {
@@ -437,13 +448,170 @@ describe("FullScreenAccountSelectView & FullScreenCategorySelectView", () => {
     expect(fullCatHtml).toContain("data-pagination-dot=\"true\"");
     expect(fullCatHtml).toContain("!min-h-0 !min-w-0");
 
-    // EditTransactionModal supports AccountPicker, time preservation, and omits category on transfers
-    expect(txSrc).toContain("accounts?: Awaited<ReturnType<typeof api.accounts>>");
-    expect(txSrc).toContain("txType === \"deposit\" ? \"To account\" : \"From account\"");
-    expect(txSrc).toContain("txType !== \"transfer\" && (");
-    expect(txSrc).toContain("category_name: txType === \"transfer\" ? undefined : category.trim() || undefined");
-    expect(txSrc).toContain("isoDateTimeWithOffset(date, time)");
-    expect(txSrc).toContain("type=\"time\"");
+    // Shared EditTransactionModal supports AccountPicker, 24h time preservation, omits category on transfers, and is wired across screens
+    const editModalSrc = readFileSync(
+      path.resolve(__dirname, "../../../components/edit-transaction-modal.tsx"),
+      "utf8",
+    );
+    const accountDetailSrc = readFileSync(
+      path.resolve(__dirname, "../accounts/[id]/account-detail-client.tsx"),
+      "utf8",
+    );
+    const dashboardSrc = readFileSync(
+      path.resolve(__dirname, "../dashboard-client.tsx"),
+      "utf8",
+    );
+    expect(editModalSrc).toContain("accounts?: Awaited<ReturnType<typeof api.accounts>>");
+    expect(editModalSrc).toContain("txType === \"deposit\" ? \"To account\" : \"From account\"");
+    expect(editModalSrc).toContain("txType !== \"transfer\" && !isSystemType && (");
+    expect(editModalSrc).toContain("isoDateTimeWithOffset(draft.date, draft.time)");
+    expect(editModalSrc).toContain("<TimeInput24h");
+    expect(editModalSrc).not.toContain("type=\"time\"");
+    expect(txSrc).toContain("<EditTransactionModal");
+    expect(txSrc).not.toContain("type=\"time\"");
+    expect(accountDetailSrc).toContain("<EditTransactionModal");
+    expect(accountDetailSrc).toContain("onEdit={(tx) => setEditingTx(tx)}");
+    expect(dashboardSrc).toContain("<EditTransactionModal");
+    expect(rulesSrc).toContain("<EditTransactionModal");
+    expect(NEW_TX_SRC).toContain("<TimeInput24h");
+    expect(NEW_TX_SRC).not.toContain("type=\"time\"");
+
+    // buildEditTransactionPayload preserves transaction_journal_id, multi-split siblings, cross-currency amounts, and liability links
+    const multiSplitPayload = buildEditTransactionPayload({
+      splits: [
+        {
+          transaction_journal_id: "j-1",
+          type: "withdrawal",
+          date: "2026-11-21T14:30:00+03:00",
+          amount: "25.000",
+          currency_code: "BHD",
+          description: "Supermarket",
+          source_id: "1",
+          source_name: "Khaleeji Bank",
+          destination_id: "99",
+          destination_name: "Lulu",
+          category_name: "Groceries",
+          budget_id: "5",
+          tags: ["food"],
+          notes: "Weekly run",
+        },
+        {
+          transaction_journal_id: "j-2",
+          type: "withdrawal",
+          date: "2026-11-21T14:30:00+03:00",
+          amount: "5.000",
+          currency_code: "BHD",
+          description: "Coffee",
+          source_id: "1",
+          source_name: "Khaleeji Bank",
+          destination_id: "100",
+          destination_name: "Cafe",
+          category_name: "Dining",
+        },
+      ],
+      activeSplitIndex: 0,
+      draft: {
+        description: "Supermarket Updated",
+        amount: "30.500",
+        foreignAmount: "",
+        foreignCurrencyCode: "",
+        date: "2026-11-21",
+        time: "18:45",
+        sourceId: "2",
+        destId: "",
+        counterparty: "Carrefour",
+        category: "",
+        budgetId: "",
+        tags: "food, family",
+        notes: "",
+      },
+    });
+    expect(multiSplitPayload).toHaveLength(2);
+    expect(multiSplitPayload[0].transaction_journal_id).toBe("j-1");
+    expect(multiSplitPayload[0].amount).toBe("30.5");
+    expect(multiSplitPayload[0].source_id).toBe("2");
+    expect(multiSplitPayload[0].destination_name).toBe("Carrefour");
+    expect(multiSplitPayload[0].category_name).toBeNull();
+    expect(multiSplitPayload[0].budget_id).toBeNull();
+    expect(multiSplitPayload[0].date).toMatch(/^2026-11-21T18:45:/);
+    expect(multiSplitPayload[0].tags).toEqual(["food", "family"]);
+    expect(multiSplitPayload[1].transaction_journal_id).toBe("j-2");
+    expect(multiSplitPayload[1].description).toBe("Coffee");
+
+    const crossTransferPayload = buildEditTransactionPayload({
+      splits: [
+        {
+          transaction_journal_id: "j-3",
+          type: "transfer",
+          date: "2026-11-17T18:30:00+03:00",
+          amount: "2.075",
+          currency_code: "BHD",
+          foreign_amount: "5.50",
+          foreign_currency_code: "USD",
+          description: "Transfer to ila Bank - USD",
+          source_id: "1",
+          source_name: "Khaleeji Bank",
+          destination_id: "4",
+          destination_name: "ila Bank - USD",
+        },
+      ],
+      draft: {
+        description: "Transfer to ila Bank - USD",
+        amount: "3.770",
+        foreignAmount: "10.00",
+        foreignCurrencyCode: "USD",
+        date: "2026-11-17",
+        time: "18:30",
+        sourceId: "1",
+        destId: "4",
+        counterparty: "",
+        category: "IgnoredOnTransfer",
+        budgetId: "5",
+        tags: "",
+        notes: "FX transfer",
+      },
+    });
+    expect(crossTransferPayload[0].category_name).toBeUndefined();
+    expect(crossTransferPayload[0].budget_id).toBeUndefined();
+    expect(crossTransferPayload[0].foreign_amount).toBe("10");
+    expect(crossTransferPayload[0].foreign_currency_code).toBe("USD");
+
+    // Budget picker matches Category/Account/Payee slide-in selection sub-view
+    const fullBudgetHtml = renderToStaticMarkup(
+      React.createElement(
+        QueryClientProvider,
+        { client: qc },
+        React.createElement(FullScreenBudgetSelectView, {
+          budgets: [
+            {
+              id: "b-1",
+              type: "budgets",
+              attributes: {
+                name: "Groceries",
+                active: true,
+                auto_budget_period: "monthly",
+              },
+            },
+            {
+              id: "b-2",
+              type: "budgets",
+              attributes: {
+                name: "Archived Budget",
+                active: false,
+              },
+            },
+          ],
+          selectedBudgetId: "b-1",
+          onSelect: () => {},
+          onBack: () => {},
+        }),
+      ),
+    );
+    expect(fullBudgetHtml).toContain("No budget");
+    expect(fullBudgetHtml).toContain("Groceries");
+    expect(fullBudgetHtml).not.toContain("Archived Budget");
+    expect(NEW_TX_SRC).toContain("key=\"subview-budget\"");
+    expect(NEW_TX_SRC).toContain("<FullScreenBudgetSelectView");
 
     // Category & Account pickers animate both opening (animate-swipe-next) and back/level drilldown
     expect(NEW_TX_SRC).toContain("key=\"subview-category\"");
@@ -454,9 +622,12 @@ describe("FullScreenAccountSelectView & FullScreenCategorySelectView", () => {
     expect(NEW_TX_SRC).toContain("aria-label=\"Transaction time\"");
   });
 
-  it("formats and preserves local date + current time as ISO-8601 timestamps for Firefly III", () => {
+  it("formats and preserves local date + current time as ISO-8601 timestamps in strict 24-hour format", () => {
     const sample = new Date(2026, 10, 17, 22, 19, 33); // 2026-11-17 22:19:33 local
     expect(isoTime(sample)).toBe("22:19");
+    expect(formatTime(sample)).toBe("22:19");
+    expect(formatTime(new Date(2026, 10, 17, 0, 5, 0))).toBe("00:05");
+    expect(formatTime(new Date(2026, 10, 17, 13, 39, 0))).toBe("13:39");
 
     const stampNow = isoDateTimeWithOffset("2026-11-17", "22:19", sample);
     expect(stampNow).toMatch(/^2026-11-17T22:19:33[+-]\d{2}:\d{2}$/);
@@ -468,6 +639,135 @@ describe("FullScreenAccountSelectView & FullScreenCategorySelectView", () => {
     expect(extractLocalTime(stampEdited)).toBe("08:05");
     expect(extractLocalDate("2026-11-17")).toBe("2026-11-17");
     expect(extractLocalTime("2026-11-17", sample)).toBe("22:19");
-    expect(formatDateTime(stampNow).length).toBeGreaterThan(6);
+
+    const formattedEvening = formatDateTime(stampNow);
+    expect(formattedEvening).toContain("22:19");
+    expect(formattedEvening).not.toMatch(/\b(AM|PM)\b/i);
+
+    const formattedMidnight = formatDateTime(new Date(2026, 10, 17, 0, 5, 0));
+    expect(formattedMidnight).toContain("00:05");
+    expect(formattedMidnight).not.toContain("24:05");
+    expect(formattedMidnight).not.toMatch(/\b(AM|PM)\b/i);
+
+    // 24-hour time input parsing, stepping, and SSR markup
+    expect(parseTime24h("15:30")).toBe("15:30");
+    expect(parseTime24h("00:00")).toBe("00:00");
+    expect(parseTime24h("23:59")).toBe("23:59");
+    expect(parseTime24h("9:5")).toBe("09:05");
+    expect(parseTime24h("1530")).toBe("15:30");
+    expect(parseTime24h("930")).toBe("09:30");
+    expect(parseTime24h("14")).toBe("14:00");
+    expect(parseTime24h("24:00")).toBeNull();
+    expect(parseTime24h("12:60")).toBeNull();
+    expect(parseTime24h("abc")).toBeNull();
+
+    expect(stepTime24h("23:59", "hour", 1)).toBe("00:59");
+    expect(stepTime24h("00:00", "hour", -1)).toBe("23:00");
+    expect(stepTime24h("13:59", "minute", 1)).toBe("13:00");
+    expect(stepTime24h("13:00", "minute", -1)).toBe("13:59");
+
+    const pickerHtml = renderToStaticMarkup(
+      React.createElement(TimeInput24h, {
+        id: "tx-time",
+        value: "18:30",
+        onChange: () => {},
+        required: true,
+      }),
+    );
+    expect(pickerHtml).toContain('value="18:30"');
+    expect(pickerHtml).toContain('inputMode="numeric"');
+    expect(pickerHtml).toContain('aria-label="Open 24-hour time picker"');
+    expect(pickerHtml).not.toContain('type="time"');
+  });
+
+  it("builds prefilled fast-access liability repayment/loan URLs with Settings category mapping", () => {
+    const owedToMeAcc: Resource<Account> = {
+      id: "101",
+      type: "accounts",
+      attributes: {
+        name: "Ali Sarhan - 415",
+        type: "liabilities",
+        active: true,
+        liability_type: "loan",
+        liability_direction: "credit",
+        current_balance: "265.000",
+        currency_code: "BHD",
+        currency_decimal_places: 3,
+      },
+    };
+
+    const iOweAcc: Resource<Account> = {
+      id: "102",
+      type: "accounts",
+      attributes: {
+        name: "Car Loan",
+        type: "liabilities",
+        active: true,
+        liability_type: "loan",
+        liability_direction: "debit",
+        current_balance: "-120.500",
+        currency_code: "BHD",
+        currency_decimal_places: 3,
+      },
+    };
+
+    expect(isLiabilityAccount(owedToMeAcc)).toBe(true);
+    expect(isLiabilityAccount(iOweAcc)).toBe(true);
+
+    // 1. Owed to me -> "They paid me" (repay) maps to deposit (Income) with liabilityId + configured category
+    const collectHref = buildLiabilityActionHref({
+      account: owedToMeAcc,
+      action: "repay",
+      prefs: { owedToMeCategory: "Loan (Owed to me)", iOweCategory: "Debt Payment" },
+    });
+    expect(collectHref).toContain("/new?");
+    expect(collectHref).toContain("type=deposit");
+    expect(collectHref).toContain("liabilityId=101");
+    expect(collectHref).toContain("category=Loan+%28Owed+to+me%29");
+    expect(collectHref).toContain("amount=265");
+
+    // 2. Owed to me -> "+ Lend" (advance) maps to withdrawal (Expense)
+    const lendHref = buildLiabilityActionHref({
+      account: owedToMeAcc,
+      action: "advance",
+      prefs: { owedToMeCategory: "Loan (Owed to me)", iOweCategory: "Debt Payment" },
+    });
+    expect(lendHref).toContain("type=withdrawal");
+    expect(lendHref).toContain("liabilityId=101");
+    expect(lendHref).toContain("category=Loan+%28Owed+to+me%29");
+
+    // 3. I owe -> "I'm paying" (repay) maps to withdrawal (Expense) with iOweCategory
+    const payHref = buildLiabilityActionHref({
+      account: iOweAcc,
+      action: "repay",
+      prefs: { owedToMeCategory: "Loan (Owed to me)", iOweCategory: "Debt Payment" },
+    });
+    expect(payHref).toContain("type=withdrawal");
+    expect(payHref).toContain("liabilityId=102");
+    expect(payHref).toContain("category=Debt+Payment");
+    expect(payHref).toContain("amount=120.5");
+
+    // 4. Auto-detects existing category from Firefly III when explicit setting is blank
+    expect(
+      resolveLiabilityCategory({
+        direction: "credit",
+        categories: ["Groceries", "Loan (Owed to me)", "Utilities"],
+      }),
+    ).toBe("Loan (Owed to me)");
+
+    const settingsSrc = readFileSync(
+      path.resolve(__dirname, "../settings/settings-client.tsx"),
+      "utf8",
+    );
+    const accountsSrc = readFileSync(
+      path.resolve(__dirname, "../accounts/accounts-client.tsx"),
+      "utf8",
+    );
+    expect(settingsSrc).toContain("Liability & Loan Categories");
+    expect(accountsSrc).toContain("They paid me");
+    expect(NEW_TX_SRC).toContain("linkedLiability");
+    expect(NEW_TX_SRC).toContain("FullScreenCounterpartySelectView");
+    expect(NEW_TX_SRC).toContain('setActiveSubView("counterparty")');
+    expect(NEW_TX_SRC).not.toContain("Pay / Lend:");
   });
 });

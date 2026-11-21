@@ -218,10 +218,10 @@ export interface About {
   driver?: string;
 }
 
-/** Split payload for POST /transactions. */
+/** Split payload for POST /transactions and PUT /transactions/{id}. */
 export interface NewSplit {
   transaction_journal_id?: string;
-  type: "withdrawal" | "deposit" | "transfer";
+  type: "withdrawal" | "deposit" | "transfer" | "opening balance" | "reconciliation";
   date: string;
   amount: string;
   description: string;
@@ -230,12 +230,12 @@ export interface NewSplit {
   destination_id?: string;
   destination_name?: string;
   currency_code?: string;
-  foreign_amount?: string;
-  foreign_currency_code?: string;
-  category_name?: string;
-  budget_id?: string;
+  foreign_amount?: string | null;
+  foreign_currency_code?: string | null;
+  category_name?: string | null;
+  budget_id?: string | null;
   tags?: string[];
-  notes?: string;
+  notes?: string | null;
   bill_id?: string | null;
   bill_name?: string | null;
 }

@@ -10,6 +10,14 @@ function read(): DashboardPreferences {
     // An explicitly saved empty list means the user removed every card — respect it.
     cards: Array.isArray(saved.cards) ? sanitizeCards(saved.cards) : DEFAULT_DASHBOARD_PREFS.cards,
     ...(Array.isArray(saved.categoryOrder) ? { categoryOrder: saved.categoryOrder.map(String) } : {}),
+    ...(saved.liabilityCategories && typeof saved.liabilityCategories === "object"
+      ? {
+          liabilityCategories: {
+            owedToMeCategory: String(saved.liabilityCategories.owedToMeCategory || "").trim(),
+            iOweCategory: String(saved.liabilityCategories.iOweCategory || "").trim(),
+          },
+        }
+      : {}),
   };
 }
 
@@ -33,6 +41,16 @@ export async function PUT(req: NextRequest) {
       ? { categoryOrder: body.categoryOrder.map(String) }
       : current.categoryOrder
         ? { categoryOrder: current.categoryOrder }
+        : {}),
+    ...(body.liabilityCategories && typeof body.liabilityCategories === "object"
+      ? {
+          liabilityCategories: {
+            owedToMeCategory: String(body.liabilityCategories.owedToMeCategory ?? "").trim(),
+            iOweCategory: String(body.liabilityCategories.iOweCategory ?? "").trim(),
+          },
+        }
+      : current.liabilityCategories
+        ? { liabilityCategories: current.liabilityCategories }
         : {}),
   };
   setKv("dashboard_prefs", next);

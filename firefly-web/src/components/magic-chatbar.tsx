@@ -39,7 +39,7 @@ import {
   recordCategoryUsage,
   resolveDefaultAccountForList,
 } from "@/lib/recent-selections";
-import { cn, isoDate, isoDateTimeWithOffset, isoTime, monthRange, sumDecimal } from "@/lib/utils";
+import { cn, formatTime, isoDate, isoDateTimeWithOffset, isoTime, monthRange, sumDecimal } from "@/lib/utils";
 import {
   FullScreenAccountSelectView,
   FullScreenCategorySelectView,
@@ -376,7 +376,7 @@ export function MagicChatPanel({
         role: "user",
         text: payload.promptText || (payload.files.length > 0 ? `${payload.files.length} file(s)` : ""),
         attachments: payload.files,
-        createdAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        createdAt: formatTime(new Date()),
       };
       const draftsWithIds: ChatDraftItem[] = (res.data ?? []).map((d, idx) => ({
         ...d,
@@ -395,7 +395,7 @@ export function MagicChatPanel({
           (draftsWithIds.length === 0
             ? "Could not match an action. Try e.g. 'Spent 3.500 BHD lunch' or 'What are my balances?'."
             : undefined),
-        createdAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        createdAt: formatTime(new Date()),
       };
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
       setExpanded(true);

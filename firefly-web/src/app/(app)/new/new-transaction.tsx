@@ -7,7 +7,6 @@ import Decimal from "decimal.js";
 import {
   ArrowLeft,
   ArrowLeftRight,
-  BookmarkPlus,
   Calculator,
   Check,
   ChevronLeft,
@@ -19,14 +18,18 @@ import {
   Plus,
   RotateCcw,
   Sparkles,
-  Trash2,
   X,
 } from "lucide-react";
 import { api } from "@/lib/firefly/api";
 import { companionFetch } from "@/lib/offline-sync";
 import { suppressNativeAutoLock } from "@/lib/native-wallet";
-import type { NewSplit } from "@/lib/firefly/types";
+import type { Account, NewSplit, Resource } from "@/lib/firefly/types";
 import type { TransactionTemplateRow } from "@/lib/server/db";
+import type { DashboardPreferences } from "@/lib/dashboard-cards";
+import {
+  isLiabilityAccount,
+  resolveLiabilityCategory,
+} from "@/lib/liability-actions";
 import { accountCurrency, ASSET_LIKE, useAccounts, useCurrencies } from "@/lib/hooks";
 import { formatRate } from "@/lib/fx/resolve";
 import { useOptionalUniversalFilter } from "@/lib/filter-context";
@@ -48,9 +51,15 @@ import {
   parseAmount,
   zeroPlaceholder,
 } from "@/lib/utils";
-import { FullScreenAccountSelectView, FullScreenCategorySelectView } from "@/components/wallet-selection-views";
+import {
+  FullScreenAccountSelectView,
+  FullScreenBudgetSelectView,
+  FullScreenCategorySelectView,
+  FullScreenCounterpartySelectView,
+} from "@/components/wallet-selection-views";
 import { LinkedAmountFields, useLinkedAmounts, type CurrencyInfo } from "@/components/linked-amounts";
-import { ICON_CATALOG, inferAccountDefaultStyle, inferCategoryDefaultStyle, ResourceIconBadge } from "@/components/resource-icon";
+import { inferAccountDefaultStyle, inferCategoryDefaultStyle, ResourceIconBadge } from "@/components/resource-icon";
+import { TimeInput24h } from "@/components/time-input-24h";
 import { AnimatedTabs, Badge, Button, Card, ErrorBox, Field, Input, ModalSheet, Select, Skeleton } from "@/components/ui";
 import { useToast } from "@/components/providers";
 import { useEscapeDismiss } from "@/lib/use-escape-dismiss";
@@ -339,11 +348,11 @@ function WalletCalculatorForm({
     queryFn: async () => {
       try {
         const json = await companionFetch<{
-          data?: { selectedAccountIds?: string[]; categoryOrder?: string[] };
+          data?: DashboardPreferences;
         }>("/api/companion/dashboard");
         return json.data ?? null;
       } catch {
-        return null as { selectedAccountIds?: string[]; categoryOrder?: string[] } | null;
+        return null as DashboardPreferences | null;
       }
     },
     staleTime: 60_000,
@@ -374,12 +383,21 @@ function WalletCalculatorForm({
   const assetLike = all
     .filter((a) => ASSET_LIKE.has(a.attributes.type) && a.attributes.active !== false)
     .sort((a, b) => (a.attributes.type === "asset" ? 0 : 1) - (b.attributes.type === "asset" ? 0 : 1));
-  const expenseNames = all.filter((a) => a.attributes.type === "expense").map((a) => a.attributes.name);
-  const revenueNames = all.filter((a) => a.attributes.type === "revenue").map((a) => a.attributes.name);
+  const pureAssets = assetLike.filter((a) => !isLiabilityAccount(a));
+  const liabilityAccounts = all.filter(
+    (a) =>
+      isLiabilityAccount(a) &&
+      a.attributes.active !== false &&
+      !/^initial balance for/i.test(a.attributes.name || ""),
+  );
+  const expenseAccounts = all.filter((a) => a.attributes.type === "expense");
+  const revenueAccounts = all.filter((a) => a.attributes.type === "revenue");
+  const activeBudgets = (budgetsQ.data ?? []).filter((b) => b.attributes.active);
 
-  // Form state (supports pre-filling from URL query params when duplicating a transaction or paying a bill)
+  // Form state (supports pre-filling from URL query params when duplicating a transaction or paying a bill/liability)
   const [selectedAssetId, setAssetId] = useState<string | null>(() => searchParams.get("sourceId"));
   const [destId, setDestId] = useState<string | null>(() => searchParams.get("destId"));
+  const [liabilityId, setLiabilityId] = useState<string | null>(() => searchParams.get("liabilityId"));
   const [counterparty, setCounterparty] = useState(() => searchParams.get("counterparty") ?? "");
   const [foreignCode, setForeignCode] = useState(() => searchParams.get("foreignCode") ?? "");
   const [description, setDescription] = useState(() => searchParams.get("description") ?? "");
@@ -396,12 +414,16 @@ function WalletCalculatorForm({
   const [pairs, setPairs] = useState<Pair[]>(() => (typeof window !== "undefined" ? loadPairs() : []));
 
   // Calculator, Sub-View Drilldown & Details Drawer state
-  const [expr, setExpr] = useState(() => searchParams.get("amount") ?? "");
+  const [expr, setExpr] = useState(() =>
+    searchParams.get("foreignCode") ? "" : searchParams.get("amount") ?? "",
+  );
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [paneTransition, setPaneTransition] = useState<"none" | "to-details" | "to-calc" | "from-subview">("none");
   const [lastType, setLastType] = useState<TxType>(type);
   const [modeDir, setModeDir] = useState<"none" | "next" | "prev">("none");
-  const [activeSubView, setActiveSubView] = useState<null | "source-account" | "dest-account" | "category">(null);
+  const [activeSubView, setActiveSubView] = useState<
+    null | "source-account" | "dest-account" | "category" | "counterparty" | "budget"
+  >(null);
   const [touchStartX, setTouchStartX] = useState<number | null>(null);
   const [seededUrlAmount, setSeededUrlAmount] = useState(false);
 
@@ -430,15 +452,10 @@ function WalletCalculatorForm({
   const [modalSourceAmt, setModalSourceAmt] = useState("");
   const [modalTargetAmt, setModalTargetAmt] = useState("");
   const [modalRateStr, setModalRateStr] = useState("");
-
-  // Save as Template state
-  const [showSaveTemplate, setShowSaveTemplate] = useState(false);
-  const [templateName, setTemplateName] = useState("");
   const [appliedInitTemplate, setAppliedInitTemplate] = useState<string | null>(null);
 
   useEscapeDismiss(activeSubView !== null, closeSubView, "new-tx-subview");
   useEscapeDismiss(detailsOpen, () => goToDetails(false), "new-transaction-details");
-  useEscapeDismiss(showSaveTemplate, () => setShowSaveTemplate(false), "new-transaction-save-template");
 
   const handleCancelOrBack = () => {
     if (activeSubView !== null) {
@@ -463,35 +480,67 @@ function WalletCalculatorForm({
         ? filterCtx!.selectedAccountIds
         : loadOutsideSelectedAccountIds();
   const recentAccountIds = loadRecentAccountIds();
+  const eligiblePrimaryAccounts =
+    type !== "transfer" && pureAssets.length > 0 ? pureAssets : assetLike;
   const defaultAssetId = resolveDefaultAccountId({
     urlSourceId: searchParams.get("sourceId"),
     outsideSelectedIds,
     recentAccountIds,
-    eligibleAccountIds: assetLike.map((a) => a.id),
+    eligibleAccountIds: eligiblePrimaryAccounts.map((a) => a.id),
   });
 
-  const assetId = selectedAssetId ?? defaultAssetId ?? assetLike[0]?.id ?? null;
+  const assetId = selectedAssetId ?? defaultAssetId ?? eligiblePrimaryAccounts[0]?.id ?? assetLike[0]?.id ?? null;
   const asset = all.find((a) => a.id === assetId) ?? null;
   const defaultDest = assetLike.find((a) => a.id !== assetId) ?? assetLike[0] ?? null;
   const effectiveDestId = destId ?? (type === "transfer" ? defaultDest?.id ?? null : null);
   const dest = all.find((a) => a.id === effectiveDestId) ?? null;
 
+  const linkedLiability: Resource<Account> | null =
+    type === "transfer"
+      ? null
+      : (liabilityId ? liabilityAccounts.find((a) => a.id === liabilityId) ?? null : null) ??
+        (counterparty.trim()
+          ? liabilityAccounts.find(
+              (a) => a.attributes.name.toLowerCase() === counterparty.trim().toLowerCase(),
+            ) ?? null
+          : null);
+
   const assetCur: CurrencyInfo | null = asset ? accountCurrency(asset) : null;
   let otherCur: CurrencyInfo | null = null;
   if (type === "transfer") otherCur = dest ? accountCurrency(dest) : null;
-  else if (foreignCode) {
-    const c = currenciesQ.data?.find((x) => x.attributes.code === foreignCode);
-    otherCur = c ? { code: c.attributes.code, symbol: c.attributes.symbol, decimals: c.attributes.decimal_places } : null;
+  else if (foreignCode && (!assetCur || foreignCode.toUpperCase() !== assetCur.code.toUpperCase())) {
+    const c = currenciesQ.data?.find(
+      (x) => x.attributes.code.toUpperCase() === foreignCode.toUpperCase(),
+    );
+    otherCur = c
+      ? { code: c.attributes.code, symbol: c.attributes.symbol, decimals: c.attributes.decimal_places }
+      : { code: foreignCode.toUpperCase(), decimals: 2 };
   } else otherCur = assetCur;
 
   const linked = useLinkedAmounts(assetCur, otherCur, date);
   const { state } = linked;
 
   const urlAmount = searchParams.get("amount");
-  if (urlAmount && !seededUrlAmount) {
+  const urlForeignCode = searchParams.get("foreignCode");
+  if (urlAmount && !seededUrlAmount && (!urlForeignCode || assetCur)) {
     setSeededUrlAmount(true);
-    linked.controls.setFrom(urlAmount);
+    if (urlForeignCode && assetCur && urlForeignCode.toUpperCase() !== assetCur.code.toUpperCase()) {
+      // Cross-currency prefill (e.g. $19.90 USD bill on a BHD account):
+      // Seed `toAmount` = 19.90 USD so `useLinkedAmounts` converts it into the account's BHD currency (`fromAmount`).
+      linked.controls.setTo(urlAmount);
+    } else {
+      if (urlForeignCode && assetCur && urlForeignCode.toUpperCase() === assetCur.code.toUpperCase()) {
+        setForeignCode("");
+      }
+      setExpr(urlAmount);
+      linked.controls.setFrom(urlAmount);
+    }
   }
+
+  // Displayed primary expression: when cross-currency is driven by the foreign target amount (`lead === "to"`),
+  // show the live exchange-rate-converted account amount (`state.fromAmount`).
+  const displayedExpr =
+    state.isCross && linked.controls.lead === "to" ? state.fromAmount || expr : expr;
 
   // Apply URL `?template=` once loaded
   if (initialTemplateId && appliedInitTemplate !== initialTemplateId && templatesQ.data) {
@@ -514,21 +563,35 @@ function WalletCalculatorForm({
     }
   }
 
-  function applyTemplate(t: TransactionTemplateRow) {
-    if (t.source_id) setAssetId(t.source_id);
-    if (t.destination_id) setDestId(t.destination_id);
-    if (t.destination_name || t.source_name) setCounterparty(t.destination_name || t.source_name);
-    if (t.foreign_currency_code) setForeignCode(t.foreign_currency_code);
-    if (t.description) setDescription(t.description);
-    if (t.category_name) setCategory(t.category_name);
-    if (t.budget_id) setBudgetId(t.budget_id);
-    if (t.tags) setTags(t.tags);
-    if (t.notes) setNotes(t.notes);
-    if (t.amount) {
-      setExpr(t.amount);
-      linked.controls.setFrom(t.amount);
+  function applyLiabilityQuickAction(liabAcc: Resource<Account>) {
+    const a = liabAcc.attributes;
+    const isCredit = a.liability_direction === "credit";
+    const resolvedCat = resolveLiabilityCategory({
+      direction: isCredit ? "credit" : "debit",
+      prefs: dashboardPrefsQ.data?.liabilityCategories,
+      categories: categoriesQ.data,
+    });
+    setLiabilityId(liabAcc.id);
+    setCounterparty(a.name);
+    if (resolvedCat) setCategory(resolvedCat);
+
+    if (type === "deposit") {
+      setDescription(isCredit ? `Collect Loan - ${a.name}` : `Loan from ${a.name}`);
+    } else {
+      setDescription(isCredit ? `Loan to ${a.name}` : `Loan Payment - ${a.name}`);
     }
-    toast(`Applied template "${t.name}"`);
+
+    const bal = new Decimal(a.current_balance ?? 0).abs();
+    if (bal.gt(0) && ((isCredit && type === "deposit") || (!isCredit && type === "withdrawal"))) {
+      const amtStr = bal.toString();
+      setExpr(amtStr);
+      linked.controls.setFrom(amtStr);
+    }
+    toast(
+      type === "deposit"
+        ? `Prefilled repayment from ${a.name}`
+        : `Prefilled payment to ${a.name}`,
+    );
   }
 
   function onCalcPress(key: string) {
@@ -557,6 +620,27 @@ function WalletCalculatorForm({
     if (currentFrom && !state.fromAmount) {
       linked.controls.setFrom(currentFrom);
     }
+  }
+
+  function syncAccountSelectionFx(nextAccountId: string) {
+    if (urlForeignCode && urlAmount) {
+      const nextAcc = all.find((a) => a.id === nextAccountId);
+      const nextCode = nextAcc?.attributes.currency_code;
+      const nativeBillAmt = (state.isCross ? state.toAmount : state.fromAmount) || urlAmount;
+      if (nextCode && nextCode.toUpperCase() !== urlForeignCode.toUpperCase()) {
+        setForeignCode(urlForeignCode);
+        setExpr("");
+        linked.controls.setTo(nativeBillAmt);
+        return;
+      }
+      if (nextCode && nextCode.toUpperCase() === urlForeignCode.toUpperCase()) {
+        setForeignCode("");
+        setExpr(nativeBillAmt);
+        linked.controls.setFrom(nativeBillAmt);
+        return;
+      }
+    }
+    resetFxKeepAmount();
   }
 
   function swapTransferAccounts() {
@@ -610,52 +694,6 @@ function WalletCalculatorForm({
     setCurrencyModalOpen(false);
   }
 
-  const saveTemplateMut = useMutation({
-    mutationFn: async () => {
-      if (!templateName.trim()) throw new Error("Enter a template name");
-      return companionFetch("/api/companion/templates", {
-        method: "POST",
-        label: `Save template "${templateName.trim()}"`,
-        body: {
-          name: templateName.trim(),
-          type,
-          amount: state.fromAmount,
-          currency_code: assetCur?.code || "",
-          foreign_amount: state.isCross ? state.toAmount : "",
-          foreign_currency_code: state.isCross ? otherCur?.code || "" : "",
-          source_id: asset?.id || "",
-          source_name: counterparty,
-          destination_id: dest?.id || "",
-          destination_name: counterparty,
-          description: description || defaultDescription(),
-          category_name: category,
-          budget_id: budgetId,
-          tags,
-          notes,
-        },
-      });
-    },
-    onSuccess: () => {
-      toast(`Template "${templateName}" saved`);
-      setTemplateName("");
-      setShowSaveTemplate(false);
-      qc.invalidateQueries({ queryKey: ["companion-templates"] });
-    },
-    onError: (e) => toast((e as Error).message, "error"),
-  });
-
-  const delTemplateMut = useMutation({
-    mutationFn: (id: string) =>
-      companionFetch(`/api/companion/templates?id=${encodeURIComponent(id)}`, {
-        method: "DELETE",
-        label: "Delete template",
-      }),
-    onSuccess: () => {
-      toast("Template removed", "info");
-      qc.invalidateQueries({ queryKey: ["companion-templates"] });
-    },
-  });
-
   const mutation = useMutation({
     mutationFn: async () => {
       if (!asset) throw new Error("Choose an account.");
@@ -684,17 +722,62 @@ function WalletCalculatorForm({
       }
       if (type === "withdrawal") {
         split.source_id = asset.id;
-        if (counterparty.trim()) split.destination_name = counterparty.trim();
+        if (linkedLiability) {
+          split.destination_id = linkedLiability.id;
+          if (!split.category_name) {
+            split.category_name = resolveLiabilityCategory({
+              direction: linkedLiability.attributes.liability_direction,
+              prefs: dashboardPrefsQ.data?.liabilityCategories,
+              categories: categoriesQ.data,
+            });
+          }
+        } else if (counterparty.trim()) {
+          split.destination_name = counterparty.trim();
+        }
         if (budgetId) split.budget_id = budgetId;
         if (billId) split.bill_id = billId;
         if (billName) split.bill_name = billName;
       } else if (type === "deposit") {
         split.destination_id = asset.id;
-        if (counterparty.trim()) split.source_name = counterparty.trim();
+        if (linkedLiability) {
+          split.source_id = linkedLiability.id;
+          if (!split.category_name) {
+            split.category_name = resolveLiabilityCategory({
+              direction: linkedLiability.attributes.liability_direction,
+              prefs: dashboardPrefsQ.data?.liabilityCategories,
+              categories: categoriesQ.data,
+            });
+          }
+        } else if (counterparty.trim()) {
+          split.source_name = counterparty.trim();
+        }
       } else {
         if (!dest) throw new Error("Choose the destination account.");
         split.source_id = asset.id;
         split.destination_id = dest.id;
+        // Firefly III requires movements between an Asset account and a Liability account
+        // to use type "deposit" (Liability -> Asset) or "withdrawal" (Asset -> Liability).
+        const srcIsLiab = isLiabilityAccount(asset);
+        const dstIsLiab = isLiabilityAccount(dest);
+        if (srcIsLiab && !dstIsLiab) {
+          split.type = "deposit";
+          split.category_name =
+            category.trim() ||
+            resolveLiabilityCategory({
+              direction: asset.attributes.liability_direction,
+              prefs: dashboardPrefsQ.data?.liabilityCategories,
+              categories: categoriesQ.data,
+            });
+        } else if (!srcIsLiab && dstIsLiab) {
+          split.type = "withdrawal";
+          split.category_name =
+            category.trim() ||
+            resolveLiabilityCategory({
+              direction: dest.attributes.liability_direction,
+              prefs: dashboardPrefsQ.data?.liabilityCategories,
+              categories: categoriesQ.data,
+            });
+        }
       }
 
       const res = await api.createTransaction([split]);
@@ -812,7 +895,6 @@ function WalletCalculatorForm({
   }
   if (accountsQ.error) return <ErrorBox error={accountsQ.error} />;
 
-  const matchingTemplates = (templatesQ.data ?? []).filter((t) => t.type === type);
   // Accent follows the app's semantic tokens (not hard-coded brand colours)
   const accentText = type === "deposit" ? "text-success" : type === "withdrawal" ? "text-danger" : "text-primary";
   const accentSoft = type === "deposit" ? "bg-success-soft" : type === "withdrawal" ? "bg-danger-soft" : "bg-primary-soft";
@@ -835,7 +917,7 @@ function WalletCalculatorForm({
           onSelect={(id) => {
             setAssetId(id);
             pushRecentAccountId(id);
-            resetFxKeepAmount();
+            syncAccountSelectionFx(id);
             closeSubView();
           }}
           onBack={closeSubView}
@@ -881,6 +963,55 @@ function WalletCalculatorForm({
           onSelect={(catName) => {
             if (catName) recordCategoryUsage(catName);
             setCategory(catName);
+            closeSubView();
+          }}
+          onBack={closeSubView}
+        />
+      </div>
+    );
+  }
+
+  if (activeSubView === "counterparty" && type !== "transfer") {
+    return (
+      <div
+        key="subview-counterparty"
+        className="relative mx-auto flex min-h-dvh w-full flex-col overflow-hidden bg-surface animate-swipe-next lg:min-h-0 lg:max-w-5xl lg:rounded-2xl lg:border lg:border-border lg:shadow-sm"
+      >
+        <FullScreenCounterpartySelectView
+          title={type === "withdrawal" ? "Payee / Merchant (or Liability)" : "Payer (or Liability)"}
+          mode={type}
+          liabilities={liabilityAccounts}
+          counterpartyAccounts={type === "withdrawal" ? expenseAccounts : revenueAccounts}
+          selectedName={counterparty}
+          selectedLiabilityId={linkedLiability?.id ?? null}
+          onSelect={({ name, liabilityAccount }) => {
+            if (liabilityAccount) {
+              applyLiabilityQuickAction(liabilityAccount);
+            } else {
+              setLiabilityId(null);
+              setCounterparty(name);
+            }
+            closeSubView();
+          }}
+          onBack={closeSubView}
+        />
+      </div>
+    );
+  }
+
+  const selectedBudget = activeBudgets.find((b) => b.id === budgetId) ?? null;
+
+  if (activeSubView === "budget" && type === "withdrawal") {
+    return (
+      <div
+        key="subview-budget"
+        className="relative mx-auto flex min-h-dvh w-full flex-col overflow-hidden bg-surface animate-swipe-next lg:min-h-0 lg:max-w-5xl lg:rounded-2xl lg:border lg:border-border lg:shadow-sm"
+      >
+        <FullScreenBudgetSelectView
+          budgets={activeBudgets}
+          selectedBudgetId={budgetId}
+          onSelect={(nextBudgetId) => {
+            setBudgetId(nextBudgetId);
             closeSubView();
           }}
           onBack={closeSubView}
@@ -944,27 +1075,6 @@ function WalletCalculatorForm({
           className="grid grid-cols-3"
           ariaLabel="Transaction types"
         />
-
-        {/* Saved Templates Strip */}
-        {matchingTemplates.length > 0 && (
-          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
-            <span className="shrink-0 text-xs text-muted">Templates:</span>
-            {matchingTemplates.map((t) => {
-              const IconComp = ICON_CATALOG[t.icon] ?? Sparkles;
-              return (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => applyTemplate(t)}
-                  className="flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-surface px-3 py-1 text-xs font-medium hover:bg-surface-2"
-                >
-                  <IconComp className="size-3 text-primary" aria-hidden />
-                  <span>{t.name}</span>
-                </button>
-              );
-            })}
-          </div>
-        )}
       </div>
 
       <ErrorBox error={error} />
@@ -1007,6 +1117,36 @@ function WalletCalculatorForm({
                     className="rounded p-0.5 hover:bg-primary/20"
                     title="Remove bill link"
                     aria-label="Remove bill link"
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                </div>
+              )}
+              {linkedLiability && (
+                <div
+                  className={cn(
+                    "flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-xs font-semibold",
+                    type === "deposit"
+                      ? "border-success/35 bg-success-soft/50 text-success"
+                      : "border-primary/35 bg-primary-soft/50 text-primary",
+                  )}
+                >
+                  <div className="flex items-center gap-1.5 truncate">
+                    <Sparkles className="size-3.5 shrink-0" />
+                    <span className="truncate">
+                      {type === "deposit" ? "They paid (From Liability): " : "Paying / Lending (To Liability): "}
+                      <strong>{linkedLiability.attributes.name}</strong>
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLiabilityId(null);
+                      setCounterparty("");
+                    }}
+                    className="rounded p-0.5 hover:bg-surface/40"
+                    title="Unlink liability account"
+                    aria-label="Unlink liability account"
                   >
                     <X className="size-3.5" />
                   </button>
@@ -1172,30 +1312,25 @@ function WalletCalculatorForm({
                   aria-label="Transaction date"
                   className="rounded-lg border border-border bg-surface px-2 py-1 text-xs font-medium text-fg outline-none focus:border-primary"
                 />
-                <input
-                  type="time"
+                <TimeInput24h
+                  compact
                   value={time}
-                  onChange={(e) => setTime(e.target.value)}
+                  onChange={setTime}
                   aria-label="Transaction time"
-                  className="rounded-lg border border-border bg-surface px-2 py-1 text-xs font-medium text-fg outline-none focus:border-primary"
                 />
               </div>
-              {type === "withdrawal" && (budgetsQ.data?.length ?? 0) > 0 && (
-                <select
-                  value={budgetId}
-                  onChange={(e) => setBudgetId(e.target.value)}
+              {type === "withdrawal" && activeBudgets.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setActiveSubView("budget")}
                   aria-label="Select budget"
-                  className="max-w-44 truncate rounded-lg border border-border bg-surface px-2 py-1 text-xs font-medium text-fg outline-none focus:border-primary"
+                  className="inline-flex max-w-44 items-center gap-1.5 rounded-lg border border-border bg-surface px-2.5 py-1 text-xs font-medium text-fg outline-none transition hover:bg-surface-2 active:scale-95"
                 >
-                  <option value="">No budget</option>
-                  {budgetsQ.data
-                    ?.filter((b) => b.attributes.active)
-                    .map((b) => (
-                      <option key={b.id} value={b.id}>
-                        {b.attributes.name}
-                      </option>
-                    ))}
-                </select>
+                  <span className={cn("truncate", !selectedBudget && "text-muted")}>
+                    {selectedBudget ? selectedBudget.attributes.name : "No budget"}
+                  </span>
+                  <ChevronRight className="size-3.5 shrink-0 text-muted" aria-hidden />
+                </button>
               )}
             </div>
 
@@ -1277,6 +1412,36 @@ function WalletCalculatorForm({
                 </button>
               </div>
             )}
+            {linkedLiability && (
+              <div
+                className={cn(
+                  "flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-xs font-semibold",
+                  type === "deposit"
+                    ? "border-success/35 bg-success-soft/50 text-success"
+                    : "border-primary/35 bg-primary-soft/50 text-primary",
+                )}
+              >
+                <div className="flex items-center gap-1.5 truncate">
+                  <Sparkles className="size-3.5 shrink-0" />
+                  <span className="truncate">
+                    {type === "deposit" ? "They paid (From Liability): " : "Paying / Lending (To Liability): "}
+                    <strong>{linkedLiability.attributes.name}</strong>
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLiabilityId(null);
+                    setCounterparty("");
+                  }}
+                  className="rounded p-0.5 hover:bg-surface/40"
+                  title="Unlink liability account"
+                  aria-label="Unlink liability account"
+                >
+                  <X className="size-3.5" />
+                </button>
+              </div>
+            )}
             {/* Amount Input with Live Math Evaluator */}
             <div className="flex flex-col gap-2">
               <label htmlFor="desktop-amount" className="flex items-center justify-between text-sm font-semibold">
@@ -1290,7 +1455,7 @@ function WalletCalculatorForm({
                   name="amount"
                   type="text"
                   autoComplete="off"
-                  value={expr}
+                  value={displayedExpr}
                   onChange={(e) => {
                     const val = e.target.value;
                     setExpr(val);
@@ -1621,24 +1786,75 @@ function WalletCalculatorForm({
                 </button>
               </div>
             ) : (
-              <Field label={type === "withdrawal" ? "Payee / Merchant" : "Payer"}>
-                {(id) => (
-                  <>
-                    <Input
-                      id={id}
-                      list={`${id}-list`}
-                      value={counterparty}
-                      onChange={(e) => setCounterparty(e.target.value)}
-                      placeholder={type === "withdrawal" ? "e.g. Supermarket" : "e.g. Employer"}
-                    />
-                    <datalist id={`${id}-list`}>
-                      {(type === "withdrawal" ? expenseNames : revenueNames).map((n) => (
-                        <option key={n} value={n} />
-                      ))}
-                    </datalist>
-                  </>
-                )}
-              </Field>
+              <div className="flex flex-col gap-1.5">
+                <span className="text-sm font-medium">
+                  {type === "withdrawal" ? "Payee / Merchant (or Liability)" : "Payer (or Liability)"}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setActiveSubView("counterparty")}
+                  className="flex min-h-14 w-full items-center gap-3 rounded-xl border border-border bg-surface px-3 py-2 text-left transition hover:bg-surface-2 active:scale-[0.98]"
+                >
+                  {linkedLiability ? (
+                    <>
+                      <ResourceIconBadge
+                        entityType="account"
+                        entityId={linkedLiability.id}
+                        defaultIcon={inferAccountDefaultStyle(linkedLiability.attributes).icon}
+                        defaultColor={inferAccountDefaultStyle(linkedLiability.attributes).color}
+                        size="sm"
+                        editable={false}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <span className="block truncate font-medium text-fg">
+                          {linkedLiability.attributes.name}
+                        </span>
+                        <span className="block text-xs text-muted">
+                          {linkedLiability.attributes.liability_direction === "credit" ? "Owed to me" : "I owe"} ·{" "}
+                          {linkedLiability.attributes.currency_code} · {linkedLiability.attributes.current_balance}
+                        </span>
+                      </div>
+                    </>
+                  ) : counterparty.trim() ? (
+                    <>
+                      {(() => {
+                        const matchedAcc = (type === "withdrawal" ? expenseAccounts : revenueAccounts).find(
+                          (a) => a.attributes.name.toLowerCase() === counterparty.trim().toLowerCase(),
+                        );
+                        return (
+                          <ResourceIconBadge
+                            entityType="account"
+                            entityId={matchedAcc?.id ?? counterparty.trim()}
+                            defaultIcon={
+                              matchedAcc
+                                ? inferAccountDefaultStyle(matchedAcc.attributes).icon
+                                : type === "withdrawal"
+                                  ? "Store"
+                                  : "Building2"
+                            }
+                            defaultColor={
+                              matchedAcc ? inferAccountDefaultStyle(matchedAcc.attributes).color : "#6366f1"
+                            }
+                            size="sm"
+                            editable={false}
+                          />
+                        );
+                      })()}
+                      <div className="min-w-0 flex-1">
+                        <span className="block truncate font-medium text-fg">{counterparty}</span>
+                        <span className="block text-xs text-muted">
+                          {type === "withdrawal" ? "Payee / Merchant" : "Payer"}
+                        </span>
+                      </div>
+                    </>
+                  ) : (
+                    <span className="flex-1 text-muted">
+                      {type === "withdrawal" ? "Choose payee or liability…" : "Choose payer or liability…"}
+                    </span>
+                  )}
+                  <ChevronRight className="size-4 shrink-0 text-muted" aria-hidden />
+                </button>
+              </div>
             )}
           </div>
 
@@ -1726,24 +1942,37 @@ function WalletCalculatorForm({
               {(id) => <Input id={id} type="date" value={date} onChange={(e) => setDate(e.target.value)} required />}
             </Field>
             <Field label="Time">
-              {(id) => <Input id={id} type="time" value={time} onChange={(e) => setTime(e.target.value)} required />}
+              {(id) => <TimeInput24h id={id} value={time} onChange={setTime} required />}
             </Field>
 
             {type === "withdrawal" && (
-              <Field label="Budget">
-                {(id) => (
-                  <Select id={id} value={budgetId} onChange={(e) => setBudgetId(e.target.value)}>
-                    <option value="">No budget</option>
-                    {budgetsQ.data
-                      ?.filter((b) => b.attributes.active)
-                      .map((b) => (
-                        <option key={b.id} value={b.id}>
-                          {b.attributes.name}
-                        </option>
-                      ))}
-                  </Select>
-                )}
-              </Field>
+              <div className="flex flex-col gap-1.5">
+                <span className="text-sm font-medium">Budget</span>
+                <button
+                  type="button"
+                  onClick={() => setActiveSubView("budget")}
+                  aria-label="Choose budget"
+                  className="flex h-11 w-full items-center gap-2.5 rounded-xl border border-border bg-surface px-3 text-left text-sm transition hover:bg-surface-2/60 active:scale-[0.99]"
+                >
+                  {selectedBudget ? (
+                    <>
+                      <ResourceIconBadge
+                        entityType="budget"
+                        entityId={selectedBudget.id}
+                        defaultIcon="PiggyBank"
+                        size="sm"
+                        editable={false}
+                      />
+                      <span className="min-w-0 flex-1 truncate font-medium text-fg">
+                        {selectedBudget.attributes.name}
+                      </span>
+                    </>
+                  ) : (
+                    <span className="min-w-0 flex-1 truncate text-muted">No budget</span>
+                  )}
+                  <ChevronRight className="size-4 shrink-0 text-muted" aria-hidden />
+                </button>
+              </div>
             )}
           </div>
 
@@ -1832,58 +2061,6 @@ function WalletCalculatorForm({
               </div>
             )}
           </Field>
-
-          {/* Save as reusable Template & Submission buttons */}
-          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border">
-            {!showSaveTemplate ? (
-              <Button type="button" variant="ghost" size="sm" onClick={() => setShowSaveTemplate(true)}>
-                <BookmarkPlus className="size-4" aria-hidden /> Save as 1-tap Template
-              </Button>
-            ) : (
-              <div className="flex flex-1 items-center gap-2 rounded-xl border border-border bg-surface-2 p-2">
-                <Input
-                  value={templateName}
-                  onChange={(e) => setTemplateName(e.target.value)}
-                  placeholder="Template name (e.g. كواي, حلاق, Morning Coffee)"
-                  className="h-9 flex-1 text-xs"
-                />
-                <Button type="button" size="sm" loading={saveTemplateMut.isPending} onClick={() => saveTemplateMut.mutate()}>
-                  Save
-                </Button>
-                <Button type="button" size="sm" variant="ghost" onClick={() => setShowSaveTemplate(false)}>
-                  Cancel
-                </Button>
-              </div>
-            )}
-
-            <div className="hidden lg:flex items-center gap-2">
-              <Button type="button" variant="ghost" onClick={() => router.back()}>
-                Cancel
-              </Button>
-              <Button type="button" onClick={() => mutation.mutate()} loading={mutation.isPending}>
-                <Check className="size-4" aria-hidden /> Save {TABS.find((t) => t.type === type)?.label.toLowerCase()}
-              </Button>
-            </div>
-          </div>
-
-          {matchingTemplates.length > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5 border-t border-border pt-3 text-xs">
-              <span className="text-muted">Manage templates:</span>
-              {matchingTemplates.map((t) => (
-                <span key={t.id} className="inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-0.5">
-                  {t.name}
-                  <button
-                    type="button"
-                    onClick={() => delTemplateMut.mutate(t.id)}
-                    className="text-muted hover:text-danger"
-                    aria-label={`Delete template ${t.name}`}
-                  >
-                    <Trash2 className="size-3" />
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
         </div>
       </div>
 

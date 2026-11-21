@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import Decimal from "decimal.js";
+import { Pencil } from "lucide-react";
 import {
   Area,
   AreaChart,
@@ -16,6 +18,7 @@ import {
 import type { Account, Bill, PiggyBank, Resource, TransactionGroup } from "@/lib/firefly/types";
 import type { DashboardCardConfig } from "@/lib/dashboard-cards";
 import { cn, formatDate, isoDate } from "@/lib/utils";
+import { EditTransactionModal } from "@/components/edit-transaction-modal";
 import { ResourceIconBadge } from "@/components/resource-icon";
 import { accountHref } from "@/lib/native-wallet";
 import { Badge, EmptyState, Money, Progress } from "@/components/ui";
@@ -175,6 +178,7 @@ function RankedBars({
 }
 
 export function ExtraCard({ card, ctx }: { card: DashboardCardConfig; ctx: ExtraCardContext }) {
+  const [editingTx, setEditingTx] = useState<Resource<TransactionGroup> | null>(null);
   const days = card.periodDays;
   const limit = card.recordLimit || 5;
 
@@ -241,32 +245,52 @@ export function ExtraCard({ card, ctx }: { card: DashboardCardConfig; ctx: Extra
         .slice(0, limit);
       if (rows.length === 0) return <EmptyState title="No expenses in this period" />;
       return (
-        <ul className="flex-1 divide-y divide-border">
-          {rows.map(({ g, s }, i) => (
-            <li key={`${g.id}-${i}`}>
-              <Link
-                href={`/transactions?query=${encodeURIComponent(s.description)}`}
-                className="interactive-row flex items-center justify-between gap-2 rounded-lg px-1.5 py-2 text-sm transition-all duration-150 hover:bg-surface-2 active:scale-[0.98]"
-              >
-                <span className="min-w-0">
-                  <span className="block truncate font-medium">{s.description}</span>
-                  <span className="text-xs text-muted">
-                    {(s.category_name || "Uncategorised").replace(/\s*:\s*/g, " › ")} · {formatDate(s.date)}
+        <>
+          <ul className="flex-1 divide-y divide-border">
+            {rows.map(({ g, s }, i) => (
+              <li key={`${g.id}-${i}`} className="group flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setEditingTx(g)}
+                  title="Edit transaction"
+                  className="interactive-row flex min-w-0 flex-1 items-center justify-between gap-2 rounded-lg px-1.5 py-2 text-left text-sm transition-all duration-150 hover:bg-surface-2 active:scale-[0.98]"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium">{s.description}</span>
+                    <span className="text-xs text-muted">
+                      {(s.category_name || "Uncategorised").replace(/\s*:\s*/g, " › ")} · {formatDate(s.date)}
+                    </span>
                   </span>
-                </span>
-                <span className="tabular shrink-0 font-semibold text-danger">
-                  -
-                  <Money
-                    amount={new Decimal(s.amount || 0).abs().toString()}
-                    code={s.currency_code}
-                    decimals={s.currency_decimal_places}
-                    symbol={s.currency_symbol}
-                  />
-                </span>
-              </Link>
-            </li>
-          ))}
-        </ul>
+                  <span className="tabular shrink-0 font-semibold text-danger">
+                    -
+                    <Money
+                      amount={new Decimal(s.amount || 0).abs().toString()}
+                      code={s.currency_code}
+                      decimals={s.currency_decimal_places}
+                      symbol={s.currency_symbol}
+                    />
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditingTx(g)}
+                  aria-label={`Edit ${s.description}`}
+                  title="Edit transaction"
+                  className="rounded-lg p-1.5 text-muted opacity-100 md:opacity-70 md:group-hover:opacity-100 hover:bg-surface-2 hover:text-fg transition"
+                >
+                  <Pencil className="size-3.5" aria-hidden />
+                </button>
+              </li>
+            ))}
+          </ul>
+          {editingTx && (
+            <EditTransactionModal
+              key={editingTx.id}
+              group={editingTx}
+              onClose={() => setEditingTx(null)}
+            />
+          )}
+        </>
       );
     }
 

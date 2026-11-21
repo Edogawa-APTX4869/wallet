@@ -182,12 +182,12 @@ describe("Mobile UX Redesign E2E & Production Suite (M1-M4)", () => {
     // F1: Streamlined Mobile Header
     // ------------------------------------------------------------------------
     describe("F1: Streamlined Mobile Header", () => {
-      it("T1.1.1: renders 3-element header with Menu button, Home title, and Bell notification", () => {
+      it("T1.1.1: renders streamlined header with Menu button and Home title without notification bell", () => {
         expect(getScreenTitle("/")).toBe("Home");
         const html = renderWithProviders(<MobileTopHeader title={getScreenTitle("/")} />);
         expect(html).toContain('aria-label="Open navigation menu"');
         expect(html).toContain("Home");
-        expect(html).toContain('aria-label="Notifications"');
+        expect(html).not.toContain('aria-label="Notifications"');
       });
 
       it("T1.1.2: header interactive buttons meet touch target minimum (min-h-[48px] min-w-[48px])", () => {
@@ -618,13 +618,18 @@ describe("Mobile UX Redesign E2E & Production Suite (M1-M4)", () => {
         expect(hasClass(extractAttribute(html, "header", "class"), "top-0")).toBe(true);
       });
 
-      it("T2.1.5: handles notification dot when unread notifications exist vs none", () => {
-        const htmlNoUnread = renderWithProviders(<MobileTopHeader hasUnreadNotifications={false} />);
-        expect(htmlNoUnread).not.toContain("data-testid=\"notification-badge\"");
-
-        const htmlUnread = renderWithProviders(<MobileTopHeader hasUnreadNotifications={true} />);
-        expect(htmlUnread).toContain("data-testid=\"notification-badge\"");
-        expect(htmlUnread).toContain("bg-primary ring-2 ring-surface");
+      it("T2.1.5: hides hamburger menu and notifications on overlay sub-pages (e.g. account detail)", () => {
+        const htmlOverlay = renderWithProviders(
+          <MobileTopHeader
+            title="Accounts"
+            isOverlayView={true}
+            onBack={() => {}}
+            onOpenMenu={() => {}}
+          />,
+        );
+        expect(htmlOverlay).toContain('aria-label="Go back"');
+        expect(htmlOverlay).not.toContain('aria-label="Open navigation menu"');
+        expect(htmlOverlay).not.toContain('aria-label="Notifications"');
       });
     });
 
@@ -1310,7 +1315,7 @@ describe("Mobile UX Redesign E2E & Production Suite (M1-M4)", () => {
       // Validate entire integrated tree with real components
       expect(fullPage).toContain('aria-label="Open navigation menu"');
       expect(fullPage).toContain("Home");
-      expect(fullPage).toContain('aria-label="Notifications"');
+      expect(fullPage).not.toContain('aria-label="Notifications"');
       expect(fullPage).toContain('role="tablist"');
       expect(fullPage).toContain('href="/accounts"');
       expect(fullPage).toContain('href="/transactions"');

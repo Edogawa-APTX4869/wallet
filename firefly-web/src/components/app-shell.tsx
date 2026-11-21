@@ -330,8 +330,6 @@ export function MobileTopHeader({
   title = "Home",
   drawerOpen = false,
   onOpenMenu,
-  onOpenNotifications,
-  hasUnreadNotifications = false,
   isOverlayView = false,
   onBack,
 }: MobileHeaderProps) {
@@ -362,34 +360,6 @@ export function MobileTopHeader({
         <span className="font-semibold text-base text-fg truncate">
           {title}
         </span>
-      </div>
-      <div className="flex items-center gap-1">
-        {isOverlayView && onOpenMenu && (
-          <button
-            type="button"
-            onClick={onOpenMenu}
-            aria-label="Open navigation menu"
-            aria-expanded={drawerOpen}
-            aria-controls="mobile-nav-drawer"
-            className="flex min-h-[48px] min-w-[48px] size-12 items-center justify-center rounded-xl text-muted hover:text-fg hover:bg-surface-2 active:scale-95 transition-all"
-          >
-            <Menu className="size-5" />
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={onOpenNotifications}
-          aria-label="Notifications"
-          className="relative flex min-h-[48px] min-w-[48px] size-12 items-center justify-center rounded-xl text-muted hover:text-fg hover:bg-surface-2 active:scale-95 transition-all"
-        >
-          <Bell className="size-5" />
-          {hasUnreadNotifications && (
-            <span
-              data-testid="notification-badge"
-              className="absolute top-2.5 right-2.5 size-2 rounded-full bg-primary ring-2 ring-surface"
-            />
-          )}
-        </button>
       </div>
     </header>
   );

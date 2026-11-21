@@ -5,16 +5,17 @@ import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Decimal from "decimal.js";
-import { Check, ChevronLeft, ChevronRight, Filter, Plus, RotateCcw, Search, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Filter, Plus, RotateCcw, Search, X } from "lucide-react";
 import { api } from "@/lib/firefly/api";
 import { mergePendingTransactionsIntoGroups } from "@/lib/offline-store";
 import { useOfflineSync } from "@/lib/offline-sync";
 import { accountHref } from "@/lib/native-wallet";
 import type { Resource, TransactionGroup } from "@/lib/firefly/types";
 import { ASSET_LIKE, useAccounts, usePrimaryCurrency } from "@/lib/hooks";
-import { cn, extractLocalDate, extractLocalTime, isoDateTimeWithOffset, monthRange, parseAmount } from "@/lib/utils";
+import { cn, monthRange } from "@/lib/utils";
 import { AccountPicker } from "@/components/account-picker";
 import { CategoryCascadeSelect } from "@/components/category-cascade";
+import { EditTransactionModal } from "@/components/edit-transaction-modal";
 import { TransactionRow } from "@/components/transaction-row";
 import {
   Button,
@@ -23,7 +24,6 @@ import {
   ErrorBox,
   Field,
   Input,
-  ModalSheet,
   Money,
   PageHeader,
   Select,
@@ -690,183 +690,5 @@ export function TransactionsClient() {
         />
       )}
     </div>
-  );
-}
-
-function EditTransactionModal({
-  group,
-  accounts = [],
-  categories,
-  budgets,
-  onClose,
-}: {
-  group: Resource<TransactionGroup>;
-  accounts?: Awaited<ReturnType<typeof api.accounts>>;
-  categories?: Awaited<ReturnType<typeof api.categories>>;
-  budgets?: Awaited<ReturnType<typeof api.budgets>>;
-  onClose: () => void;
-}) {
-  const qc = useQueryClient();
-  const toast = useToast();
-  const [open, setOpen] = useState(true);
-  const handleClose = () => {
-    setOpen(false);
-    setTimeout(onClose, 240);
-  };
-  const first = group.attributes.transactions[0];
-  const txType = (first?.type === "deposit" || first?.type === "transfer" ? first.type : "withdrawal") as
-    | "withdrawal"
-    | "deposit"
-    | "transfer";
-
-  const [description, setDescription] = useState(first?.description ?? "");
-  const [amount, setAmount] = useState(() => String(Math.abs(Number(first?.amount ?? 0))));
-  const [date, setDate] = useState(() => extractLocalDate(first?.date));
-  const [time, setTime] = useState(() => extractLocalTime(first?.date));
-  const [sourceId, setSourceId] = useState(() =>
-    txType === "deposit" ? (first?.destination_id ?? "") : (first?.source_id ?? ""),
-  );
-  const [destId, setDestId] = useState(() =>
-    txType === "transfer" ? (first?.destination_id ?? "") : "",
-  );
-  const [category, setCategory] = useState(first?.category_name ?? "");
-  const [budgetId, setBudgetId] = useState(first?.budget_id ?? "");
-  const [tags, setTags] = useState(() => (first?.tags ?? []).join(", "));
-  const [notes, setNotes] = useState(first?.notes ?? "");
-
-  const updateMut = useMutation({
-    mutationFn: async () => {
-      const parsedAmt = parseAmount(amount);
-      if (!parsedAmt || Number(parsedAmt) <= 0) throw new Error("Enter a valid amount greater than zero.");
-      return api.updateTransaction(group.id, [
-        {
-          transaction_journal_id: first?.transaction_journal_id,
-          type: txType,
-          description: description.trim() || first?.description || "Transaction",
-          amount: parsedAmt,
-          date: date ? isoDateTimeWithOffset(date, time) : first?.date || isoDateTimeWithOffset(),
-          ...(txType === "deposit"
-            ? { destination_id: sourceId || first?.destination_id || undefined }
-            : { source_id: sourceId || first?.source_id || undefined }),
-          ...(txType === "transfer" && (destId || first?.destination_id)
-            ? { destination_id: destId || first?.destination_id || undefined }
-            : {}),
-          category_name: txType === "transfer" ? undefined : category.trim() || undefined,
-          budget_id: txType === "withdrawal" && budgetId ? budgetId : undefined,
-          tags: tags
-            .split(",")
-            .map((t) => t.trim())
-            .filter(Boolean),
-          notes: notes.trim() || undefined,
-        },
-      ]);
-    },
-    onSuccess: (res) => {
-      const queuedOffline = Boolean((res as unknown as { __offlineQueued?: boolean })?.__offlineQueued);
-      toast(queuedOffline ? "Edit queued offline — will sync when online" : "Transaction updated", queuedOffline ? "info" : "success");
-      qc.invalidateQueries({ queryKey: ["transactions"] });
-      qc.invalidateQueries({ queryKey: ["accounts"] });
-      qc.invalidateQueries({ queryKey: ["dashboard"] });
-      qc.invalidateQueries({ queryKey: ["budgets"] });
-      handleClose();
-    },
-    onError: (e) => toast((e as Error).message, "error"),
-  });
-
-  if (!first) return null;
-
-  return (
-    <ModalSheet
-      open={open}
-      onClose={handleClose}
-      title="Edit Transaction"
-      subtitle={`${first.source_name ?? ""} → ${first.destination_name ?? ""} (${first.currency_code ?? ""})`}
-    >
-      <div className="flex flex-col gap-4">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Description">
-            {(id) => <Input id={id} value={description} onChange={(e) => setDescription(e.target.value)} />}
-          </Field>
-          <Field label={`Amount (${first.currency_code ?? ""})`}>
-            {(id) => <Input id={id} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />}
-          </Field>
-        </div>
-
-        {accounts.length > 0 && (
-          <div className={cn("grid gap-3", txType === "transfer" ? "sm:grid-cols-2" : "grid-cols-1")}>
-            <AccountPicker
-              label={txType === "deposit" ? "To account" : "From account"}
-              accounts={accounts}
-              value={sourceId || null}
-              onChange={(id) => setSourceId(id)}
-            />
-            {txType === "transfer" && (
-              <AccountPicker
-                label="To account"
-                accounts={accounts}
-                value={destId || null}
-                excludeId={sourceId || null}
-                onChange={(id) => setDestId(id)}
-              />
-            )}
-          </div>
-        )}
-
-        {txType !== "transfer" && (
-          <CategoryCascadeSelect categories={categories} value={category} onChange={setCategory} />
-        )}
-
-        <div className={cn("grid gap-3", first.type === "withdrawal" ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
-          <Field label="Date">
-            {(id) => <Input id={id} type="date" value={date} onChange={(e) => setDate(e.target.value)} />}
-          </Field>
-          <Field label="Time">
-            {(id) => <Input id={id} type="time" value={time} onChange={(e) => setTime(e.target.value)} />}
-          </Field>
-
-          {first.type === "withdrawal" && (
-            <Field label="Budget">
-              {(id) => (
-                <Select id={id} value={budgetId} onChange={(e) => setBudgetId(e.target.value)}>
-                  <option value="">No budget</option>
-                  {budgets
-                    ?.filter((b) => b.attributes.active)
-                    .map((b) => (
-                      <option key={b.id} value={b.id}>
-                        {b.attributes.name}
-                      </option>
-                    ))}
-                </Select>
-              )}
-            </Field>
-          )}
-        </div>
-
-        <Field label="Tags (comma-separated)">
-          {(id) => <Input id={id} value={tags} onChange={(e) => setTags(e.target.value)} />}
-        </Field>
-
-        <Field label="Notes">
-          {(id) => (
-            <textarea
-              id={id}
-              rows={2}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-primary"
-            />
-          )}
-        </Field>
-
-        <div className="flex justify-end gap-2 pt-2">
-          <Button variant="ghost" onClick={handleClose}>
-            Cancel
-          </Button>
-          <Button onClick={() => updateMut.mutate()} loading={updateMut.isPending}>
-            <Check className="size-4" aria-hidden /> Save changes
-          </Button>
-        </div>
-      </div>
-    </ModalSheet>
   );
 }

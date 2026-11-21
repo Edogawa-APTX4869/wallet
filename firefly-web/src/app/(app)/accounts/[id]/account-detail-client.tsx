@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Decimal from "decimal.js";
@@ -15,6 +16,7 @@ import {
 } from "recharts";
 import {
   ArrowDownLeft,
+  ArrowLeft,
   ArrowLeftRight,
   ArrowUpRight,
   Pencil,
@@ -24,8 +26,10 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { api, getAll } from "@/lib/firefly/api";
-import type { Account, TransactionGroup } from "@/lib/firefly/types";
+import type { Account, Resource, TransactionGroup } from "@/lib/firefly/types";
+import { buildLiabilityActionHref, isLiabilityAccount } from "@/lib/liability-actions";
 import { inferAccountDefaultStyle, ResourceIconBadge } from "@/components/resource-icon";
+import { EditTransactionModal } from "@/components/edit-transaction-modal";
 import { TransactionRow } from "@/components/transaction-row";
 import { cn, formatDate, isoDate } from "@/lib/utils";
 import {
@@ -167,9 +171,19 @@ export function formatAccountRole(roleOrType?: string | null): string {
 }
 
 export function AccountDetailClient({ id }: { id: string }) {
+  const router = useRouter();
   const qc = useQueryClient();
   const toast = useToast();
   const [editing, setEditing] = useState(false);
+  const [editingTx, setEditingTx] = useState<Resource<TransactionGroup> | null>(null);
+
+  const handleBack = () => {
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      router.back();
+    } else {
+      router.push("/accounts");
+    }
+  };
 
   const accQ = useQuery({
     queryKey: ["account", id],
@@ -346,6 +360,15 @@ export function AccountDetailClient({ id }: { id: string }) {
         <PageHeader
           title={
             <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={handleBack}
+                aria-label="Go back"
+                title="Go back to previous page"
+                className="hidden md:inline-flex size-10 shrink-0 items-center justify-center rounded-xl border border-border bg-surface text-muted shadow-2xs transition-all hover:bg-surface-2 hover:text-fg active:scale-95"
+              >
+                <ArrowLeft className="size-5" aria-hidden />
+              </button>
               <ResourceIconBadge
                 entityType="account"
                 entityId={id}
@@ -432,6 +455,45 @@ export function AccountDetailClient({ id }: { id: string }) {
                   <Pencil className="size-3.5" aria-hidden="true" />
                 </button>
               </div>
+              {accQ.data && isLiabilityAccount(accQ.data) && (
+                <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                  <Link
+                    href={buildLiabilityActionHref({
+                      account: accQ.data,
+                      action: "repay",
+                    })}
+                    className={cn(
+                      "inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-semibold transition active:scale-95",
+                      a.liability_direction === "credit"
+                        ? "border-success/35 bg-success-soft/70 text-success hover:bg-success-soft"
+                        : "border-primary/35 bg-primary-soft/70 text-primary hover:bg-primary-soft",
+                    )}
+                  >
+                    {a.liability_direction === "credit" ? (
+                      <>
+                        <ArrowDownLeft className="size-3.5" aria-hidden />
+                        <span>They paid me</span>
+                      </>
+                    ) : (
+                      <>
+                        <ArrowUpRight className="size-3.5" aria-hidden />
+                        <span>I&apos;m paying</span>
+                      </>
+                    )}
+                  </Link>
+                  <Link
+                    href={buildLiabilityActionHref({
+                      account: accQ.data,
+                      action: "advance",
+                      prefillAmount: false,
+                    })}
+                    className="inline-flex items-center gap-1 rounded-xl border border-border bg-surface-2 px-3 py-1.5 text-xs font-medium text-fg hover:bg-surface-3 transition active:scale-95"
+                  >
+                    <Plus className="size-3.5" aria-hidden />
+                    <span>{a.liability_direction === "credit" ? "Lend more" : "Borrow more"}</span>
+                  </Link>
+                </div>
+              )}
             </div>
 
             <div className="text-right">
@@ -674,6 +736,7 @@ export function AccountDetailClient({ id }: { id: string }) {
                   key={g.id}
                   group={g}
                   perspectiveAccountId={id}
+                  onEdit={(tx) => setEditingTx(tx)}
                   onDelete={(txId) => delMut.mutate(txId)}
                 />
               ))}
@@ -710,6 +773,14 @@ export function AccountDetailClient({ id }: { id: string }) {
           isSaving={updateMut.isPending}
         />
       )}
+
+      {editingTx && (
+        <EditTransactionModal
+          key={editingTx.id}
+          group={editingTx}
+          onClose={() => setEditingTx(null)}
+        />
+      )}
     </div>
   );
 }
@@ -744,6 +815,7 @@ export function EditAccountModal({
 
   return (
     <EditAccountModalContent
+      key={`${open}-${account.name}-${account.account_role ?? ""}-${account.liability_type ?? ""}-${account.liability_direction ?? ""}`}
       open={open}
       account={account}
       onClose={onClose}
@@ -778,23 +850,6 @@ function EditAccountModalContent({
   const [active, setActive] = useState(account.active ?? true);
   const [includeNetWorth, setIncludeNetWorth] = useState(account.include_net_worth ?? true);
   const [notes, setNotes] = useState(account.notes || "");
-
-  useEffect(() => {
-    if (open) {
-      setName(account.name);
-      setRole(account.account_role || "defaultAsset");
-      setLiabilityType(
-        account.liability_type ||
-          (account.type === "debt" ? "debt" : account.type === "mortgage" ? "mortgage" : "loan"),
-      );
-      setLiabilityDirection(account.liability_direction || "debit");
-      setIban(account.iban || "");
-      setAccountNumber(account.account_number || "");
-      setActive(account.active ?? true);
-      setIncludeNetWorth(account.include_net_worth ?? true);
-      setNotes(account.notes || "");
-    }
-  }, [open, account]);
 
   const isAsset = account.type === "asset" || account.type === "cash";
   const isLiability =

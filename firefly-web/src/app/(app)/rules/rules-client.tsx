@@ -46,6 +46,8 @@ import {
 import { AccountPicker } from "@/components/account-picker";
 import { ResourceIconBadge } from "@/components/resource-icon";
 import { CategoryCascadeSelect } from "@/components/category-cascade";
+import { EditTransactionModal } from "@/components/edit-transaction-modal";
+import { TimeInput24h } from "@/components/time-input-24h";
 import { TransactionRow } from "@/components/transaction-row";
 import {
   AnimatedTabs,
@@ -199,6 +201,7 @@ function RulesSection() {
   // Date range for testing / triggering rules on existing transactions
   const [execStart, setExecStart] = useState(month.start);
   const [execEnd, setExecEnd] = useState(month.end);
+  const [editingTx, setEditingTx] = useState<Resource<TransactionGroup> | null>(null);
 
   const createGroupMut = useMutation({
     mutationFn: () => {
@@ -399,11 +402,29 @@ function RulesSection() {
           ) : (
             <ul className="max-h-72 divide-y divide-border overflow-y-auto">
               {previewResult.matches.map((g) => (
-                <TransactionRow key={g.id} group={g} />
+                <TransactionRow key={g.id} group={g} onEdit={(tx) => setEditingTx(tx)} />
               ))}
             </ul>
           )}
         </Card>
+      )}
+
+      {editingTx && (
+        <EditTransactionModal
+          key={editingTx.id}
+          group={editingTx}
+          onSaved={(updated) => {
+            setPreviewResult((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    matches: prev.matches.map((m) => (m.id === updated.id ? updated : m)),
+                  }
+                : null,
+            );
+          }}
+          onClose={() => setEditingTx(null)}
+        />
       )}
 
       <ErrorBox error={rulesQ.error || groupsQ.error} />
@@ -1407,7 +1428,7 @@ function QuickPayModal({
               {(id) => <Input id={id} type="date" value={date} onChange={(e) => setDate(e.target.value)} required />}
             </Field>
             <Field label="Payment Time">
-              {(id) => <Input id={id} type="time" value={time} onChange={(e) => setTime(e.target.value)} required />}
+              {(id) => <TimeInput24h id={id} value={time} onChange={setTime} required />}
             </Field>
           </div>
           <div className="flex flex-col gap-1.5 pt-1">
@@ -1681,6 +1702,7 @@ function CreateBillRuleModal({
 function BillsSection() {
   const qc = useQueryClient();
   const toast = useToast();
+  const router = useRouter();
   const month = useMemo(() => monthRange(0), []);
   const billsQ = useQuery({ queryKey: ["bills", month.start, month.end], queryFn: () => api.bills(month.start, month.end) });
   const rulesQ = useQuery({ queryKey: ["rules"], queryFn: api.rules });
@@ -1926,7 +1948,19 @@ function BillsSection() {
                     <div className="flex items-center gap-2">
                       <Button
                         size="sm"
-                        onClick={() => setPayingBill(b)}
+                        onClick={() => {
+                          const ruleCategory = matchingRule?.attributes.actions?.find(
+                            (act) => act.type === "set_category",
+                          )?.value;
+                          const url = buildNewTransactionUrlForBill({
+                            billId: b.id,
+                            billName: a.name,
+                            amount: a.amount_min || a.amount_max || "0",
+                            currencyCode: a.currency_code,
+                            category: ruleCategory || undefined,
+                          });
+                          router.push(url);
+                        }}
                         className="min-h-[38px] gap-1.5 font-medium shadow-xs"
                       >
                         <CreditCard className="size-4" /> Quick Pay

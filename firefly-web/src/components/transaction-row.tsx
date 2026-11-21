@@ -106,7 +106,18 @@ export function TransactionRow({
       </span>
       <div className="min-w-0 flex-1">
         <p className="truncate text-xs sm:text-sm font-medium">
-          {isSplit ? group.attributes.group_title || first.description : first.description}
+          {onEdit ? (
+            <button
+              type="button"
+              onClick={() => onEdit(group)}
+              title="Edit transaction"
+              className="max-w-full cursor-pointer truncate text-left hover:text-primary hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary rounded"
+            >
+              {isSplit ? group.attributes.group_title || first.description : first.description}
+            </button>
+          ) : (
+            isSplit ? group.attributes.group_title || first.description : first.description
+          )}
           {isSplit && <Badge className="ml-1.5 text-[10px] sm:text-xs">{splits.length} splits</Badge>}
           {first.type === "reconciliation" && (
             <Badge tone="neutral" className="ml-1.5 text-[10px] sm:text-xs">Reconciliation</Badge>
@@ -152,7 +163,7 @@ export function TransactionRow({
         )}
       </div>
 
-      <div className="flex shrink-0 items-center gap-0.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100">
+      <div className="flex shrink-0 items-center gap-0.5 opacity-100 md:opacity-75 md:group-hover:opacity-100 md:focus-within:opacity-100 transition-opacity">
         {onEdit && (
           <button
             type="button"

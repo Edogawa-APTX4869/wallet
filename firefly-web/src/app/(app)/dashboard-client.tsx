@@ -70,6 +70,7 @@ import {
   useResourceMeta,
 } from "@/components/resource-icon";
 import { NeedleGauge } from "@/components/needle-gauge";
+import { EditTransactionModal } from "@/components/edit-transaction-modal";
 import { TransactionRow } from "@/components/transaction-row";
 import {
   AnimatedMoney,
@@ -2986,6 +2987,8 @@ const RecentRecordsCard = React.memo(function RecentRecordsCard({
   periodDays: number;
   perspectiveAccountId?: string;
 }) {
+  const [editingTx, setEditingTx] = useState<Resource<TransactionGroup> | null>(null);
+
   return (
     <div className="flex flex-1 flex-col justify-between gap-2">
       <div className="flex flex-col gap-2">
@@ -2995,7 +2998,12 @@ const RecentRecordsCard = React.memo(function RecentRecordsCard({
         ) : (
           <ul className="divide-y divide-border">
             {transactions.map((g) => (
-              <TransactionRow key={g.id} group={g} perspectiveAccountId={perspectiveAccountId} />
+              <TransactionRow
+                key={g.id}
+                group={g}
+                perspectiveAccountId={perspectiveAccountId}
+                onEdit={(tx) => setEditingTx(tx)}
+              />
             ))}
           </ul>
         )}
@@ -3008,6 +3016,13 @@ const RecentRecordsCard = React.memo(function RecentRecordsCard({
           <span>Show more</span>
         </Link>
       </div>
+      {editingTx && (
+        <EditTransactionModal
+          key={editingTx.id}
+          group={editingTx}
+          onClose={() => setEditingTx(null)}
+        />
+      )}
     </div>
   );
 });

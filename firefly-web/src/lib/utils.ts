@@ -169,14 +169,21 @@ export function formatDate(d: string | Date, opts: Intl.DateTimeFormatOptions = 
   return date.toLocaleDateString(undefined, opts);
 }
 
-/** Formats a transaction timestamp with date + short time when a time component exists. */
+/** Formats a timestamp's local time in strict 24-hour HH:MM format (00:00–23:59). */
+export function formatTime(d: string | Date): string {
+  const date = typeof d === "string" ? new Date(d) : d;
+  if (Number.isNaN(date.getTime())) return String(d);
+  return isoTime(date);
+}
+
+/** Formats a transaction timestamp with date + 24-hour time (HH:MM) when a time component exists. */
 export function formatDateTime(d: string | Date): string {
   if (typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d.trim())) {
     return formatDate(d);
   }
   const date = typeof d === "string" ? new Date(d) : d;
   if (Number.isNaN(date.getTime())) return String(d);
-  return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  return `${formatDate(date)}, ${formatTime(date)}`;
 }
 
 /** Accepts "1,234.50", "1234,50" and similar; returns a canonical decimal string or "". */

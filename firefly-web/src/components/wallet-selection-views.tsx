@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { ArrowLeft, Check, ChevronRight, FolderTree, Plus, Search, Settings, Wallet, X } from "lucide-react";
-import type { Account, Category, Resource } from "@/lib/firefly/types";
+import { ArrowLeft, Check, ChevronRight, FolderTree, PiggyBank, Plus, Search, Settings, Wallet, X } from "lucide-react";
+import type { Account, Budget, Category, Resource } from "@/lib/firefly/types";
 import { cn } from "@/lib/utils";
 import { buildCategoryTree, parseCategoryName } from "@/components/category-cascade";
 import {
@@ -12,7 +12,7 @@ import {
   inferCategoryDefaultStyle,
   useResourceMeta,
 } from "@/components/resource-icon";
-import { Money } from "@/components/ui";
+import { Badge, Money } from "@/components/ui";
 import { SwipePaginationDots } from "@/components/swipeable-widget";
 
 function CircularEntityIcon({
@@ -22,7 +22,7 @@ function CircularEntityIcon({
   defaultColor,
   size = "md",
 }: {
-  entityType: "account" | "category";
+  entityType: "account" | "category" | "budget";
   entityId: string;
   defaultIcon: string;
   defaultColor: string;
@@ -761,6 +761,484 @@ export function FullScreenCategorySelectView({
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Full-screen Payee / Merchant / Payer & Liability selector pushed inside `/new`
+ * (same design as FullScreenAccountSelectView and FullScreenCategorySelectView).
+ */
+export function FullScreenCounterpartySelectView({
+  title = "Payee / Merchant (or Liability)",
+  mode = "withdrawal",
+  liabilities,
+  counterpartyAccounts,
+  selectedName,
+  selectedLiabilityId,
+  onSelect,
+  onBack,
+}: {
+  title?: string;
+  mode?: "withdrawal" | "deposit";
+  liabilities: Resource<Account>[];
+  counterpartyAccounts: Resource<Account>[];
+  selectedName: string;
+  selectedLiabilityId?: string | null;
+  onSelect: (result: { name: string; liabilityAccount: Resource<Account> | null }) => void;
+  onBack: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const trimmedQuery = query.trim();
+  const qLower = trimmedQuery.toLowerCase();
+
+  const filteredLiabilities = useMemo(() => {
+    if (!qLower) return liabilities;
+    return liabilities.filter(
+      (a) =>
+        a.attributes.name.toLowerCase().includes(qLower) ||
+        (a.attributes.currency_code ?? "").toLowerCase().includes(qLower),
+    );
+  }, [liabilities, qLower]);
+
+  const filteredCounterparties = useMemo(() => {
+    const liabNames = new Set(liabilities.map((l) => l.attributes.name.toLowerCase()));
+    const base = counterpartyAccounts.filter(
+      (a) => a.attributes.active !== false && !liabNames.has(a.attributes.name.toLowerCase()),
+    );
+    if (!qLower) return base;
+    return base.filter((a) => a.attributes.name.toLowerCase().includes(qLower));
+  }, [counterpartyAccounts, liabilities, qLower]);
+
+  const exactMatchExists = useMemo(() => {
+    if (!qLower) return true;
+    return (
+      liabilities.some((a) => a.attributes.name.toLowerCase() === qLower) ||
+      counterpartyAccounts.some((a) => a.attributes.name.toLowerCase() === qLower)
+    );
+  }, [liabilities, counterpartyAccounts, qLower]);
+
+  return (
+    <div className="flex flex-1 flex-col bg-surface min-h-dvh lg:min-h-[560px]">
+      {/* Top App Header */}
+      <div className="flex items-center justify-between gap-2 border-b border-border bg-surface px-2 py-2.5 pt-[max(0.625rem,env(safe-area-inset-top))] text-fg">
+        <div className="flex min-w-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={onBack}
+            aria-label="Back"
+            className="flex size-10 items-center justify-center rounded-full text-fg hover:bg-surface-2 active:scale-95 transition"
+          >
+            <ArrowLeft className="size-5" />
+          </button>
+          <h1 className="truncate text-base font-semibold">{title}</h1>
+        </div>
+        <div className="flex items-center gap-1">
+          {(selectedName || selectedLiabilityId) && (
+            <button
+              type="button"
+              onClick={() => onSelect({ name: "", liabilityAccount: null })}
+              className="!min-h-0 !min-w-0 rounded-full bg-primary-soft px-3 py-1 text-xs font-medium text-primary hover:bg-primary-soft/80 transition"
+            >
+              Clear
+            </button>
+          )}
+          <Link
+            href="/accounts?tab=liabilities"
+            aria-label="Manage liabilities and accounts"
+            className="flex size-10 items-center justify-center rounded-full text-fg hover:bg-surface-2 active:scale-95 transition"
+          >
+            <Settings className="size-5" />
+          </Link>
+        </div>
+      </div>
+
+      {/* Search & Custom Name Entry Bar */}
+      <div className="flex items-center gap-2 border-b border-border bg-surface-2/60 px-4 py-2.5">
+        <Search className="size-4 text-muted shrink-0" />
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && trimmedQuery) {
+              e.preventDefault();
+              const matchedLiab =
+                liabilities.find((a) => a.attributes.name.toLowerCase() === qLower) ?? null;
+              onSelect({
+                name: matchedLiab ? matchedLiab.attributes.name : trimmedQuery,
+                liabilityAccount: matchedLiab,
+              });
+            }
+          }}
+          placeholder={
+            mode === "withdrawal"
+              ? "Search or type a new payee / merchant / liability…"
+              : "Search or type a new payer / liability…"
+          }
+          className="flex-1 bg-transparent text-sm text-fg outline-none placeholder:text-muted"
+          autoFocus
+        />
+        {query && (
+          <button
+            type="button"
+            onClick={() => setQuery("")}
+            aria-label="Clear search"
+            className="text-muted hover:text-fg"
+          >
+            <X className="size-4" />
+          </button>
+        )}
+      </div>
+
+      <div className="flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]">
+        {/* Custom merchant/payer quick-use row when typing a new name */}
+        {trimmedQuery && !exactMatchExists && (
+          <div className="border-b border-border bg-surface">
+            <button
+              type="button"
+              onClick={() => onSelect({ name: trimmedQuery, liabilityAccount: null })}
+              className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-surface-2/70 active:bg-surface-2"
+            >
+              <div className="flex min-w-0 items-center gap-3.5">
+                <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-primary-soft text-primary">
+                  <Plus className="size-5" aria-hidden />
+                </span>
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-semibold text-primary">
+                    Use &ldquo;{trimmedQuery}&rdquo;
+                  </div>
+                  <div className="text-xs text-muted">
+                    {mode === "withdrawal" ? "New payee / merchant" : "New payer / revenue source"}
+                  </div>
+                </div>
+              </div>
+              <ChevronRight className="size-4 text-muted shrink-0" aria-hidden />
+            </button>
+          </div>
+        )}
+
+        {/* Section 1: Liabilities & Loans */}
+        {filteredLiabilities.length > 0 && (
+          <div>
+            <div className="bg-surface-2/80 px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-muted">
+              LIABILITIES & LOANS
+            </div>
+            <div className="divide-y divide-border bg-surface">
+              {filteredLiabilities.map((acc, idx) => {
+                const style = inferAccountDefaultStyle(acc.attributes, idx);
+                const isSelected =
+                  selectedLiabilityId === acc.id ||
+                  selectedName.trim().toLowerCase() === acc.attributes.name.toLowerCase();
+                const isCredit = acc.attributes.liability_direction === "credit";
+                return (
+                  <button
+                    key={acc.id}
+                    type="button"
+                    onClick={() => onSelect({ name: acc.attributes.name, liabilityAccount: acc })}
+                    className={cn(
+                      "flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-surface-2/70 active:bg-surface-2",
+                      isSelected && "bg-primary-soft/20",
+                    )}
+                  >
+                    <div className="flex min-w-0 items-center gap-3.5">
+                      <CircularEntityIcon
+                        entityType="account"
+                        entityId={acc.id}
+                        defaultIcon={style.icon}
+                        defaultColor={style.color}
+                      />
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="truncate text-sm font-medium text-fg">
+                            {acc.attributes.name}
+                          </span>
+                          <Badge tone={isCredit ? "success" : "danger"} className="text-[10px]">
+                            {isCredit ? "Owed to me" : "I owe"}
+                          </Badge>
+                        </div>
+                        <div className="text-xs text-muted">
+                          {mode === "deposit"
+                            ? isCredit
+                              ? "They paid me (reduces loan balance)"
+                              : "Borrow more from liability"
+                            : isCredit
+                              ? "Lend to liability (increases loan balance)"
+                              : "Pay towards debt (reduces debt balance)"}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <span className="text-sm font-semibold tabular-nums text-fg">
+                        <Money
+                          amount={acc.attributes.current_balance}
+                          code={acc.attributes.currency_code}
+                          decimals={acc.attributes.currency_decimal_places}
+                          symbol={acc.attributes.currency_symbol}
+                        />
+                      </span>
+                      {isSelected && <Check className="size-4 text-primary" aria-hidden />}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Section 2: Expense / Revenue Counterparty Accounts */}
+        <div>
+          <div className="bg-surface-2/80 px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-muted">
+            {mode === "withdrawal" ? "PAYEES & MERCHANTS" : "PAYERS & REVENUE"}
+          </div>
+          <div className="divide-y divide-border bg-surface">
+            {filteredCounterparties.length === 0 ? (
+              <p className="px-4 py-8 text-center text-sm text-muted">
+                {trimmedQuery
+                  ? `Tap "Use "${trimmedQuery}"" above to use this name.`
+                  : mode === "withdrawal"
+                    ? "No saved payees or merchants yet."
+                    : "No saved payers yet."}
+              </p>
+            ) : (
+              filteredCounterparties.map((acc, idx) => {
+                const style = inferAccountDefaultStyle(acc.attributes, idx);
+                const isSelected =
+                  !selectedLiabilityId &&
+                  selectedName.trim().toLowerCase() === acc.attributes.name.toLowerCase();
+                return (
+                  <button
+                    key={acc.id}
+                    type="button"
+                    onClick={() => onSelect({ name: acc.attributes.name, liabilityAccount: null })}
+                    className={cn(
+                      "flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-surface-2/70 active:bg-surface-2",
+                      isSelected && "bg-primary-soft/20",
+                    )}
+                  >
+                    <div className="flex min-w-0 items-center gap-3.5">
+                      <CircularEntityIcon
+                        entityType="account"
+                        entityId={acc.id}
+                        defaultIcon={style.icon}
+                        defaultColor={style.color}
+                      />
+                      <span className="truncate text-sm font-medium text-fg">
+                        {acc.attributes.name}
+                      </span>
+                    </div>
+                    {isSelected && <Check className="size-4 text-primary shrink-0" aria-hidden />}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const BUDGET_PALETTE = [
+  "#6366f1",
+  "#10b981",
+  "#f59e0b",
+  "#ec4899",
+  "#0ea5e9",
+  "#8b5cf6",
+  "#14b8a6",
+  "#f97316",
+];
+
+/**
+ * Full-screen budget selector pushed inside `/new`, matching the Category,
+ * Account, and Payee selection sub-views.
+ */
+export function FullScreenBudgetSelectView({
+  title = "Budget",
+  budgets,
+  selectedBudgetId,
+  onSelect,
+  onBack,
+}: {
+  title?: string;
+  budgets: Resource<Budget>[];
+  selectedBudgetId: string;
+  onSelect: (budgetId: string) => void;
+  onBack: () => void;
+}) {
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const qLower = query.trim().toLowerCase();
+
+  const activeBudgets = useMemo(
+    () => budgets.filter((b) => b.attributes.active !== false),
+    [budgets],
+  );
+
+  const filteredBudgets = useMemo(() => {
+    if (!qLower) return activeBudgets;
+    return activeBudgets.filter((b) =>
+      b.attributes.name.toLowerCase().includes(qLower),
+    );
+  }, [activeBudgets, qLower]);
+
+  return (
+    <div className="flex flex-1 flex-col bg-surface min-h-dvh lg:min-h-[560px]">
+      {/* Top App Header */}
+      <div className="flex items-center justify-between gap-2 border-b border-border bg-surface px-2 py-2.5 pt-[max(0.625rem,env(safe-area-inset-top))] text-fg">
+        <div className="flex min-w-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={onBack}
+            aria-label="Back"
+            className="flex size-10 items-center justify-center rounded-full text-fg hover:bg-surface-2 active:scale-95 transition"
+          >
+            <ArrowLeft className="size-5" />
+          </button>
+          <h1 className="truncate text-base font-semibold">{title}</h1>
+        </div>
+        <div className="flex items-center gap-1">
+          {selectedBudgetId && (
+            <button
+              type="button"
+              onClick={() => onSelect("")}
+              className="!min-h-0 !min-w-0 rounded-full bg-primary-soft px-3 py-1 text-xs font-medium text-primary hover:bg-primary-soft/80 transition"
+            >
+              Clear
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              setSearchOpen((o) => !o);
+              if (searchOpen) setQuery("");
+            }}
+            aria-label="Search budgets"
+            className="flex size-10 items-center justify-center rounded-full text-fg hover:bg-surface-2 active:scale-95 transition"
+          >
+            <Search className="size-5" />
+          </button>
+          <Link
+            href="/budgets"
+            aria-label="Manage budgets"
+            className="flex size-10 items-center justify-center rounded-full text-fg hover:bg-surface-2 active:scale-95 transition"
+          >
+            <Settings className="size-5" />
+          </Link>
+        </div>
+      </div>
+
+      {searchOpen && (
+        <div className="flex items-center gap-2 border-b border-border bg-surface-2/60 px-4 py-2">
+          <Search className="size-4 text-muted shrink-0" />
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search budgets…"
+            className="flex-1 bg-transparent text-sm text-fg outline-none placeholder:text-muted"
+            autoFocus
+          />
+          {query && (
+            <button
+              type="button"
+              onClick={() => setQuery("")}
+              aria-label="Clear search"
+              className="text-muted hover:text-fg"
+            >
+              <X className="size-4" />
+            </button>
+          )}
+        </div>
+      )}
+
+      <div className="flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]">
+        {/* No budget option */}
+        {!qLower && (
+          <div className="border-b border-border bg-surface">
+            <button
+              type="button"
+              onClick={() => onSelect("")}
+              className={cn(
+                "flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-surface-2/70 active:bg-surface-2",
+                !selectedBudgetId && "bg-primary-soft/20",
+              )}
+            >
+              <div className="flex min-w-0 items-center gap-3.5">
+                <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-surface-2 text-muted">
+                  <PiggyBank className="size-5" aria-hidden />
+                </span>
+                <span className="truncate text-sm font-medium text-muted">No budget</span>
+              </div>
+              {!selectedBudgetId && <Check className="size-4 text-primary shrink-0" aria-hidden />}
+            </button>
+          </div>
+        )}
+
+        <div>
+          <div className="bg-surface-2/80 px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-muted">
+            {qLower ? "SEARCH RESULTS" : "ALL BUDGETS"}
+          </div>
+          <div className="divide-y divide-border bg-surface">
+            {filteredBudgets.length === 0 ? (
+              <p className="px-4 py-8 text-center text-sm text-muted">
+                {qLower ? "No matching budgets found." : "No active budgets yet."}
+              </p>
+            ) : (
+              filteredBudgets.map((b, idx) => {
+                const isSelected = selectedBudgetId === b.id;
+                const spentEntry = b.attributes.spent?.[0];
+                const spentAmt = spentEntry ? Math.abs(Number(spentEntry.sum || 0)) : null;
+                return (
+                  <button
+                    key={b.id}
+                    type="button"
+                    onClick={() => onSelect(b.id)}
+                    className={cn(
+                      "flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-surface-2/70 active:bg-surface-2",
+                      isSelected && "bg-primary-soft/20",
+                    )}
+                  >
+                    <div className="flex min-w-0 items-center gap-3.5">
+                      <CircularEntityIcon
+                        entityType="budget"
+                        entityId={b.id}
+                        defaultIcon="PiggyBank"
+                        defaultColor={BUDGET_PALETTE[idx % BUDGET_PALETTE.length]}
+                      />
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="truncate text-sm font-medium text-fg">
+                            {b.attributes.name}
+                          </span>
+                          {b.attributes.auto_budget_period && (
+                            <Badge className="text-[10px] capitalize">
+                              {b.attributes.auto_budget_period}
+                            </Badge>
+                          )}
+                        </div>
+                        {spentEntry && spentAmt !== null && (
+                          <div className="text-xs text-muted tabular-nums">
+                            Spent:{" "}
+                            <Money
+                              amount={spentAmt}
+                              code={spentEntry.currency_code}
+                              decimals={spentEntry.currency_decimal_places}
+                              symbol={spentEntry.currency_symbol}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    {isSelected && <Check className="size-4 text-primary shrink-0" aria-hidden />}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
