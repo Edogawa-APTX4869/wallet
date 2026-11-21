@@ -21,7 +21,10 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ message: "Invalid request body." }, { status: 400 });
   }
-  const token = body.token?.trim();
+  const token = body.token
+    ?.trim()
+    .replace(/^Bearer\s+/i, "")
+    .replace(/[\r\n\t\s]+/g, "");
   const rawUrl = body.url?.trim() || process.env.FIREFLY_URL?.trim();
   if (!rawUrl || !token) {
     return NextResponse.json({ message: "Server URL and token are required." }, { status: 422 });

@@ -62,9 +62,10 @@ export async function getSession(): Promise<Session | null> {
 
 /** Normalises user input like "https://ff.example.com/api/v1/" to "https://ff.example.com". */
 export function normaliseBaseUrl(input: string): string {
-  let url = input.trim();
+  let url = input.trim().replace(/\/+$/, "");
+  if (!url) return "";
+  url = url.replace(/^(https?):\/?([^/])/i, "$1://$2");
   if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
-  url = url.replace(/\/+$/, "");
-  url = url.replace(/\/api(\/v1)?$/i, "");
-  return url;
+  url = url.replace(/\/(profile(\/oauth)?|api(\/v1)?|login)\/?$/i, "");
+  return url.replace(/\/+$/, "");
 }

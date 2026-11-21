@@ -8,6 +8,9 @@ import {
   disconnectWalletSession,
   getWalletSessionStatus,
   accountHref,
+  normalizePersonalAccessToken,
+  normalizeServerUrl,
+  readNativeClipboardText,
   _setNativeWalletForTests,
   type WalletNativePlugin,
 } from "@/lib/native-wallet";
@@ -269,5 +272,37 @@ describe("Standalone Android APK Mode & Biometric Verification", () => {
     expect(manifestXml).toContain("android.permission.USE_BIOMETRIC");
     expect(gradle).toContain("androidx.biometric:biometric:1.1.0");
     expect(capCfg).toContain('webDir: "out"');
+    expect(pluginJava).toContain("public void readClipboard(");
+    expect(pluginJava).toContain("User-Agent");
+
+    const loginSrc = readFileSync(
+      path.resolve(__dirname, "../app/login/login-form.tsx"),
+      "utf8",
+    );
+    expect(loginSrc).toContain("WebkitTextSecurity");
+    expect(loginSrc).toContain("Paste token from clipboard");
+    expect(loginSrc).toContain("noValidate");
+  });
+
+  it("normalizes mobile URL typos, OAuth profile suffixes, and 1,100+ char JWT tokens with clipboard paste", async () => {
+    expect(normalizeServerUrl("budget.alqubaiti.com")).toBe("https://budget.alqubaiti.com");
+    expect(normalizeServerUrl("https:budget.alqubaiti.com/")).toBe("https://budget.alqubaiti.com");
+    expect(normalizeServerUrl("https://budget.alqubaiti.com/profile/oauth")).toBe("https://budget.alqubaiti.com");
+    expect(normalizeServerUrl("https://budget.alqubaiti.com/api/v1/")).toBe("https://budget.alqubaiti.com");
+
+    const longJwt = `Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.\n${"a".repeat(600)} \r\n.${"b".repeat(500)}  `;
+    const cleaned = normalizePersonalAccessToken(longJwt);
+    expect(cleaned.startsWith("eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.")).toBe(true);
+    expect(cleaned).not.toMatch(/\s/);
+    expect(cleaned.length).toBeGreaterThan(1100);
+
+    _setNativeWalletForTests({
+      standalone: true,
+      plugin: {
+        readClipboard: async () => ({ text: longJwt }),
+      },
+    });
+    const clipText = await readNativeClipboardText();
+    expect(normalizePersonalAccessToken(clipText)).toBe(cleaned);
   });
 });

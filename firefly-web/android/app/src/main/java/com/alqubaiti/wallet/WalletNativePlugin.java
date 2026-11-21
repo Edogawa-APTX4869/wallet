@@ -122,7 +122,21 @@ public class WalletNativePlugin extends Plugin {
 
     private static String normalizeBaseUrl(String raw) {
         if (raw == null) return "";
-        return raw.trim().replaceAll("/+$", "");
+        String s = raw.trim().replaceAll("/+$", "");
+        if (s.isEmpty()) return "";
+        s = s.replaceFirst("(?i)^(https?):/?([^/])", "$1://$2");
+        if (!s.matches("(?i)^https?://.*")) {
+            s = "https://" + s;
+        }
+        s = s.replaceFirst("(?i)/(profile(/oauth)?|api(/v1)?|login)/?$", "");
+        return s.replaceAll("/+$", "");
+    }
+
+    private static String normalizeToken(String raw) {
+        if (raw == null) return "";
+        return raw.trim()
+                .replaceFirst("(?i)^Bearer\\s+", "")
+                .replaceAll("[\\r\\n\\t\\s]+", "");
     }
 
     private boolean isBiometricEnabledInternal() {
@@ -260,10 +274,9 @@ public class WalletNativePlugin extends Plugin {
     @PluginMethod
     public void saveCredentials(PluginCall call) {
         String url = normalizeBaseUrl(call.getString("url"));
-        String token = call.getString("token");
-        if (token != null) token = token.trim();
+        String token = normalizeToken(call.getString("token"));
 
-        if (url.isEmpty() || token == null || token.isEmpty()) {
+        if (url.isEmpty() || token.isEmpty()) {
             call.reject("Firefly III URL and Personal Access Token are required.");
             return;
         }
@@ -435,6 +448,40 @@ public class WalletNativePlugin extends Plugin {
     }
 
     @PluginMethod
+    public void readClipboard(final PluginCall call) {
+        FragmentActivity activity = (getActivity() instanceof FragmentActivity)
+                ? (FragmentActivity) getActivity()
+                : null;
+        Runnable task = () -> {
+            try {
+                android.content.ClipboardManager cm = (android.content.ClipboardManager)
+                        getContext().getSystemService(Context.CLIPBOARD_SERVICE);
+                String text = "";
+                if (cm != null && cm.hasPrimaryClip() && cm.getPrimaryClip() != null
+                        && cm.getPrimaryClip().getItemCount() > 0) {
+                    CharSequence cs = cm.getPrimaryClip().getItemAt(0).coerceToText(getContext());
+                    if (cs != null) {
+                        text = cs.toString();
+                    }
+                }
+                JSObject ret = new JSObject();
+                ret.put("text", text);
+                call.resolve(ret);
+            } catch (Exception e) {
+                JSObject ret = new JSObject();
+                ret.put("text", "");
+                ret.put("message", e.getMessage());
+                call.resolve(ret);
+            }
+        };
+        if (activity != null) {
+            activity.runOnUiThread(task);
+        } else {
+            task.run();
+        }
+    }
+
+    @PluginMethod
     public void ffRequest(final PluginCall call) {
         final String method = (call.getString("method", "GET")).toUpperCase();
         final String rawPath = call.getString("path", "");
@@ -443,14 +490,14 @@ public class WalletNativePlugin extends Plugin {
         final String bodyBase64 = call.getString("bodyBase64", null);
         final String customContentType = call.getString("contentType", null);
         final String overrideUrl = normalizeBaseUrl(call.getString("overrideUrl", null));
-        final String overrideToken = call.getString("overrideToken", null);
+        final String overrideToken = normalizeToken(call.getString("overrideToken", null));
 
         final String baseUrl = !overrideUrl.isEmpty() ? overrideUrl : normalizeBaseUrl(readDecrypted(KEY_ENC_URL));
-        final String token = (overrideToken != null && !overrideToken.trim().isEmpty())
-                ? overrideToken.trim()
-                : readDecrypted(KEY_ENC_TOKEN);
+        final String token = !overrideToken.isEmpty()
+                ? overrideToken
+                : normalizeToken(readDecrypted(KEY_ENC_TOKEN));
 
-        if (baseUrl.isEmpty() || token == null || token.isEmpty()) {
+        if (baseUrl.isEmpty() || token.isEmpty()) {
             JSObject err = new JSObject();
             err.put("status", 401);
             err.put("ok", false);
@@ -479,6 +526,7 @@ public class WalletNativePlugin extends Plugin {
                 conn.setReadTimeout(30000);
                 conn.setUseCaches(false);
                 conn.setInstanceFollowRedirects(true);
+                conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36 Wallet/1.0");
                 conn.setRequestProperty("Authorization", "Bearer " + token);
                 conn.setRequestProperty("Accept", "application/vnd.api+json");
 

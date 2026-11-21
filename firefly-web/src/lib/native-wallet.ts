@@ -59,6 +59,7 @@ export interface WalletNativePlugin {
   lockApp(): Promise<{ locked: boolean }>;
   suppressNextBackgroundLock(options?: { durationMs?: number }): Promise<{ ok: boolean }>;
   checkBiometric(): Promise<BiometricCheckResult>;
+  readClipboard?(): Promise<{ text: string; message?: string }>;
   authenticateBiometric(options?: {
     title?: string;
     subtitle?: string;
@@ -140,12 +141,48 @@ export function accountHref(id?: string | null): string {
 }
 
 export function normalizeServerUrl(raw: string): string {
-  const trimmed = raw.trim().replace(/\/+$/, "");
+  let trimmed = raw.trim().replace(/\/+$/, "");
   if (!trimmed) return "";
+  trimmed = trimmed.replace(/^(https?):\/?([^/])/i, "$1://$2");
   if (!/^https?:\/\//i.test(trimmed)) {
-    return `https://${trimmed}`;
+    trimmed = `https://${trimmed}`;
   }
-  return trimmed;
+  trimmed = trimmed.replace(/\/(profile(\/oauth)?|api(\/v1)?|login)\/?$/i, "");
+  return trimmed.replace(/\/+$/, "");
+}
+
+/**
+ * Normalizes a Firefly III Personal Access Token (OAuth2 JWT) by stripping any
+ * accidental leading `"Bearer "` prefix or line-wrap/clipboard whitespace.
+ */
+export function normalizePersonalAccessToken(raw: string): string {
+  return raw
+    .trim()
+    .replace(/^Bearer\s+/i, "")
+    .replace(/[\r\n\t\s]+/g, "");
+}
+
+/**
+ * Reads plain text from the system clipboard (using native Android ClipboardManager
+ * inside the Capacitor APK, falling back to browser `navigator.clipboard.readText`).
+ */
+export async function readNativeClipboardText(): Promise<string> {
+  if (isNativeStandalone() && typeof plugin().readClipboard === "function") {
+    try {
+      const res = await plugin().readClipboard!();
+      if (res?.text) return res.text;
+    } catch {
+      /* fall through to navigator.clipboard */
+    }
+  }
+  if (typeof navigator !== "undefined" && navigator.clipboard?.readText) {
+    try {
+      return await navigator.clipboard.readText();
+    } catch {
+      return "";
+    }
+  }
+  return "";
 }
 
 export async function nativeFireflyRequest(options: {
@@ -240,7 +277,7 @@ export async function nativeTestFireflyConnection(
   rawToken: string,
 ): Promise<{ url: string; about: unknown; user: unknown }> {
   const url = normalizeServerUrl(rawUrl);
-  const token = rawToken.trim();
+  const token = normalizePersonalAccessToken(rawToken);
   if (!url || !token) {
     throw new Error("Server URL and token are required.");
   }
@@ -398,8 +435,10 @@ export async function connectWalletSession(options: {
   token: string;
   enableBiometric?: boolean;
 }): Promise<{ connected: boolean; url: string }> {
+  const cleanUrl = normalizeServerUrl(options.url);
+  const cleanToken = normalizePersonalAccessToken(options.token);
   if (isNativeStandalone()) {
-    const verifiedConn = await nativeTestFireflyConnection(options.url, options.token);
+    const verifiedConn = await nativeTestFireflyConnection(cleanUrl, cleanToken);
     const bioCheck = await checkNativeBiometric();
     const shouldUseBiometric = options.enableBiometric !== false && bioCheck.available;
 
@@ -418,7 +457,7 @@ export async function connectWalletSession(options: {
     }
 
     await plugin().setBiometricEnabled({ enabled: options.enableBiometric !== false });
-    await plugin().saveCredentials({ url: verifiedConn.url, token: options.token.trim() });
+    await plugin().saveCredentials({ url: verifiedConn.url, token: cleanToken });
     notifyWalletSessionChanged();
     return { connected: true, url: verifiedConn.url };
   }
@@ -426,23 +465,25 @@ export async function connectWalletSession(options: {
   const res = await fetch("/api/session", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url: options.url, token: options.token }),
+    body: JSON.stringify({ url: cleanUrl, token: cleanToken }),
   });
   const json = (await res.json()) as { message?: string; url?: string };
   if (!res.ok) {
     throw new Error(json.message ?? "Could not connect.");
   }
   notifyWalletSessionChanged();
-  return { connected: true, url: json.url ?? options.url };
+  return { connected: true, url: json.url ?? cleanUrl };
 }
 
 export async function reauthenticateWalletSession(options: {
   url: string;
   token: string;
 }): Promise<{ connected: boolean; url: string }> {
+  const cleanUrl = normalizeServerUrl(options.url);
+  const cleanToken = normalizePersonalAccessToken(options.token);
   if (isNativeStandalone()) {
-    const verifiedConn = await nativeTestFireflyConnection(options.url, options.token);
-    await plugin().saveCredentials({ url: verifiedConn.url, token: options.token.trim() });
+    const verifiedConn = await nativeTestFireflyConnection(cleanUrl, cleanToken);
+    await plugin().saveCredentials({ url: verifiedConn.url, token: cleanToken });
     notifyWalletSessionChanged();
     return { connected: true, url: verifiedConn.url };
   }
@@ -450,14 +491,14 @@ export async function reauthenticateWalletSession(options: {
   const res = await fetch("/api/session", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url: options.url, token: options.token }),
+    body: JSON.stringify({ url: cleanUrl, token: cleanToken }),
   });
   const json = (await res.json()) as { message?: string; url?: string };
   if (!res.ok) {
     throw new Error(json.message ?? "Authentication failed.");
   }
   notifyWalletSessionChanged();
-  return { connected: true, url: json.url ?? options.url };
+  return { connected: true, url: json.url ?? cleanUrl };
 }
 
 export async function disconnectWalletSession(): Promise<void> {

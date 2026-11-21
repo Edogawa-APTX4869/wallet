@@ -252,15 +252,20 @@ export function OfflineStatusBanner({ serverUrl }: { serverUrl: string }) {
         title="Verify Authentication"
         subtitle={`Validate session before syncing ${pendingCount} pending change${pendingCount === 1 ? "" : "s"}`}
       >
-        <form onSubmit={handleReconnectSubmit} className="flex flex-col gap-3">
+        <form onSubmit={handleReconnectSubmit} noValidate className="flex flex-col gap-3">
           <Field label="Firefly III URL">
             {(id) => (
               <Input
                 id={id}
-                type="url"
+                type="text"
+                inputMode="url"
+                autoComplete="url"
+                autoCorrect="off"
+                autoCapitalize="none"
+                spellCheck={false}
                 value={authUrl}
                 onChange={(e) => setAuthUrl(e.target.value)}
-                required
+                onInput={(e) => setAuthUrl((e.target as HTMLInputElement).value)}
               />
             )}
           </Field>
@@ -268,12 +273,17 @@ export function OfflineStatusBanner({ serverUrl }: { serverUrl: string }) {
             {(id) => (
               <Input
                 id={id}
-                type="password"
+                type="text"
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="none"
+                spellCheck={false}
+                style={{ WebkitTextSecurity: "disc" } as React.CSSProperties}
                 value={authToken}
                 onChange={(e) => setAuthToken(e.target.value)}
+                onInput={(e) => setAuthToken((e.target as HTMLInputElement).value)}
                 placeholder="Paste Firefly III Personal Access Token"
                 autoFocus
-                required
               />
             )}
           </Field>
