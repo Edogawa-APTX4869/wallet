@@ -276,7 +276,7 @@ export async function nativeTestFireflyConnection(
   rawUrl: string,
   rawToken: string,
 ): Promise<{ url: string; about: unknown; user: unknown }> {
-  const url = normalizeServerUrl(rawUrl);
+  let url = normalizeServerUrl(rawUrl);
   const token = normalizePersonalAccessToken(rawToken);
   if (!url || !token) {
     throw new Error("Server URL and token are required.");
@@ -287,7 +287,7 @@ export async function nativeTestFireflyConnection(
     throw new Error("That server URL does not look valid.");
   }
 
-  const [aboutRes, userRes] = await Promise.all([
+  let [aboutRes, userRes] = await Promise.all([
     nativeFireflyRequest({
       method: "GET",
       path: "about",
@@ -302,6 +302,30 @@ export async function nativeTestFireflyConnection(
     }),
   ]);
 
+  // If https://host:port failed at the network/TLS layer, automatically probe http://host:port
+  if ((aboutRes.networkError || aboutRes.status === 0) && /^https:\/\//i.test(url)) {
+    const httpCandidate = url.replace(/^https:\/\//i, "http://");
+    const [httpAbout, httpUser] = await Promise.all([
+      nativeFireflyRequest({
+        method: "GET",
+        path: "about",
+        overrideUrl: httpCandidate,
+        overrideToken: token,
+      }),
+      nativeFireflyRequest({
+        method: "GET",
+        path: "about/user",
+        overrideUrl: httpCandidate,
+        overrideToken: token,
+      }),
+    ]);
+    if (!httpAbout.networkError && httpAbout.status > 0) {
+      url = httpCandidate;
+      aboutRes = httpAbout;
+      userRes = httpUser;
+    }
+  }
+
   if (aboutRes.networkError || aboutRes.status === 0) {
     throw new Error(`Could not reach ${url}: ${aboutRes.message || "Network error"}`);
   }
@@ -312,8 +336,20 @@ export async function nativeTestFireflyConnection(
     throw new Error(`Firefly III responded with HTTP ${aboutRes.status}. Is this the right URL?`);
   }
 
-  const about = aboutRes.body ? JSON.parse(aboutRes.body) : null;
-  const user = userRes.ok && userRes.body ? JSON.parse(userRes.body) : null;
+  let about: unknown = null;
+  let user: unknown = null;
+  try {
+    about = aboutRes.body ? JSON.parse(aboutRes.body) : null;
+  } catch {
+    throw new Error(
+      "Server returned a webpage instead of Firefly III API JSON. Verify the URL and Personal Access Token.",
+    );
+  }
+  try {
+    user = userRes.ok && userRes.body ? JSON.parse(userRes.body) : null;
+  } catch {
+    user = null;
+  }
   return { url, about, user };
 }
 

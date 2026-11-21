@@ -29,6 +29,8 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.KeyStore;
+import java.security.SecureRandom;
+import java.security.cert.X509Certificate;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -37,6 +39,12 @@ import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLException;
+import javax.net.ssl.SSLSocketFactory;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
 
 /**
  * Native Android plugin making the Wallet APK 100% standalone & independent:
@@ -517,20 +525,91 @@ public class WalletNativePlugin extends Plugin {
         final String targetUrl = baseUrl + "/api/v1/" + cleanPath + (query != null ? query : "");
 
         httpExecutor.submit(() -> {
+            try {
+                JSObject ret;
+                try {
+                    ret = executeHttpWithRedirects(targetUrl, method, token, bodyJson, bodyBase64, customContentType, false);
+                } catch (SSLException sslErr) {
+                    // Fallback 1: Self-signed / private / Tailscale TLS certificate (e.g. https://firefly:8080)
+                    try {
+                        ret = executeHttpWithRedirects(targetUrl, method, token, bodyJson, bodyBase64, customContentType, true);
+                    } catch (SSLException sslErr2) {
+                        // Fallback 2: User entered https://host:8080 on a plain HTTP port
+                        if (targetUrl.regionMatches(true, 0, "https://", 0, 8)) {
+                            String httpFallbackUrl = "http://" + targetUrl.substring(8);
+                            ret = executeHttpWithRedirects(httpFallbackUrl, method, token, bodyJson, bodyBase64, customContentType, false);
+                        } else {
+                            throw sslErr2;
+                        }
+                    }
+                }
+                call.resolve(ret);
+            } catch (Exception e) {
+                JSObject ret = new JSObject();
+                ret.put("status", 0);
+                ret.put("ok", false);
+                ret.put("body", "");
+                ret.put("contentType", "application/json");
+                ret.put("networkError", true);
+                ret.put("message", e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
+                call.resolve(ret);
+            }
+        });
+    }
+
+    private static SSLSocketFactory createTrustAllSslSocketFactory() throws GeneralSecurityException {
+        TrustManager[] trustAllCerts = new TrustManager[]{
+                new X509TrustManager() {
+                    @Override
+                    public void checkClientTrusted(X509Certificate[] chain, String authType) {}
+
+                    @Override
+                    public void checkServerTrusted(X509Certificate[] chain, String authType) {}
+
+                    @Override
+                    public X509Certificate[] getAcceptedIssuers() {
+                        return new X509Certificate[0];
+                    }
+                }
+        };
+        SSLContext sc = SSLContext.getInstance("TLS");
+        sc.init(null, trustAllCerts, new SecureRandom());
+        return sc.getSocketFactory();
+    }
+
+    private JSObject executeHttpWithRedirects(
+            String initialUrl,
+            String method,
+            String token,
+            String bodyJson,
+            String bodyBase64,
+            String customContentType,
+            boolean trustSelfSigned
+    ) throws Exception {
+        String currentUrl = initialUrl;
+        String currentMethod = method;
+        int maxRedirects = 5;
+
+        for (int hop = 0; hop <= maxRedirects; hop++) {
             HttpURLConnection conn = null;
             try {
-                URL urlObj = new URL(targetUrl);
+                URL urlObj = new URL(currentUrl);
                 conn = (HttpURLConnection) urlObj.openConnection();
-                conn.setRequestMethod(method);
+                if (trustSelfSigned && conn instanceof HttpsURLConnection) {
+                    HttpsURLConnection https = (HttpsURLConnection) conn;
+                    https.setSSLSocketFactory(createTrustAllSslSocketFactory());
+                    https.setHostnameVerifier((hostname, session) -> true);
+                }
+                conn.setRequestMethod(currentMethod);
                 conn.setConnectTimeout(15000);
                 conn.setReadTimeout(30000);
                 conn.setUseCaches(false);
-                conn.setInstanceFollowRedirects(true);
+                conn.setInstanceFollowRedirects(false);
                 conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36 Wallet/1.0");
                 conn.setRequestProperty("Authorization", "Bearer " + token);
                 conn.setRequestProperty("Accept", "application/vnd.api+json");
 
-                boolean hasBodyMethod = "POST".equals(method) || "PUT".equals(method) || "PATCH".equals(method);
+                boolean hasBodyMethod = "POST".equals(currentMethod) || "PUT".equals(currentMethod) || "PATCH".equals(currentMethod);
                 if (hasBodyMethod && (bodyBase64 != null || bodyJson != null)) {
                     byte[] payloadBytes;
                     String contentType;
@@ -555,6 +634,18 @@ public class WalletNativePlugin extends Plugin {
                 }
 
                 int status = conn.getResponseCode();
+                if ((status == 301 || status == 302 || status == 303 || status == 307 || status == 308) && hop < maxRedirects) {
+                    String location = conn.getHeaderField("Location");
+                    if (location != null && !location.trim().isEmpty()) {
+                        URL nextUrl = new URL(urlObj, location.trim());
+                        currentUrl = nextUrl.toString();
+                        if (status == 303 && !"GET".equals(currentMethod) && !"HEAD".equals(currentMethod)) {
+                            currentMethod = "GET";
+                        }
+                        continue;
+                    }
+                }
+
                 InputStream is = status >= 400 ? conn.getErrorStream() : conn.getInputStream();
                 String responseBody = "";
                 if (is != null) {
@@ -573,21 +664,14 @@ public class WalletNativePlugin extends Plugin {
                 ret.put("body", responseBody);
                 ret.put("contentType", conn.getContentType() != null ? conn.getContentType() : "application/json");
                 ret.put("networkError", false);
-                call.resolve(ret);
-            } catch (Exception e) {
-                JSObject ret = new JSObject();
-                ret.put("status", 0);
-                ret.put("ok", false);
-                ret.put("body", "");
-                ret.put("contentType", "application/json");
-                ret.put("networkError", true);
-                ret.put("message", e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
-                call.resolve(ret);
+                return ret;
             } finally {
                 if (conn != null) {
                     conn.disconnect();
                 }
             }
-        });
+        }
+
+        throw new IOException("Too many HTTP redirects while connecting to Firefly III.");
     }
 }
