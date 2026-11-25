@@ -770,4 +770,27 @@ describe("FullScreenAccountSelectView & FullScreenCategorySelectView", () => {
     expect(NEW_TX_SRC).toContain('setActiveSubView("counterparty")');
     expect(NEW_TX_SRC).not.toContain("Pay / Lend:");
   });
+
+  it("exposes a fast-access Payee / Merchant (or Payer) button directly below Category on mobile", () => {
+    const mobilePaneStart = NEW_TX_SRC.indexOf("Inline From → To / Category bar");
+    const desktopPaneStart = NEW_TX_SRC.indexOf("DESKTOP KEYBOARD-FIRST FINANCIAL COLUMN");
+    expect(mobilePaneStart).toBeGreaterThan(-1);
+    expect(desktopPaneStart).toBeGreaterThan(mobilePaneStart);
+
+    const mobileFastAccessSection = NEW_TX_SRC.slice(mobilePaneStart, desktopPaneStart);
+    expect(mobileFastAccessSection).toContain('setActiveSubView("category")');
+    expect(mobileFastAccessSection).toContain('setActiveSubView("counterparty")');
+    expect(mobileFastAccessSection).toContain(
+      'aria-label={type === "withdrawal" ? "Select payee or merchant" : "Select payer"}',
+    );
+    expect(mobileFastAccessSection).toContain("Payee / Merchant");
+  });
+
+  it("auto-fills linked budget on category change while preserving manual budget selection", () => {
+    expect(NEW_TX_SRC).toContain("computeBudgetOnCategoryChange");
+    expect(NEW_TX_SRC).toContain("resolveLinkedBudgetId");
+    expect(NEW_TX_SRC).toContain("budgetManuallySet");
+    expect(NEW_TX_SRC).toContain("setBudgetManuallySet(true);");
+    expect(NEW_TX_SRC).toContain("applyCategorySelection(catName)");
+  });
 });

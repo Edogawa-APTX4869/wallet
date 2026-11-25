@@ -15,6 +15,9 @@ import {
   Trash2,
 } from "lucide-react";
 import { api } from "@/lib/firefly/api";
+import { companionFetch } from "@/lib/offline-sync";
+import type { DashboardPreferences } from "@/lib/dashboard-cards";
+import { categoriesForBudget, resolveEffectiveCategoryBudgetMap } from "@/lib/category-budget-links";
 import type { Budget, Resource } from "@/lib/firefly/types";
 import {
   formatBudgetAmountInput,
@@ -77,6 +80,21 @@ export function BudgetsClient() {
     queryKey: ["available-budgets", range.start, range.end],
     queryFn: () => api.availableBudgets(range.start, range.end),
   });
+  const dashboardPrefsQ = useQuery({
+    queryKey: ["dashboard-prefs"],
+    queryFn: async () => {
+      try {
+        const json = await companionFetch<{ data?: DashboardPreferences }>("/api/companion/dashboard");
+        return json.data ?? null;
+      } catch {
+        return null as DashboardPreferences | null;
+      }
+    },
+    staleTime: 60_000,
+  });
+  const categoryBudgetMap = resolveEffectiveCategoryBudgetMap(
+    dashboardPrefsQ.data?.categoryBudgetMap,
+  );
 
   const [newName, setNewName] = useState("");
   const [editingLimitId, setEditingLimitId] = useState<string | null>(null);
@@ -561,6 +579,7 @@ export function BudgetsClient() {
             const isOver = r.left.lt(0) || Boolean(r.monthLeft?.lt(0));
             const todayIso = isoDate();
             const monthShort = range.label.split(" ")[0] || range.label;
+            const linkedCats = categoriesForBudget(categoryBudgetMap, r.id);
 
             return (
               <Card key={r.id} className="flex min-w-0 flex-col gap-3">
@@ -665,6 +684,22 @@ export function BudgetsClient() {
                       />{" "}
                       / {r.autoBudgetPeriod || "monthly"}
                     </Badge>
+                  </div>
+                )}
+
+                {linkedCats.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1 text-[11px]">
+                    <span className="text-muted">Auto-fill:</span>
+                    {linkedCats.slice(0, 3).map((cat) => (
+                      <Badge key={cat} tone="primary" className="text-[10px]">
+                        {cat.replace(/\s*:\s*/g, " › ")}
+                      </Badge>
+                    ))}
+                    {linkedCats.length > 3 && (
+                      <Badge tone="neutral" className="text-[10px]">
+                        +{linkedCats.length - 3}
+                      </Badge>
+                    )}
                   </div>
                 )}
 

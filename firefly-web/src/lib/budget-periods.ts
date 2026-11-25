@@ -272,12 +272,22 @@ export function resolveBudgetPeriodRow(params: {
     for (const grp of transactions) {
       for (const sp of grp.attributes.transactions ?? []) {
         if (sp.type !== "withdrawal") continue;
-        const matchesBudget = sp.budget_id
-          ? String(sp.budget_id) === budgetIdStr
-          : Boolean(sp.budget_name && sp.budget_name.trim().toLowerCase() === budgetNameNorm);
+        const matchesBudget =
+          (sp.budget_id !== undefined &&
+            sp.budget_id !== null &&
+            String(sp.budget_id) !== "" &&
+            String(sp.budget_id) === budgetIdStr) ||
+          Boolean(sp.budget_name && sp.budget_name.trim().toLowerCase() === budgetNameNorm);
         if (!matchesBudget) continue;
-        const spDate = extractLocalDate(sp.date);
+        const rawDate = (sp.date ?? "").trim();
+        const spDate = /^\d{4}-\d{2}-\d{2}/.test(rawDate)
+          ? rawDate.slice(0, 10)
+          : extractLocalDate(rawDate);
         if (spDate < winStart || spDate > winEnd) continue;
+        const spExt = sp as typeof sp & {
+          pc_amount?: string | null;
+          pc_currency_code?: string | null;
+        };
         let amt = new Decimal(0);
         if (sp.currency_code && sp.currency_code.toUpperCase() === preferredUpper) {
           amt = new Decimal(sp.amount || 0).abs();
@@ -287,6 +297,12 @@ export function resolveBudgetPeriodRow(params: {
           sp.foreign_amount
         ) {
           amt = new Decimal(sp.foreign_amount || 0).abs();
+        } else if (
+          spExt.pc_currency_code &&
+          spExt.pc_currency_code.toUpperCase() === preferredUpper &&
+          spExt.pc_amount
+        ) {
+          amt = new Decimal(spExt.pc_amount || 0).abs();
         } else {
           amt = new Decimal(sp.amount || 0).abs();
         }
@@ -295,6 +311,11 @@ export function resolveBudgetPeriodRow(params: {
     }
     return total;
   };
+
+  const totalTxInMonth = transactions ? sumBudgetTxInRange(rangeStart, rangeEnd) : null;
+  const txMatchesBudgetMonth =
+    totalTxInMonth !== null &&
+    budgetMonthSpent.minus(totalTxInMonth).abs().lte(new Decimal("0.005"));
 
   const realSlices: BudgetLimitSlice[] = matchingLimits.map((l) => {
     const start = (l.attributes.start || rangeStart).slice(0, 10);
@@ -308,7 +329,16 @@ export function resolveBudgetPeriodRow(params: {
     const parsedSpent = parseBudgetLimitSpent(l.attributes.spent, sliceCode, l.attributes.pc_spent);
     const hasExplicitSpent = parsedSpent !== null;
     const txWeekSpent = transactions ? sumBudgetTxInRange(start, end) : null;
-    const spent = parsedSpent ?? txWeekSpent ?? new Decimal(0);
+    let spent: Decimal;
+    if (txWeekSpent !== null) {
+      if (txMatchesBudgetMonth || parsedSpent === null) {
+        spent = txWeekSpent;
+      } else {
+        spent = Decimal.max(parsedSpent, txWeekSpent);
+      }
+    } else {
+      spent = parsedSpent ?? new Decimal(0);
+    }
     const isStraddling = start < rangeStart || end > rangeEnd;
     const inMonthSpent = transactions
       ? isStraddling

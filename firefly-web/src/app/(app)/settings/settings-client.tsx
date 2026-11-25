@@ -23,6 +23,7 @@ import {
   Trash2,
   Wand2,
   Webhook as WebhookIcon,
+  X,
 } from "lucide-react";
 import { api } from "@/lib/firefly/api";
 import { companionFetch, resetAllOfflineData, syncOfflineQueue, useOfflineSync } from "@/lib/offline-sync";
@@ -43,9 +44,14 @@ import {
   saveLocalLiabilityCategoryPrefs,
   type LiabilityCategoryPrefs,
 } from "@/lib/liability-actions";
+import {
+  resolveEffectiveCategoryBudgetMap,
+  sanitizeCategoryBudgetMap,
+  saveLocalCategoryBudgetMap,
+} from "@/lib/category-budget-links";
 import { formatRate } from "@/lib/fx/resolve";
 import { qk, useCurrencies, usePrimaryCurrency } from "@/lib/hooks";
-import { cn, formatDate, formatDateTime, isoDate, parseAmount } from "@/lib/utils";
+import { cn, formatDate, formatDateTime, isoDate, monthRange, parseAmount } from "@/lib/utils";
 import {
   Badge,
   Button,
@@ -138,6 +144,12 @@ export function SettingsClient() {
     queryFn: () => api.categories(),
     staleTime: 5 * 60_000,
   });
+  const currentMonthRange = monthRange(0);
+  const budgetsQ = useQuery({
+    queryKey: ["budgets-list"],
+    queryFn: () => api.budgets(currentMonthRange.start, currentMonthRange.end),
+    staleTime: 5 * 60_000,
+  });
   const dashboardPrefsQ = useQuery({
     queryKey: ["dashboard-prefs"],
     queryFn: async () => {
@@ -154,6 +166,34 @@ export function SettingsClient() {
   const [owedToMeCatDraft, setOwedToMeCatDraft] = useState<string | null>(null);
   const [iOweCatDraft, setIOweCatDraft] = useState<string | null>(null);
   const [newLoanCatName, setNewLoanCatName] = useState("");
+  const [linkCatDraft, setLinkCatDraft] = useState("");
+  const [linkBudgetDraft, setLinkBudgetDraft] = useState("");
+
+  const effectiveCategoryBudgetMap = resolveEffectiveCategoryBudgetMap(
+    dashboardPrefsQ.data?.categoryBudgetMap,
+  );
+
+  const saveCategoryBudgetMapMut = useMutation({
+    mutationFn: async (nextMap: Record<string, string>) => {
+      const clean = sanitizeCategoryBudgetMap(nextMap);
+      saveLocalCategoryBudgetMap(clean);
+      try {
+        await companionFetch("/api/companion/dashboard", {
+          method: "PUT",
+          label: "Save category-budget links",
+          body: { categoryBudgetMap: clean },
+        });
+      } catch {
+        // LocalStorage fallback already saved for offline / standalone APK mode
+      }
+      return clean;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["dashboard-prefs"] });
+      toast("Category auto-fill links updated");
+    },
+    onError: (e) => toast((e as Error).message, "error"),
+  });
 
   const effectiveOwedToMeCat =
     owedToMeCatDraft ??
@@ -801,6 +841,128 @@ export function SettingsClient() {
             <Check className="size-3.5" aria-hidden /> Save category mapping
           </Button>
         </div>
+      </Card>
+
+      {/* Category -> Budget Auto-Fill */}
+      <Card id="category-budget-links" className="scroll-mt-6 flex flex-col gap-4">
+        <div className="flex items-center gap-2.5">
+          <span className="flex size-9 items-center justify-center rounded-xl bg-primary-soft text-primary">
+            <Sliders className="size-4" aria-hidden />
+          </span>
+          <div>
+            <h2 className="font-semibold">Category → Budget Auto-Fill</h2>
+            <p className="text-xs text-muted">
+              Link categories to a default budget so new expenses auto-fill the budget. You can still change or clear the budget manually on any transaction.
+            </p>
+          </div>
+        </div>
+
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            const cat = linkCatDraft.trim();
+            const bId = linkBudgetDraft.trim();
+            if (!cat || !bId) return;
+            const nextMap = { ...effectiveCategoryBudgetMap };
+            for (const existingKey of Object.keys(nextMap)) {
+              if (existingKey.toLowerCase() === cat.toLowerCase()) {
+                delete nextMap[existingKey];
+              }
+            }
+            nextMap[cat] = bId;
+            saveCategoryBudgetMapMut.mutate(nextMap);
+            setLinkCatDraft("");
+          }}
+          className="grid gap-3 rounded-xl bg-surface-2 p-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end"
+        >
+          <Field label="Category">
+            {(id) => (
+              <Select
+                id={id}
+                value={linkCatDraft}
+                onChange={(e) => setLinkCatDraft(e.target.value)}
+              >
+                <option value="">Choose category…</option>
+                {(categoriesQ.data ?? []).map((c) => (
+                  <option key={c.id} value={c.attributes.name}>
+                    {c.attributes.name.replace(/\s*:\s*/g, " › ")}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
+
+          <Field label="Default Budget">
+            {(id) => (
+              <Select
+                id={id}
+                value={linkBudgetDraft}
+                onChange={(e) => setLinkBudgetDraft(e.target.value)}
+              >
+                <option value="">Choose budget…</option>
+                {(budgetsQ.data ?? [])
+                  .filter((b) => b.attributes.active !== false)
+                  .map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.attributes.name}
+                    </option>
+                  ))}
+              </Select>
+            )}
+          </Field>
+
+          <Button
+            type="submit"
+            size="sm"
+            loading={saveCategoryBudgetMapMut.isPending}
+            disabled={!linkCatDraft.trim() || !linkBudgetDraft.trim()}
+            className="h-10 min-h-0 px-4 text-xs"
+          >
+            <Plus className="size-3.5" aria-hidden /> Link
+          </Button>
+        </form>
+
+        {Object.keys(effectiveCategoryBudgetMap).length === 0 ? (
+          <p className="text-xs text-muted">
+            No category-to-budget links configured yet. You can also assign categories directly when editing a budget on the Budgets page.
+          </p>
+        ) : (
+          <div className="flex flex-col divide-y divide-border rounded-xl border border-border bg-surface">
+            {Object.entries(effectiveCategoryBudgetMap)
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([catName, bId]) => {
+                const matchedBudget = (budgetsQ.data ?? []).find((b) => String(b.id) === String(bId));
+                return (
+                  <div
+                    key={catName}
+                    className="flex items-center justify-between gap-2 px-3 py-2 text-sm"
+                  >
+                    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                      <span className="truncate font-medium text-fg">
+                        {catName.replace(/\s*:\s*/g, " › ")}
+                      </span>
+                      <span className="text-xs text-muted" aria-hidden>→</span>
+                      <Badge tone={matchedBudget ? "primary" : "warning"} className="text-xs">
+                        {matchedBudget ? matchedBudget.attributes.name : `Budget #${bId} (inactive/missing)`}
+                      </Badge>
+                    </div>
+                    <button
+                      type="button"
+                      aria-label={`Unlink ${catName}`}
+                      onClick={() => {
+                        const nextMap = { ...effectiveCategoryBudgetMap };
+                        delete nextMap[catName];
+                        saveCategoryBudgetMapMut.mutate(nextMap);
+                      }}
+                      className="inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-danger-soft/40 hover:text-danger transition"
+                    >
+                      <X className="size-3.5" aria-hidden />
+                    </button>
+                  </div>
+                );
+              })}
+          </div>
+        )}
       </Card>
 
       {/* Currencies & Decimal Places Configuration */}

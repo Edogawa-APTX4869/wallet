@@ -7,6 +7,7 @@ import Decimal from "decimal.js";
 import {
   ArrowLeft,
   ArrowLeftRight,
+  Building2,
   Calculator,
   Check,
   ChevronLeft,
@@ -18,6 +19,7 @@ import {
   Plus,
   RotateCcw,
   Sparkles,
+  Store,
   X,
 } from "lucide-react";
 import { api } from "@/lib/firefly/api";
@@ -30,6 +32,11 @@ import {
   isLiabilityAccount,
   resolveLiabilityCategory,
 } from "@/lib/liability-actions";
+import {
+  computeBudgetOnCategoryChange,
+  resolveEffectiveCategoryBudgetMap,
+  resolveLinkedBudgetId,
+} from "@/lib/category-budget-links";
 import { accountCurrency, ASSET_LIKE, useAccounts, useCurrencies } from "@/lib/hooks";
 import { formatRate } from "@/lib/fx/resolve";
 import { useOptionalUniversalFilter } from "@/lib/filter-context";
@@ -405,6 +412,9 @@ function WalletCalculatorForm({
   const [time, setTime] = useState(() => searchParams.get("time") || isoTime());
   const [category, setCategory] = useState(() => searchParams.get("category") ?? "");
   const [budgetId, setBudgetId] = useState(() => searchParams.get("budgetId") ?? "");
+  const [budgetManuallySet, setBudgetManuallySet] = useState(() => Boolean(searchParams.get("budgetId")));
+  const [budgetAutoFilled, setBudgetAutoFilled] = useState(false);
+  const [seededInitialCategoryBudget, setSeededInitialCategoryBudget] = useState(false);
   const [tags, setTags] = useState(() => searchParams.get("tags") ?? "");
   const [billId, setBillId] = useState<string | null>(() => searchParams.get("billId") ?? searchParams.get("bill_id"));
   const [billName, setBillName] = useState<string | null>(() => searchParams.get("billName") ?? searchParams.get("bill_name"));
@@ -453,6 +463,45 @@ function WalletCalculatorForm({
   const [modalTargetAmt, setModalTargetAmt] = useState("");
   const [modalRateStr, setModalRateStr] = useState("");
   const [appliedInitTemplate, setAppliedInitTemplate] = useState<string | null>(null);
+  const effectiveCategoryBudgetMap = resolveEffectiveCategoryBudgetMap(
+    dashboardPrefsQ.data?.categoryBudgetMap,
+  );
+
+  function applyCategorySelection(nextCat: string) {
+    setCategory(nextCat);
+    const nextBudget = computeBudgetOnCategoryChange({
+      type,
+      nextCategory: nextCat,
+      currentBudgetId: budgetId,
+      budgetManuallySet,
+      budgetAutoFilled,
+      map: effectiveCategoryBudgetMap,
+      activeBudgets,
+    });
+    setBudgetId(nextBudget.budgetId);
+    setBudgetAutoFilled(nextBudget.budgetAutoFilled);
+  }
+
+  if (
+    !seededInitialCategoryBudget &&
+    type === "withdrawal" &&
+    category.trim() &&
+    !budgetManuallySet &&
+    !budgetId &&
+    budgetsQ.data !== undefined &&
+    dashboardPrefsQ.data !== undefined
+  ) {
+    setSeededInitialCategoryBudget(true);
+    const linked = resolveLinkedBudgetId({
+      category,
+      map: effectiveCategoryBudgetMap,
+      activeBudgets,
+    });
+    if (linked) {
+      setBudgetId(linked);
+      setBudgetAutoFilled(true);
+    }
+  }
 
   useEscapeDismiss(activeSubView !== null, closeSubView, "new-tx-subview");
   useEscapeDismiss(detailsOpen, () => goToDetails(false), "new-transaction-details");
@@ -553,7 +602,21 @@ function WalletCalculatorForm({
       if (found.foreign_currency_code) setForeignCode(found.foreign_currency_code);
       if (found.description) setDescription(found.description);
       if (found.category_name) setCategory(found.category_name);
-      if (found.budget_id) setBudgetId(found.budget_id);
+      if (found.budget_id) {
+        setBudgetId(found.budget_id);
+        setBudgetManuallySet(true);
+        setBudgetAutoFilled(false);
+      } else if (found.category_name && type === "withdrawal") {
+        const linked = resolveLinkedBudgetId({
+          category: found.category_name,
+          map: effectiveCategoryBudgetMap,
+          activeBudgets,
+        });
+        if (linked) {
+          setBudgetId(linked);
+          setBudgetAutoFilled(true);
+        }
+      }
       if (found.tags) setTags(found.tags);
       if (found.notes) setNotes(found.notes);
       if (found.amount) {
@@ -573,7 +636,7 @@ function WalletCalculatorForm({
     });
     setLiabilityId(liabAcc.id);
     setCounterparty(a.name);
-    if (resolvedCat) setCategory(resolvedCat);
+    if (resolvedCat) applyCategorySelection(resolvedCat);
 
     if (type === "deposit") {
       setDescription(isCredit ? `Collect Loan - ${a.name}` : `Loan from ${a.name}`);
@@ -839,6 +902,8 @@ function WalletCalculatorForm({
       setDescription("");
       setNotes("");
       setAttachments([]);
+      setBudgetManuallySet(false);
+      setBudgetAutoFilled(false);
       setError(null);
       qc.invalidateQueries({ queryKey: ["accounts"] });
       qc.invalidateQueries({ queryKey: ["transactions"] });
@@ -962,7 +1027,7 @@ function WalletCalculatorForm({
           categoryOrder={dashboardPrefsQ.data?.categoryOrder}
           onSelect={(catName) => {
             if (catName) recordCategoryUsage(catName);
-            setCategory(catName);
+            applyCategorySelection(catName);
             closeSubView();
           }}
           onBack={closeSubView}
@@ -1012,6 +1077,8 @@ function WalletCalculatorForm({
           selectedBudgetId={budgetId}
           onSelect={(nextBudgetId) => {
             setBudgetId(nextBudgetId);
+            setBudgetManuallySet(true);
+            setBudgetAutoFilled(false);
             closeSubView();
           }}
           onBack={closeSubView}
@@ -1100,7 +1167,7 @@ function WalletCalculatorForm({
             <div
               key={type}
               className={cn(
-                "flex flex-col gap-3 border-b border-border p-3 sm:p-4",
+                "flex flex-col gap-2.5 border-b border-border p-3 sm:p-4",
                 modeDir === "next" && "animate-swipe-next",
                 modeDir === "prev" && "animate-swipe-prev",
               )}
@@ -1153,7 +1220,7 @@ function WalletCalculatorForm({
                 </div>
               )}
               {/* Giant Amount Display + Aligned Details Pull-Tab */}
-              <div className={cn("relative flex min-h-28 flex-col items-center justify-center rounded-xl px-10 py-4 transition-colors", accentSoft)}>
+              <div className={cn("relative flex min-h-24 flex-col items-center justify-center rounded-xl px-10 py-3 transition-colors", accentSoft)}>
                 <div className="flex items-baseline gap-2">
                   <span className={cn("tabular text-4xl font-semibold tracking-tight sm:text-5xl", accentText)}>
                     {type === "withdrawal" ? "−" : type === "deposit" ? "+" : ""}
@@ -1189,7 +1256,7 @@ function WalletCalculatorForm({
                     type="button"
                     onClick={() => setActiveSubView("source-account")}
                     aria-label="Select primary account"
-                    className="flex h-10 w-full items-center gap-2 rounded-xl border border-border bg-surface px-2.5 text-left text-sm font-medium text-fg hover:bg-surface-2 active:scale-[0.98] transition"
+                    className="flex min-h-11 w-full items-center gap-2 rounded-xl border border-border bg-surface px-2.5 py-1.5 text-left text-sm font-medium text-fg hover:bg-surface-2 active:scale-[0.98] transition"
                   >
                     {asset && (
                       <ResourceIconBadge
@@ -1214,12 +1281,12 @@ function WalletCalculatorForm({
                     onClick={swapTransferAccounts}
                     title="Swap source and destination accounts"
                     aria-label="Swap source and destination accounts"
-                    className="mb-1 flex size-9 items-center justify-center rounded-xl border border-border bg-surface-2 text-muted hover:text-fg"
+                    className="mb-0.5 flex size-10 items-center justify-center rounded-xl border border-border bg-surface-2 text-muted hover:text-fg"
                   >
-                    <ArrowLeftRight className="size-4" />
+                    <ArrowLeftRight className="size-4" aria-hidden />
                   </button>
                 ) : (
-                  <span className="pb-2.5 text-muted">→</span>
+                  <span className="pb-3 text-muted" aria-hidden>→</span>
                 )}
 
                 {type === "transfer" ? (
@@ -1229,7 +1296,7 @@ function WalletCalculatorForm({
                       type="button"
                       onClick={() => setActiveSubView("dest-account")}
                       aria-label="Select destination account"
-                      className="flex h-10 w-full items-center gap-2 rounded-xl border border-border bg-surface px-2.5 text-left text-sm font-medium text-fg hover:bg-surface-2 active:scale-[0.98] transition"
+                      className="flex min-h-11 w-full items-center gap-2 rounded-xl border border-border bg-surface px-2.5 py-1.5 text-left text-sm font-medium text-fg hover:bg-surface-2 active:scale-[0.98] transition"
                     >
                       {dest && (
                         <ResourceIconBadge
@@ -1254,7 +1321,7 @@ function WalletCalculatorForm({
                       type="button"
                       onClick={() => setActiveSubView("category")}
                       aria-label="Select category"
-                      className="flex h-10 w-full items-center gap-2 rounded-xl border border-border bg-surface px-2.5 text-left text-sm font-medium text-fg hover:bg-surface-2 active:scale-[0.98] transition"
+                      className="flex min-h-11 w-full items-center gap-2 rounded-xl border border-border bg-surface px-2.5 py-1.5 text-left text-sm font-medium text-fg hover:bg-surface-2 active:scale-[0.98] transition"
                     >
                       {category && (
                         <ResourceIconBadge
@@ -1277,6 +1344,69 @@ function WalletCalculatorForm({
                   </div>
                 )}
               </div>
+
+              {/* Fast-access Payee / Merchant (or Payer) row directly beneath Account → Category */}
+              {type !== "transfer" && (
+                <button
+                  type="button"
+                  onClick={() => setActiveSubView("counterparty")}
+                  aria-label={type === "withdrawal" ? "Select payee or merchant" : "Select payer"}
+                  className="flex min-h-11 w-full items-center gap-2 rounded-xl border border-border bg-surface px-2.5 py-1.5 text-left text-sm font-medium text-fg hover:bg-surface-2 active:scale-[0.98] transition"
+                >
+                  {linkedLiability ? (
+                    <ResourceIconBadge
+                      entityType="account"
+                      entityId={linkedLiability.id}
+                      defaultIcon={inferAccountDefaultStyle(linkedLiability.attributes).icon}
+                      defaultColor={inferAccountDefaultStyle(linkedLiability.attributes).color}
+                      size="xs"
+                      editable={false}
+                    />
+                  ) : counterparty.trim() ? (
+                    (() => {
+                      const matchedAcc = (type === "withdrawal" ? expenseAccounts : revenueAccounts).find(
+                        (a) => a.attributes.name.toLowerCase() === counterparty.trim().toLowerCase(),
+                      );
+                      return (
+                        <ResourceIconBadge
+                          entityType="account"
+                          entityId={matchedAcc?.id ?? counterparty.trim()}
+                          defaultIcon={
+                            matchedAcc
+                              ? inferAccountDefaultStyle(matchedAcc.attributes).icon
+                              : type === "withdrawal"
+                                ? "Store"
+                                : "Building2"
+                          }
+                          defaultColor={
+                            matchedAcc ? inferAccountDefaultStyle(matchedAcc.attributes).color : "#6366f1"
+                          }
+                          size="xs"
+                          editable={false}
+                        />
+                      );
+                    })()
+                  ) : type === "withdrawal" ? (
+                    <Store className="size-4 shrink-0 text-muted" aria-hidden />
+                  ) : (
+                    <Building2 className="size-4 shrink-0 text-muted" aria-hidden />
+                  )}
+                  <span className="shrink-0 text-xs font-normal text-muted">
+                    {type === "withdrawal" ? "Payee / Merchant" : "Payer"}
+                  </span>
+                  <span
+                    className={cn(
+                      "min-w-0 flex-1 truncate text-right",
+                      !linkedLiability && !counterparty.trim() && "text-muted",
+                    )}
+                  >
+                    {linkedLiability
+                      ? linkedLiability.attributes.name
+                      : counterparty.trim() || "Choose…"}
+                  </span>
+                  <ChevronRight className="size-3.5 shrink-0 text-muted" aria-hidden />
+                </button>
+              )}
             </div>
 
             {/* Target Amount Bar for Cross-Currency Transfers / Foreign Expenses (Mobile) */}
@@ -1329,6 +1459,11 @@ function WalletCalculatorForm({
                   <span className={cn("truncate", !selectedBudget && "text-muted")}>
                     {selectedBudget ? selectedBudget.attributes.name : "No budget"}
                   </span>
+                  {budgetAutoFilled && selectedBudget && (
+                    <span className="shrink-0 rounded bg-primary-soft px-1 py-0.5 text-[10px] font-semibold text-primary">
+                      Auto
+                    </span>
+                  )}
                   <ChevronRight className="size-3.5 shrink-0 text-muted" aria-hidden />
                 </button>
               )}
@@ -1947,7 +2082,14 @@ function WalletCalculatorForm({
 
             {type === "withdrawal" && (
               <div className="flex flex-col gap-1.5">
-                <span className="text-sm font-medium">Budget</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm font-medium">Budget</span>
+                  {budgetAutoFilled && selectedBudget && (
+                    <Badge tone="primary" className="text-[10px]">
+                      Auto
+                    </Badge>
+                  )}
+                </div>
                 <button
                   type="button"
                   onClick={() => setActiveSubView("budget")}

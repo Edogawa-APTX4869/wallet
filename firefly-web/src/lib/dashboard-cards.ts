@@ -36,6 +36,7 @@ export interface DashboardPreferences {
   selectedAccountIds: string[]; // empty = all active asset/liability accounts included
   cards: DashboardCardConfig[];
   categoryOrder?: string[];
+  categoryBudgetMap?: Record<string, string>;
   liabilityCategories?: {
     owedToMeCategory: string;
     iOweCategory: string;

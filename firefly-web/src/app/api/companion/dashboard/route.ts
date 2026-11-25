@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getKv, setKv } from "@/lib/server/db";
 import { getSession } from "@/lib/server/session";
+import { sanitizeCategoryBudgetMap } from "@/lib/category-budget-links";
 import { DEFAULT_DASHBOARD_PREFS, sanitizeCards, type DashboardPreferences } from "@/lib/dashboard-cards";
 
 function read(): DashboardPreferences {
@@ -10,6 +11,9 @@ function read(): DashboardPreferences {
     // An explicitly saved empty list means the user removed every card — respect it.
     cards: Array.isArray(saved.cards) ? sanitizeCards(saved.cards) : DEFAULT_DASHBOARD_PREFS.cards,
     ...(Array.isArray(saved.categoryOrder) ? { categoryOrder: saved.categoryOrder.map(String) } : {}),
+    ...(saved.categoryBudgetMap && typeof saved.categoryBudgetMap === "object"
+      ? { categoryBudgetMap: sanitizeCategoryBudgetMap(saved.categoryBudgetMap) }
+      : {}),
     ...(saved.liabilityCategories && typeof saved.liabilityCategories === "object"
       ? {
           liabilityCategories: {
@@ -41,6 +45,11 @@ export async function PUT(req: NextRequest) {
       ? { categoryOrder: body.categoryOrder.map(String) }
       : current.categoryOrder
         ? { categoryOrder: current.categoryOrder }
+        : {}),
+    ...(body.categoryBudgetMap && typeof body.categoryBudgetMap === "object"
+      ? { categoryBudgetMap: sanitizeCategoryBudgetMap(body.categoryBudgetMap) }
+      : current.categoryBudgetMap
+        ? { categoryBudgetMap: current.categoryBudgetMap }
         : {}),
     ...(body.liabilityCategories && typeof body.liabilityCategories === "object"
       ? {

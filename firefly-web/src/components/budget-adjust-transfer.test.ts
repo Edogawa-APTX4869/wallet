@@ -594,6 +594,168 @@ describe("weekly vs monthly budget sub-period resolution", () => {
     expect(weeklySpentSum.toFixed(3)).toBe("38.750");
   });
 
+  it("overrides stale-empty spent:[] on real budget_limits (11-16..11-22) with actual week transactions so Unallocated dates stays 0", () => {
+    const petrolBudget: Resource<Budget> = {
+      id: "7",
+      type: "budgets",
+      attributes: {
+        name: "Petrol",
+        active: true,
+        auto_budget_type: "reset",
+        auto_budget_amount: "10.000",
+        auto_budget_period: "weekly",
+        auto_budget_currency_code: "BHD",
+        spent: [{ sum: "-38.750", currency_code: "BHD", currency_decimal_places: 3 }],
+      },
+    };
+
+    const limits: Resource<BudgetLimit>[] = [
+      {
+        id: "101",
+        type: "budget_limits",
+        attributes: {
+          budget_id: "7",
+          start: "2026-11-02T00:00:00+03:00",
+          end: "2026-11-08T23:59:59+03:00",
+          amount: "10.000",
+          currency_code: "BHD",
+          currency_decimal_places: 3,
+          spent: [{ sum: "-18.750", currency_code: "BHD", currency_decimal_places: 3 }],
+        },
+      },
+      {
+        id: "102",
+        type: "budget_limits",
+        attributes: {
+          budget_id: "7",
+          start: "2026-11-09T00:00:00+03:00",
+          end: "2026-11-15T23:59:59+03:00",
+          amount: "10.000",
+          currency_code: "BHD",
+          currency_decimal_places: 3,
+          spent: [{ sum: "-10.000", currency_code: "BHD", currency_decimal_places: 3 }],
+        },
+      },
+      {
+        id: "103",
+        type: "budget_limits",
+        attributes: {
+          budget_id: "7",
+          start: "2026-11-16T00:00:00+03:00",
+          end: "2026-11-22T23:59:59+03:00",
+          amount: "10.000",
+          currency_code: "BHD",
+          currency_decimal_places: 3,
+          // Firefly III /api/v1/budget-limits returns stale/empty spent: [] despite actual 10.000 tx
+          spent: [],
+        },
+      },
+      {
+        id: "104",
+        type: "budget_limits",
+        attributes: {
+          budget_id: "7",
+          start: "2026-11-23T00:00:00+03:00",
+          end: "2026-11-29T23:59:59+03:00",
+          amount: "10.000",
+          currency_code: "BHD",
+          currency_decimal_places: 3,
+          spent: [],
+        },
+      },
+    ];
+
+    const transactions: Resource<TransactionGroup>[] = [
+      {
+        id: "tx-w1",
+        type: "transactions",
+        attributes: {
+          transactions: [
+            {
+              type: "withdrawal",
+              date: "2026-11-05T14:20:00+03:00",
+              amount: "18.750",
+              description: "Fuel W1",
+              currency_code: "BHD",
+              budget_id: "7",
+              budget_name: "Petrol",
+            },
+          ],
+        },
+      },
+      {
+        id: "tx-w2",
+        type: "transactions",
+        attributes: {
+          transactions: [
+            {
+              type: "withdrawal",
+              date: "2026-11-12T18:05:00+03:00",
+              amount: "10.000",
+              description: "Fuel W2",
+              currency_code: "BHD",
+              budget_id: "7",
+              budget_name: "Petrol",
+            },
+          ],
+        },
+      },
+      {
+        id: "tx-w3",
+        type: "transactions",
+        attributes: {
+          transactions: [
+            {
+              type: "withdrawal",
+              date: "2026-11-18T23:30:00+03:00",
+              amount: "10.000",
+              description: "Fuel W3",
+              currency_code: "BHD",
+              budget_id: "7",
+              budget_name: "Petrol",
+            },
+          ],
+        },
+      },
+    ];
+
+    const row = resolveBudgetPeriodRow({
+      budget: petrolBudget,
+      limits,
+      rangeStart: "2026-11-01",
+      rangeEnd: "2026-11-30",
+      today: "2026-11-25",
+      defaultCode: "BHD",
+      defaultDecimals: 3,
+      currencyDecimalsByCode: { BHD: 3 },
+      transactions,
+    });
+
+    expect(row.monthLimit?.toFixed(3)).toBe("40.000");
+    expect(row.monthSpent?.toFixed(3)).toBe("38.750");
+    expect(row.unattributedSpent?.toFixed(3)).toBe("0.000");
+
+    const week3 = row.periodLimits?.find((s) => s.start === "2026-11-16" && s.end === "2026-11-22");
+    expect(week3?.spent.toFixed(3)).toBe("10.000");
+    expect(week3?.left.toFixed(3)).toBe("0.000");
+
+    // Partial transaction pool (e.g. Dashboard recent 60) still upgrades stale-zero week3 without zeroing older weeks
+    const partialRow = resolveBudgetPeriodRow({
+      budget: petrolBudget,
+      limits,
+      rangeStart: "2026-11-01",
+      rangeEnd: "2026-11-30",
+      today: "2026-11-25",
+      defaultCode: "BHD",
+      defaultDecimals: 3,
+      currencyDecimalsByCode: { BHD: 3 },
+      transactions: [transactions[2]],
+    });
+    expect(partialRow.periodLimits?.find((s) => s.id === "103")?.spent.toFixed(3)).toBe("10.000");
+    expect(partialRow.periodLimits?.find((s) => s.id === "101")?.spent.toFixed(3)).toBe("18.750");
+    expect(partialRow.unattributedSpent?.toFixed(3)).toBe("0.000");
+  });
+
   it("includes straddling month-boundary weekly limits via paddedBudgetLimitRange and excludes pure prior-month weeks", () => {
     const padded = paddedBudgetLimitRange("2026-11-01", "2026-11-30");
     expect(padded).toEqual({ start: "2026-10-25", end: "2026-12-07" });

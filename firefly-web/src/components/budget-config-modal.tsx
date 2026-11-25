@@ -1,13 +1,20 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Decimal from "decimal.js";
-import { Paperclip, Trash2, X } from "lucide-react";
+import { Check, Paperclip, Trash2, X } from "lucide-react";
 import { api, type BudgetPayload } from "@/lib/firefly/api";
+import { companionFetch } from "@/lib/offline-sync";
 import type { AutoBudgetPeriod, AutoBudgetType, Budget, Resource } from "@/lib/firefly/types";
+import type { DashboardPreferences } from "@/lib/dashboard-cards";
+import {
+  categoriesForBudget,
+  resolveEffectiveCategoryBudgetMap,
+  saveLocalCategoryBudgetMap,
+} from "@/lib/category-budget-links";
 import { useCurrencies, usePrimaryCurrency } from "@/lib/hooks";
-import { parseAmount } from "@/lib/utils";
+import { cn, monthRange, parseAmount } from "@/lib/utils";
 import { Button, Field, Input, ModalSheet, Select } from "@/components/ui";
 import { useToast } from "@/components/providers";
 
@@ -114,9 +121,15 @@ export function BudgetConfigModal({
   initialName?: string;
 }) {
   const [rendered, setRendered] = useState(open);
+  const [openSeq, setOpenSeq] = useState(0);
+  const [prevOpen, setPrevOpen] = useState(open);
 
-  if (open && !rendered) {
-    setRendered(true);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) {
+      setRendered(true);
+      setOpenSeq((n) => n + 1);
+    }
   }
 
   useEffect(() => {
@@ -128,7 +141,15 @@ export function BudgetConfigModal({
 
   if (!open && !rendered) return null;
 
-  return <BudgetConfigModalContent open={open} onClose={onClose} budget={budget} initialName={initialName} />;
+  return (
+    <BudgetConfigModalContent
+      key={`${openSeq}-${budget?.id ?? `new-${initialName}`}`}
+      open={open}
+      onClose={onClose}
+      budget={budget}
+      initialName={initialName}
+    />
+  );
 }
 
 function BudgetConfigModalContent({
@@ -169,37 +190,61 @@ function BudgetConfigModalContent({
   const [returnHere, setReturnHere] = useState(false);
   const [attachments, setAttachments] = useState<Array<{ name: string; type: string; dataUrl: string }>>([]);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [linkedCatsDraft, setLinkedCatsDraft] = useState<string[] | null>(null);
+
+  const month = monthRange(0);
+  const categoriesQ = useQuery({
+    queryKey: ["categories-list"],
+    queryFn: () => api.categories(),
+    staleTime: 5 * 60_000,
+    enabled: open,
+  });
+  const budgetsQ = useQuery({
+    queryKey: ["budgets-list"],
+    queryFn: () => api.budgets(month.start, month.end),
+    staleTime: 5 * 60_000,
+    enabled: open,
+  });
+  const dashboardPrefsQ = useQuery({
+    queryKey: ["dashboard-prefs"],
+    queryFn: async () => {
+      try {
+        const json = await companionFetch<{ data?: DashboardPreferences }>("/api/companion/dashboard");
+        return json.data ?? null;
+      } catch {
+        return null as DashboardPreferences | null;
+      }
+    },
+    staleTime: 60_000,
+    enabled: open,
+  });
+
+  const effectiveCategoryBudgetMap = resolveEffectiveCategoryBudgetMap(
+    dashboardPrefsQ.data?.categoryBudgetMap,
+  );
+  const linkedCats =
+    linkedCatsDraft ??
+    (budget ? categoriesForBudget(effectiveCategoryBudgetMap, budget.id) : []);
+
+  const toggleLinkedCategory = (catName: string) => {
+    const current =
+      linkedCatsDraft ??
+      (budget ? categoriesForBudget(effectiveCategoryBudgetMap, budget.id) : []);
+    const exists = current.some((c) => c.toLowerCase() === catName.toLowerCase());
+    setLinkedCatsDraft(
+      exists
+        ? current.filter((c) => c.toLowerCase() !== catName.toLowerCase())
+        : [...current, catName],
+    );
+  };
 
   const currencyCode = selectedCurrency ?? primaryCode;
-
-  useEffect(() => {
-    if (!open) return;
-    setConfirmDelete(false);
-    setAttachments([]);
-    if (budget) {
-      const b = budget.attributes;
-      setName(b.name || "");
-      setActive(b.active !== false);
-      setAutoBudgetType(normalizeAutoBudgetType(b.auto_budget_type));
-      setSelectedCurrency(b.auto_budget_currency_code || null);
-      setAutoBudgetAmount(b.auto_budget_amount ? String(b.auto_budget_amount) : "");
-      setAutoBudgetPeriod(normalizeAutoBudgetPeriod(b.auto_budget_period));
-      setNotes(b.notes || "");
-    } else {
-      setName(initialName);
-      setActive(true);
-      setAutoBudgetType("none");
-      setSelectedCurrency(null);
-      setAutoBudgetAmount("");
-      setAutoBudgetPeriod("monthly");
-      setNotes("");
-    }
-  }, [open, budget, initialName]);
 
   const invalidateAll = () => {
     qc.invalidateQueries({ queryKey: ["budgets"] });
     qc.invalidateQueries({ queryKey: ["budgets-list"] });
     qc.invalidateQueries({ queryKey: ["budget-limits"] });
+    qc.invalidateQueries({ queryKey: ["dashboard-prefs"] });
   };
 
   const saveMut = useMutation({
@@ -224,10 +269,33 @@ function BudgetConfigModalContent({
           await api.uploadBudgetAttachment(budgetId, file);
         }
       }
+
+      if (budgetId && linkedCatsDraft !== null) {
+        const nextMap: Record<string, string> = {};
+        for (const [cat, bId] of Object.entries(effectiveCategoryBudgetMap)) {
+          if (bId !== String(budgetId)) {
+            nextMap[cat] = bId;
+          }
+        }
+        for (const cat of linkedCatsDraft) {
+          nextMap[cat] = String(budgetId);
+        }
+        saveLocalCategoryBudgetMap(nextMap);
+        try {
+          await companionFetch("/api/companion/dashboard", {
+            method: "PUT",
+            label: "Save category-budget links",
+            body: { categoryBudgetMap: nextMap },
+          });
+        } catch {
+          // LocalStorage fallback already saved for offline / standalone APK mode
+        }
+      }
       return res;
     },
     onSuccess: () => {
       invalidateAll();
+      setLinkedCatsDraft(null);
       if (!isEdit && returnHere) {
         toast("Budget stored — ready to create another");
         setName("");
@@ -448,6 +516,59 @@ function BudgetConfigModalContent({
             />
             <span>Active budget</span>
           </label>
+        </div>
+
+        {/* Linked categories for auto-fill on new transactions */}
+        <div className="rounded-xl border border-border bg-surface-2/40 p-3.5 flex flex-col gap-2">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted">
+              Linked categories (auto-fill)
+            </p>
+            <p className="mt-0.5 text-xs text-muted">
+              New expenses in checked categories will auto-fill this budget (still editable per transaction).
+            </p>
+          </div>
+          {(categoriesQ.data?.length ?? 0) === 0 ? (
+            <p className="text-xs text-muted">
+              {categoriesQ.isLoading ? "Loading categories…" : "No categories found yet."}
+            </p>
+          ) : (
+            <div className="flex max-h-36 flex-wrap gap-1.5 overflow-y-auto pt-1">
+              {(categoriesQ.data ?? []).map((cat) => {
+                const catName = cat.attributes.name;
+                const isSelected = linkedCats.some(
+                  (c) => c.toLowerCase() === catName.toLowerCase(),
+                );
+                const otherBudgetId = Object.entries(effectiveCategoryBudgetMap).find(
+                  ([k, v]) => k.toLowerCase() === catName.toLowerCase() && v !== String(budget?.id ?? ""),
+                )?.[1];
+                const otherBudgetName = otherBudgetId
+                  ? budgetsQ.data?.find((b) => String(b.id) === otherBudgetId)?.attributes.name
+                  : undefined;
+
+                return (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    aria-pressed={isSelected}
+                    onClick={() => toggleLinkedCategory(catName)}
+                    className={cn(
+                      "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition cursor-pointer",
+                      isSelected
+                        ? "border-primary bg-primary-soft text-primary"
+                        : "border-border bg-surface text-fg hover:bg-surface-2",
+                    )}
+                  >
+                    {isSelected && <Check className="size-3 shrink-0" aria-hidden />}
+                    <span>{catName.replace(/\s*:\s*/g, " › ")}</span>
+                    {!isSelected && otherBudgetName && (
+                      <span className="text-[10px] text-muted">· {otherBudgetName}</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Options */}
