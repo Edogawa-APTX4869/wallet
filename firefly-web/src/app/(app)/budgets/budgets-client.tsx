@@ -18,6 +18,7 @@ import { api } from "@/lib/firefly/api";
 import type { Budget, Resource } from "@/lib/firefly/types";
 import {
   formatBudgetAmountInput,
+  paddedBudgetLimitRange,
   resolveBudgetPeriodRow,
   type BudgetPeriodRow,
 } from "@/lib/budget-periods";
@@ -52,6 +53,10 @@ export function BudgetsClient() {
   const searchParams = useSearchParams();
   const [monthOffset, setMonthOffset] = useState(0);
   const range = useMemo(() => monthRange(monthOffset), [monthOffset]);
+  const paddedRange = useMemo(
+    () => paddedBudgetLimitRange(range.start, range.end),
+    [range.start, range.end],
+  );
   const primaryQ = usePrimaryCurrency();
   const currenciesQ = useCurrencies();
 
@@ -60,8 +65,13 @@ export function BudgetsClient() {
     queryFn: () => api.budgets(range.start, range.end),
   });
   const limitsQ = useQuery({
-    queryKey: ["budget-limits", range.start, range.end],
-    queryFn: () => api.budgetLimits(range.start, range.end),
+    queryKey: ["budget-limits", paddedRange.start, paddedRange.end],
+    queryFn: () => api.budgetLimits(paddedRange.start, paddedRange.end),
+  });
+  const budgetTxQ = useQuery({
+    queryKey: ["transactions", "budget-range", paddedRange.start, paddedRange.end],
+    queryFn: () => api.transactionsInRange(paddedRange.start, paddedRange.end, "withdrawal"),
+    staleTime: 60_000,
   });
   const availableBudgetsQ = useQuery({
     queryKey: ["available-budgets", range.start, range.end],
@@ -208,6 +218,7 @@ export function BudgetsClient() {
   const rows: BudgetPeriodRow[] = useMemo(() => {
     const budgets = budgetsQ.data ?? [];
     const limits = limitsQ.data ?? [];
+    const transactions = budgetTxQ.data;
     const today = isoDate();
     return budgets.map((b) =>
       resolveBudgetPeriodRow({
@@ -219,11 +230,13 @@ export function BudgetsClient() {
         defaultCode,
         defaultDecimals,
         currencyDecimalsByCode,
+        transactions,
       }),
     );
   }, [
     budgetsQ.data,
     limitsQ.data,
+    budgetTxQ.data,
     range.start,
     range.end,
     defaultCode,
@@ -240,7 +253,7 @@ export function BudgetsClient() {
     const totalRemaining = totalBudgeted.minus(totalSpent);
     const availablePool = availEntry ? new Decimal(availEntry.attributes.amount || 0) : null;
     const unallocated = availablePool ? availablePool.minus(totalBudgeted) : null;
-    const overspentRow = rows.find((r) => r.left.lt(0)) ?? null;
+    const overspentRow = rows.find((r) => r.left.lt(0) || Boolean(r.monthLeft?.lt(0))) ?? null;
     return {
       code: summaryCode,
       decimals:
@@ -260,10 +273,22 @@ export function BudgetsClient() {
     const slices = row.periodLimits ?? [];
     const selectedSlice =
       (targetSliceId ? slices.find((s) => s.id === targetSliceId) : null) ??
-      slices.find((s) => s.id === row.limitId) ??
+      slices.find(
+        (s) =>
+          s.id === row.limitId ||
+          (row.limitId === null && s.start === row.limitStart && s.end === row.limitEnd),
+      ) ??
       slices[0] ??
       null;
-    const seed = selectedSlice ? selectedSlice.amount : row.limit;
+    const seedRaw =
+      selectedSlice && selectedSlice.amount.gt(0)
+        ? selectedSlice.amount
+        : selectedSlice && selectedSlice.amount.eq(0) && row.autoBudgetAmount
+          ? row.autoBudgetAmount
+          : row.limit.gt(0)
+            ? row.limit
+            : row.autoBudgetAmount ?? 0;
+    const seed = new Decimal(seedRaw || 0);
     const dec = selectedSlice?.decimals ?? row.decimals;
     setEditingLimitId(row.id);
     setEditingSliceId(selectedSlice?.id ?? null);
@@ -281,11 +306,15 @@ export function BudgetsClient() {
   const editSlices = editRow?.periodLimits ?? [];
   const editSlice = editRow
     ? editSlices.find((s) => s.id === editingSliceId) ??
-      editSlices.find((s) => s.id === editRow.limitId) ??
+      editSlices.find(
+        (s) =>
+          s.id === editRow.limitId ||
+          (editRow.limitId === null && s.start === editRow.limitStart && s.end === editRow.limitEnd),
+      ) ??
       editSlices[0] ??
       null
     : null;
-  const editTargetId = editSlice ? editSlice.id : editRow?.limitId ?? null;
+  const editTargetLimitId = editSlice ? editSlice.limitId : editRow?.limitId ?? null;
   const editTargetStart = editSlice ? editSlice.start : editRow?.limitStart ?? range.start;
   const editTargetEnd = editSlice ? editSlice.end : editRow?.limitEnd ?? range.end;
   const editTargetCode = editSlice?.currencyCode || editRow?.code || defaultCode;
@@ -349,30 +378,32 @@ export function BudgetsClient() {
         }
       />
 
-      <div className="rounded-xl border border-border bg-surface p-3 sm:p-3.5 shadow-2xs">
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            createMut.mutate();
-          }}
-          className="flex flex-wrap items-end gap-3"
-        >
-          <Field label="Quick add budget" className="min-w-56 flex-1">
-            {(id) => (
-              <Input
-                id={id}
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder="e.g. Groceries, Dining Out, Subscriptions"
-                required
-              />
-            )}
-          </Field>
-          <Button type="submit" loading={createMut.isPending}>
-            <Plus className="size-4" aria-hidden /> Add budget
-          </Button>
-        </form>
-      </div>
+      {!budgetsQ.isLoading && !budgetsQ.error && rows.length === 0 && (
+        <div className="rounded-xl border border-border bg-surface p-3 sm:p-3.5 shadow-2xs">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              createMut.mutate();
+            }}
+            className="flex flex-wrap items-end gap-3"
+          >
+            <Field label="Quick add budget" className="min-w-56 flex-1">
+              {(id) => (
+                <Input
+                  id={id}
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder="e.g. Groceries, Dining Out, Subscriptions"
+                  required
+                />
+              )}
+            </Field>
+            <Button type="submit" loading={createMut.isPending}>
+              <Plus className="size-4" aria-hidden /> Add budget
+            </Button>
+          </form>
+        </div>
+      )}
 
       <ErrorBox error={budgetsQ.error || limitsQ.error} />
 
@@ -527,6 +558,9 @@ export function BudgetsClient() {
             const tone = pct >= 100 ? "danger" : pct >= 80 ? "warning" : "primary";
             const isEditing = editingLimitId === r.id;
             const slices = r.periodLimits ?? [];
+            const isOver = r.left.lt(0) || Boolean(r.monthLeft?.lt(0));
+            const todayIso = isoDate();
+            const monthShort = range.label.split(" ")[0] || range.label;
 
             return (
               <Card key={r.id} className="flex min-w-0 flex-col gap-3">
@@ -547,11 +581,11 @@ export function BudgetsClient() {
                         onClick={() =>
                           setTransferState({
                             open: true,
-                            sourceId: r.left.lt(0) ? null : r.id,
-                            destId: r.left.lt(0) ? r.id : null,
+                            sourceId: isOver ? null : r.id,
+                            destId: isOver ? r.id : null,
                           })
                         }
-                        title={r.left.lt(0) ? `Transfer to cover ${r.name}` : `Transfer from ${r.name}`}
+                        title={isOver ? `Transfer to cover ${r.name}` : `Transfer from ${r.name}`}
                         aria-label={`Transfer between budgets for ${r.name}`}
                       >
                         <ArrowLeftRight className="size-3.5" aria-hidden />
@@ -634,12 +668,23 @@ export function BudgetsClient() {
                   </div>
                 )}
 
-                {slices.length > 1 && (
+                {(slices.length > 1 || r.isSubPeriod) && slices.length > 0 && (
                   <div className="flex flex-col gap-1 rounded-lg border border-border/70 bg-surface-2/40 px-2 py-1.5 text-[11px]">
                     {slices.map((slice) => {
                       const sliceCode = slice.currencyCode || r.code;
                       const sliceDec = slice.decimals ?? r.decimals ?? 2;
                       const showSliceCode = sliceCode !== r.code;
+                      const isSelectedSlice =
+                        (r.limitId !== null && slice.id === r.limitId) ||
+                        (slice.start === r.limitStart && slice.end === r.limitEnd);
+                      const isStraddling = slice.start < range.start || slice.end > range.end;
+                      const showInMonthNote =
+                        isStraddling &&
+                        slice.inMonthSpent !== undefined &&
+                        !slice.inMonthSpent.eq(slice.spent);
+                      const isUpcomingSynthesized =
+                        Boolean(slice.isSynthesized) && slice.start > todayIso && slice.spent.eq(0);
+
                       return (
                         <button
                           key={slice.id}
@@ -647,11 +692,11 @@ export function BudgetsClient() {
                           onClick={() => openInlineLimitEditor(r, slice.id)}
                           className={cn(
                             "flex items-center justify-between gap-2 rounded-md px-1.5 py-1 text-left transition hover:bg-surface-2",
-                            slice.id === r.limitId && "bg-primary-soft/25 font-medium",
+                            isSelectedSlice && "bg-primary-soft/25 font-medium",
                           )}
-                          title={`Edit limit for ${slice.start} → ${slice.end}`}
+                          title={`${slice.isSynthesized ? "Set limit" : "Edit limit"} for ${slice.start} → ${slice.end}`}
                         >
-                          <span className="flex min-w-0 items-center gap-1 whitespace-nowrap font-mono text-muted">
+                          <span className="flex min-w-0 flex-wrap items-center gap-1 whitespace-nowrap font-mono text-muted">
                             <span>
                               {slice.start.slice(5)} → {slice.end.slice(5)}
                             </span>
@@ -660,26 +705,67 @@ export function BudgetsClient() {
                                 Active
                               </span>
                             )}
+                            {slice.isSynthesized && (
+                              <span
+                                className={cn(
+                                  "rounded px-1 py-0.25 font-sans text-[9px] font-semibold",
+                                  isUpcomingSynthesized
+                                    ? "bg-surface-2 text-muted font-medium"
+                                    : "bg-warning/15 text-warning",
+                                )}
+                              >
+                                {isUpcomingSynthesized ? "Upcoming" : "No limit"}
+                              </span>
+                            )}
+                            {showInMonthNote && (
+                              <span className="font-sans text-[9px] text-muted/90">
+                                ({monthShort}: {slice.inMonthSpent!.toFixed(sliceDec)})
+                              </span>
+                            )}
                           </span>
                           <span className="shrink-0 whitespace-nowrap tabular-nums text-fg">
-                            <span className={cn(slice.left.lt(0) ? "text-danger font-semibold" : "text-muted")}>
+                            <span
+                              className={cn(
+                                slice.isSynthesized
+                                  ? slice.spent.gt(0)
+                                    ? "text-danger font-semibold"
+                                    : "text-muted"
+                                  : slice.left.lt(0)
+                                    ? "text-danger font-semibold"
+                                    : "text-muted",
+                              )}
+                            >
                               {showSliceCode ? `${sliceCode} ` : ""}
                               {slice.spent.toFixed(sliceDec)}
                             </span>
                             <span className="text-muted"> / </span>
-                            <span className="font-semibold">
-                              {showSliceCode ? `${sliceCode} ` : ""}
-                              {slice.amount.toFixed(sliceDec)}
-                            </span>
+                            {slice.isSynthesized ? (
+                              <span className="font-normal text-muted">No limit</span>
+                            ) : (
+                              <span className="font-semibold">
+                                {showSliceCode ? `${sliceCode} ` : ""}
+                                {slice.amount.toFixed(sliceDec)}
+                              </span>
+                            )}
                           </span>
                         </button>
                       );
                     })}
+                    {r.unattributedSpent && r.unattributedSpent.gt(0) && (
+                      <div className="flex items-center justify-between gap-2 px-1.5 py-0.5 text-[11px] text-warning">
+                        <span className="truncate">Unallocated dates</span>
+                        <span className="shrink-0 whitespace-nowrap font-semibold tabular-nums">
+                          <Money amount={r.unattributedSpent.toString()} code={r.code} decimals={r.decimals} />
+                        </span>
+                      </div>
+                    )}
                     {r.monthLimit && r.monthSpent && r.monthLeft && (
                       <div className="mt-0.5 flex items-center justify-between gap-2 border-t border-border/60 px-1 pt-1.5 text-[11px] text-muted">
                         <span className="truncate">Month total ({range.label})</span>
                         <span className="shrink-0 whitespace-nowrap tabular-nums">
-                          <Money amount={r.monthSpent.toString()} code={r.code} decimals={r.decimals} />
+                          <span className={cn(r.monthLeft.lt(0) && "font-semibold text-danger")}>
+                            <Money amount={r.monthSpent.toString()} code={r.code} decimals={r.decimals} />
+                          </span>
                           {" / "}
                           <Money amount={r.monthLimit.toString()} code={r.code} decimals={r.decimals} />
                         </span>
@@ -713,7 +799,11 @@ export function BudgetsClient() {
                     </div>
                   </div>
                 ) : (
-                  <p className="mt-auto pt-1 text-xs text-muted">No limit set for {range.label}</p>
+                  <p className="mt-auto pt-1 text-xs text-muted">
+                    {r.isSubPeriod
+                      ? `No limit set for ${r.limitStart.slice(5)} → ${r.limitEnd.slice(5)}`
+                      : `No limit set for ${range.label}`}
+                  </p>
                 )}
               </Card>
             );
@@ -741,7 +831,7 @@ export function BudgetsClient() {
               setEditLimitError(null);
               limitMut.mutate({
                 budgetId: editRow.id,
-                limitId: editTargetId,
+                limitId: editTargetLimitId,
                 limitStart: editTargetStart,
                 limitEnd: editTargetEnd,
                 amount: limitAmount,
@@ -756,15 +846,21 @@ export function BudgetsClient() {
                 {(id) => (
                   <Select
                     id={id}
-                    value={editTargetId ?? ""}
+                    value={editSlice?.id ?? ""}
                     onChange={(e) => {
                       const nextId = e.target.value;
                       const nextSlice = editSlices.find((s) => s.id === nextId);
                       setEditingSliceId(nextId);
                       setEditLimitError(null);
                       if (nextSlice) {
+                        const seed = nextSlice.amount.gt(0)
+                          ? nextSlice.amount
+                          : editRow.autoBudgetAmount ?? 0;
+                        const seedDec = new Decimal(seed || 0);
                         setLimitAmount(
-                          formatBudgetAmountInput(nextSlice.amount, nextSlice.decimals ?? editRow.decimals),
+                          seedDec.gt(0)
+                            ? formatBudgetAmountInput(seedDec, nextSlice.decimals ?? editRow.decimals)
+                            : "",
                         );
                       }
                     }}
@@ -772,7 +868,7 @@ export function BudgetsClient() {
                     {editSlices.map((s) => (
                       <option key={s.id} value={s.id}>
                         {s.start} → {s.end}
-                        {s.isActive ? " (Active)" : ""}
+                        {s.isActive ? " (Active)" : s.isSynthesized ? " (No limit)" : ""}
                       </option>
                     ))}
                   </Select>

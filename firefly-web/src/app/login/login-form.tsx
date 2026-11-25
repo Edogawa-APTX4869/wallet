@@ -12,12 +12,13 @@ import {
   normalizeServerUrl,
   readNativeClipboardText,
 } from "@/lib/native-wallet";
+import { validatePublicFireflyUrl } from "@/lib/firefly/url-validation";
 import { Button, ErrorBox, Field, Input } from "@/components/ui";
 
-export function LoginForm({ defaultUrl = "" }: { defaultUrl?: string }) {
+export function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
-  const [urlValue, setUrlValue] = useState(defaultUrl);
+  const [urlValue, setUrlValue] = useState("");
   const [tokenValue, setTokenValue] = useState("");
   const [showToken, setShowToken] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +26,7 @@ export function LoginForm({ defaultUrl = "" }: { defaultUrl?: string }) {
 
   const urlInputRef = useRef<HTMLInputElement | null>(null);
   const tokenInputRef = useRef<HTMLInputElement | null>(null);
-  const latestUrlRef = useRef<string>(defaultUrl);
+  const latestUrlRef = useRef<string>("");
   const latestTokenRef = useRef<string>("");
   const userClearedTokenRef = useRef<boolean>(false);
 
@@ -58,19 +59,12 @@ export function LoginForm({ defaultUrl = "" }: { defaultUrl?: string }) {
 
   useEffect(() => {
     let active = true;
-    void getWalletSessionStatus().then((st) => {
-      if (!active) return;
-      const seedUrl = st.defaultUrl || st.url || "";
-      if (seedUrl && !latestUrlRef.current) {
-        latestUrlRef.current = seedUrl;
-        setUrlValue(seedUrl);
-      }
-      if (isNative) {
-        setEnableBiometric(st.biometricEnabled ?? true);
-      }
-    });
-
     if (isNative) {
+      void getWalletSessionStatus().then((st) => {
+        if (!active) return;
+        setEnableBiometric(st.biometricEnabled ?? true);
+      });
+
       void checkNativeBiometric().then((bio) => {
         if (!active) return;
         setBiometricAvailable(bio.available);
@@ -163,11 +157,18 @@ export function LoginForm({ defaultUrl = "" }: { defaultUrl?: string }) {
       tokenValue.trim() ||
       String(formData.get("token") ?? "").trim();
 
-    const finalUrl = normalizeServerUrl(rawUrl);
     const finalToken = normalizePersonalAccessToken(rawToken);
 
-    if (!finalUrl || !finalToken) {
+    if (!rawUrl || !finalToken) {
       setError("Server URL and token are required.");
+      return;
+    }
+
+    let finalUrl: string;
+    try {
+      finalUrl = validatePublicFireflyUrl(rawUrl);
+    } catch (err) {
+      setError((err as Error).message);
       return;
     }
 
@@ -214,7 +215,7 @@ export function LoginForm({ defaultUrl = "" }: { defaultUrl?: string }) {
             <ErrorBox error="Your session expired or the token was revoked. Please reconnect." />
           )}
 
-          <Field label="Firefly III URL" hint="e.g. https://budget.alqubaiti.com">
+          <Field label="Firefly III URL" hint="e.g. https://firefly.example.com">
             {(id) => (
               <Input
                 ref={urlInputRef}

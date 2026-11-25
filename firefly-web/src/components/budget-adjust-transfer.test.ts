@@ -13,12 +13,13 @@ import {
 import { BudgetTransferModal, computeBudgetTransfer } from "./budget-transfer-modal";
 import {
   formatBudgetAmountInput,
+  paddedBudgetLimitRange,
   parseBudgetLimitSpent,
   resolveBudgetPeriodRow,
   selectActiveBudgetLimit,
 } from "@/lib/budget-periods";
 import { api } from "@/lib/firefly/api";
-import type { Budget, BudgetLimit, Resource } from "@/lib/firefly/types";
+import type { Budget, BudgetLimit, Resource, TransactionGroup } from "@/lib/firefly/types";
 
 const API_SRC = readFileSync(path.resolve(__dirname, "../lib/firefly/api.ts"), "utf8");
 const BUDGETS_CLIENT_SRC = readFileSync(
@@ -202,6 +203,8 @@ describe("Firefly III v6 budget API and modal rendering", () => {
     expect(BUDGETS_CLIENT_SRC).toContain("available-budgets");
     expect(BUDGETS_CLIENT_SRC).toContain("BudgetAdjustModal");
     expect(BUDGETS_CLIENT_SRC).toContain("BudgetTransferModal");
+    expect(BUDGETS_CLIENT_SRC).toContain("!budgetsQ.isLoading && !budgetsQ.error && rows.length === 0");
+    expect(BUDGETS_CLIENT_SRC).toContain("Quick add budget");
   });
 
   it("renders BudgetAdjustModal markup with delta modes, cover overspent chip, and Clear limit", () => {
@@ -258,6 +261,7 @@ describe("Firefly III v6 budget API and modal rendering", () => {
       periodLimits: [
         {
           id: "lim-w3",
+          limitId: "lim-w3",
           start: "2026-11-16",
           end: "2026-11-22",
           amount: new Decimal(10),
@@ -271,6 +275,7 @@ describe("Firefly III v6 budget API and modal rendering", () => {
         },
         {
           id: "lim-w1",
+          limitId: "lim-w1",
           start: "2026-11-02",
           end: "2026-11-08",
           amount: new Decimal(10),
@@ -442,21 +447,292 @@ describe("weekly vs monthly budget sub-period resolution", () => {
     expect(row.monthSpent?.toFixed(3)).toBe("18.750");
     expect(row.monthLeft?.toFixed(3)).toBe("1.250");
 
-    // Sub-period list keeps each week's independent spent/left
-    expect(row.periodLimits).toHaveLength(2);
-    expect(row.periodLimits?.[0].id).toBe("102");
-    expect(row.periodLimits?.[0].isActive).toBe(true);
-    expect(row.periodLimits?.[0].spent.toFixed(3)).toBe("0.000");
-    expect(row.periodLimits?.[1].id).toBe("101");
-    expect(row.periodLimits?.[1].isActive).toBe(false);
-    expect(row.periodLimits?.[1].spent.toFixed(3)).toBe("18.750");
-    expect(row.periodLimits?.[1].left.toFixed(3)).toBe("-8.750");
+    // Sub-period list fills missing interior weeks while keeping each week's independent spent/left
+    expect(row.periodLimits).toHaveLength(4);
+    expect(row.periodLimits?.[0].start).toBe("2026-11-23");
+    expect(row.periodLimits?.[0].end).toBe("2026-11-29");
+    expect(row.periodLimits?.[0].isSynthesized).toBe(true);
+    expect(row.periodLimits?.[0].limitId).toBeNull();
+    expect(row.periodLimits?.[0].amount.toFixed(3)).toBe("0.000");
+
+    expect(row.periodLimits?.[1].id).toBe("102");
+    expect(row.periodLimits?.[1].limitId).toBe("102");
+    expect(row.periodLimits?.[1].isActive).toBe(true);
+    expect(row.periodLimits?.[1].spent.toFixed(3)).toBe("0.000");
+
+    expect(row.periodLimits?.[2].start).toBe("2026-11-09");
+    expect(row.periodLimits?.[2].end).toBe("2026-11-15");
+    expect(row.periodLimits?.[2].isSynthesized).toBe(true);
+    expect(row.periodLimits?.[2].limitId).toBeNull();
+
+    expect(row.periodLimits?.[3].id).toBe("101");
+    expect(row.periodLimits?.[3].limitId).toBe("101");
+    expect(row.periodLimits?.[3].isActive).toBe(false);
+    expect(row.periodLimits?.[3].spent.toFixed(3)).toBe("18.750");
+    expect(row.periodLimits?.[3].left.toFixed(3)).toBe("-8.750");
+  });
+
+  it("reconciles missing weekly slice 11-09..11-15 spending (20.000) so weekly Petrol rows sum to 38.750", () => {
+    const petrolBudget: Resource<Budget> = {
+      id: "7",
+      type: "budgets",
+      attributes: {
+        name: "Petrol",
+        active: true,
+        auto_budget_type: "reset",
+        auto_budget_amount: "10.000",
+        auto_budget_period: "weekly",
+        auto_budget_currency_code: "BHD",
+        spent: [{ sum: "-38.750", currency_code: "BHD", currency_decimal_places: 3 }],
+      },
+    };
+
+    const limits: Resource<BudgetLimit>[] = [
+      {
+        id: "101",
+        type: "budget_limits",
+        attributes: {
+          budget_id: "7",
+          start: "2026-11-02T00:00:00+03:00",
+          end: "2026-11-08T23:59:59+03:00",
+          amount: "10.000",
+          currency_code: "BHD",
+          currency_decimal_places: 3,
+          spent: [{ sum: "-18.750", currency_code: "BHD", currency_decimal_places: 3 }],
+        },
+      },
+      {
+        id: "102",
+        type: "budget_limits",
+        attributes: {
+          budget_id: "7",
+          start: "2026-11-16T00:00:00+03:00",
+          end: "2026-11-22T23:59:59+03:00",
+          amount: "10.000",
+          currency_code: "BHD",
+          currency_decimal_places: 3,
+          spent: [],
+        },
+      },
+      {
+        id: "103",
+        type: "budget_limits",
+        attributes: {
+          budget_id: "7",
+          start: "2026-11-23T00:00:00+03:00",
+          end: "2026-11-29T23:59:59+03:00",
+          amount: "10.000",
+          currency_code: "BHD",
+          currency_decimal_places: 3,
+          spent: [],
+        },
+      },
+    ];
+
+    const transactions: Resource<TransactionGroup>[] = [
+      {
+        id: "tx-1",
+        type: "transactions",
+        attributes: {
+          transactions: [
+            {
+              type: "withdrawal",
+              date: "2026-11-05T14:20:00+03:00",
+              amount: "18.750",
+              description: "Station fill",
+              currency_code: "BHD",
+              budget_id: "7",
+              budget_name: "Petrol",
+            },
+          ],
+        },
+      },
+      {
+        id: "tx-2",
+        type: "transactions",
+        attributes: {
+          transactions: [
+            {
+              type: "withdrawal",
+              date: "2026-11-12T18:05:00+03:00",
+              amount: "20.000",
+              description: "Mid-month fuel",
+              currency_code: "BHD",
+              budget_id: "7",
+              budget_name: "Petrol",
+            },
+          ],
+        },
+      },
+    ];
+
+    const row = resolveBudgetPeriodRow({
+      budget: petrolBudget,
+      limits,
+      rangeStart: "2026-11-01",
+      rangeEnd: "2026-11-30",
+      today: "2026-11-25",
+      defaultCode: "BHD",
+      defaultDecimals: 3,
+      currencyDecimalsByCode: { BHD: 3 },
+      transactions,
+    });
+
+    expect(row.monthLimit?.toFixed(3)).toBe("30.000");
+    expect(row.monthSpent?.toFixed(3)).toBe("38.750");
+    expect(row.monthLeft?.toFixed(3)).toBe("-8.750");
+    expect(row.unattributedSpent?.toFixed(3)).toBe("0.000");
+
+    const missingWeek = row.periodLimits?.find((s) => s.start === "2026-11-09" && s.end === "2026-11-15");
+    expect(missingWeek).toBeDefined();
+    expect(missingWeek?.isSynthesized).toBe(true);
+    expect(missingWeek?.limitId).toBeNull();
+    expect(missingWeek?.amount.toFixed(3)).toBe("0.000");
+    expect(missingWeek?.spent.toFixed(3)).toBe("20.000");
+
+    const weeklySpentSum = (row.periodLimits ?? []).reduce((acc, s) => acc.plus(s.spent), new Decimal(0));
+    expect(weeklySpentSum.toFixed(3)).toBe("38.750");
+  });
+
+  it("includes straddling month-boundary weekly limits via paddedBudgetLimitRange and excludes pure prior-month weeks", () => {
+    const padded = paddedBudgetLimitRange("2026-11-01", "2026-11-30");
+    expect(padded).toEqual({ start: "2026-10-25", end: "2026-12-07" });
+
+    const petrolBudget: Resource<Budget> = {
+      id: "7",
+      type: "budgets",
+      attributes: {
+        name: "Petrol",
+        active: true,
+        auto_budget_type: "reset",
+        auto_budget_amount: "10.000",
+        auto_budget_period: "weekly",
+        auto_budget_currency_code: "BHD",
+        spent: [{ sum: "-10.000", currency_code: "BHD", currency_decimal_places: 3 }],
+      },
+    };
+
+    const limits: Resource<BudgetLimit>[] = [
+      {
+        id: "oct-pure",
+        type: "budget_limits",
+        attributes: {
+          budget_id: "7",
+          start: "2026-10-19",
+          end: "2026-10-25",
+          amount: "10.000",
+          currency_code: "BHD",
+          spent: [{ sum: "-10.000", currency_code: "BHD" }],
+        },
+      },
+      {
+        id: "nov-start-straddle",
+        type: "budget_limits",
+        attributes: {
+          budget_id: "7",
+          start: "2026-10-26",
+          end: "2026-11-01",
+          amount: "10.000",
+          currency_code: "BHD",
+          spent: [{ sum: "-5.000", currency_code: "BHD" }],
+        },
+      },
+      {
+        id: "nov-end-straddle",
+        type: "budget_limits",
+        attributes: {
+          budget_id: "7",
+          start: "2026-11-30",
+          end: "2026-12-06",
+          amount: "10.000",
+          currency_code: "BHD",
+          spent: [{ sum: "-5.000", currency_code: "BHD" }],
+        },
+      },
+    ];
+
+    const row = resolveBudgetPeriodRow({
+      budget: petrolBudget,
+      limits,
+      rangeStart: "2026-11-01",
+      rangeEnd: "2026-11-30",
+      today: "2026-11-15",
+      defaultCode: "BHD",
+      defaultDecimals: 3,
+      currencyDecimalsByCode: { BHD: 3 },
+    });
+
+    const ids = (row.periodLimits ?? []).map((s) => s.id);
+    expect(ids).not.toContain("oct-pure");
+    expect(ids).toContain("nov-start-straddle");
+    expect(ids).toContain("nov-end-straddle");
+    expect(row.monthLimit?.toFixed(3)).toBe("20.000");
+  });
+
+  it("uses full-month cumulative totals as headline stats when viewing a historical month", () => {
+    const petrolBudget: Resource<Budget> = {
+      id: "7",
+      type: "budgets",
+      attributes: {
+        name: "Petrol",
+        active: true,
+        auto_budget_type: "reset",
+        auto_budget_amount: "10.000",
+        auto_budget_period: "weekly",
+        auto_budget_currency_code: "BHD",
+        spent: [{ sum: "-25.000", currency_code: "BHD", currency_decimal_places: 3 }],
+      },
+    };
+
+    const limits: Resource<BudgetLimit>[] = [
+      {
+        id: "oct-w1",
+        type: "budget_limits",
+        attributes: {
+          budget_id: "7",
+          start: "2026-10-05",
+          end: "2026-10-11",
+          amount: "10.000",
+          currency_code: "BHD",
+          spent: [{ sum: "-15.000", currency_code: "BHD" }],
+        },
+      },
+      {
+        id: "oct-w2",
+        type: "budget_limits",
+        attributes: {
+          budget_id: "7",
+          start: "2026-10-12",
+          end: "2026-10-18",
+          amount: "10.000",
+          currency_code: "BHD",
+          spent: [{ sum: "-10.000", currency_code: "BHD" }],
+        },
+      },
+    ];
+
+    const row = resolveBudgetPeriodRow({
+      budget: petrolBudget,
+      limits,
+      rangeStart: "2026-10-01",
+      rangeEnd: "2026-10-31",
+      today: "2026-11-25",
+      defaultCode: "BHD",
+      defaultDecimals: 3,
+      currencyDecimalsByCode: { BHD: 3 },
+    });
+
+    expect(row.hasActiveSlice).toBe(false);
+    expect(row.limit.toFixed(3)).toBe("20.000");
+    expect(row.spent.toFixed(3)).toBe("25.000");
+    expect(row.left.toFixed(3)).toBe("-5.000");
   });
 
   it("falls back to the most recent limit when today is outside all limit windows", () => {
     const slices = [
       {
         id: "lim-recent",
+        limitId: "lim-recent",
         start: "2026-10-26",
         end: "2026-11-01",
         amount: new Decimal(10),
@@ -468,6 +744,7 @@ describe("weekly vs monthly budget sub-period resolution", () => {
       },
       {
         id: "lim-older",
+        limitId: "lim-older",
         start: "2026-10-19",
         end: "2026-10-25",
         amount: new Decimal(10),

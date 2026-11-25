@@ -61,7 +61,7 @@ import { useAccounts, usePrimaryCurrency, useRatesToPrimary } from "@/lib/hooks"
 import { mergePendingTransactionsIntoGroups } from "@/lib/offline-store";
 import { companionFetch, useOfflineSync } from "@/lib/offline-sync";
 import { accountHref } from "@/lib/native-wallet";
-import { resolveBudgetPeriodRow } from "@/lib/budget-periods";
+import { paddedBudgetLimitRange, resolveBudgetPeriodRow } from "@/lib/budget-periods";
 import { cn, formatMoney, isoDate, monthRange } from "@/lib/utils";
 import {
   COLOR_PALETTE,
@@ -1220,14 +1220,18 @@ export function DashboardClient() {
     staleTime: 2 * 60_000,
   });
 
+  const paddedMonth = useMemo(
+    () => paddedBudgetLimitRange(currentMonth.start, currentMonth.end),
+    [currentMonth.start, currentMonth.end],
+  );
   const budgetsQ = useQuery({
     queryKey: ["budgets", currentMonth.start, currentMonth.end],
     queryFn: () => api.budgets(currentMonth.start, currentMonth.end),
     staleTime: 60_000,
   });
   const limitsQ = useQuery({
-    queryKey: ["budget-limits", currentMonth.start, currentMonth.end],
-    queryFn: () => api.budgetLimits(currentMonth.start, currentMonth.end),
+    queryKey: ["budget-limits", paddedMonth.start, paddedMonth.end],
+    queryFn: () => api.budgetLimits(paddedMonth.start, paddedMonth.end),
     staleTime: 60_000,
   });
   const billsQ = useQuery({
@@ -1493,6 +1497,7 @@ export function DashboardClient() {
         today: todayIso,
         defaultCode: primaryCode,
         defaultDecimals: primaryDecimals,
+        transactions: recentTxQ.data?.data,
       });
       return {
         id: resolved.id,

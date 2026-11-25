@@ -23,10 +23,6 @@ services:
       - PORT=3000
       # Secret used to encrypt session cookies (generate any 32+ char string)
       - SESSION_SECRET=${SESSION_SECRET:-change-this-to-a-long-random-secret-key-32chars}
-      # Pre-fills or auto-connects directly to your Firefly III container on the internal Docker network:
-      - FIREFLY_URL=${FIREFLY_URL:-http://firefly-app:8080}
-      # Optional: set FIREFLY_TOKEN here if you want automatic login without typing your token in the UI
-      - FIREFLY_TOKEN=${FIREFLY_TOKEN:-}
       # Persistent SQLite directory for custom icons, templates, To-Do tags, and AI settings
       - DATA_DIR=/app/data
       # Optional: OpenAI / local Ollama endpoint for the "Magic Assistant" (Ramble)

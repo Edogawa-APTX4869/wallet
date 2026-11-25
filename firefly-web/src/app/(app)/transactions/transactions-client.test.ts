@@ -1,5 +1,12 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildSearchQuery, filtersFromParams } from "./transactions-client";
+
+const TRANSACTIONS_CLIENT_SRC = readFileSync(
+  path.resolve(__dirname, "./transactions-client.tsx"),
+  "utf8",
+);
 
 describe("buildSearchQuery", () => {
   it("returns empty string when all filters are empty", () => {
@@ -46,5 +53,12 @@ describe("buildSearchQuery", () => {
     expect(f.accountId).toBe("7");
     expect(f.text).toBe("Carrefour");
     expect(buildSearchQuery(f)).toBe('type:withdrawal account_id:7 category_is:"Food : Groceries" Carrefour');
+  });
+
+  it("removes top DesktopStickyFilterBar & MobileFilterDock and leaves clearance for the + button on bottom dock", () => {
+    expect(TRANSACTIONS_CLIENT_SRC).not.toContain("DesktopStickyFilterBar");
+    expect(TRANSACTIONS_CLIENT_SRC).not.toContain("MobileFilterDock");
+    expect(TRANSACTIONS_CLIENT_SRC).toContain("mr-16");
+    expect(TRANSACTIONS_CLIENT_SRC).toContain("md:mr-20");
   });
 });

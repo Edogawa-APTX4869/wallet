@@ -39,6 +39,7 @@ import {
   recordCategoryUsage,
   resolveDefaultAccountForList,
 } from "@/lib/recent-selections";
+import { paddedBudgetLimitRange } from "@/lib/budget-periods";
 import { cn, formatTime, isoDate, isoDateTimeWithOffset, isoTime, monthRange, sumDecimal } from "@/lib/utils";
 import {
   FullScreenAccountSelectView,
@@ -207,6 +208,7 @@ export function MagicChatPanel({
     enabled: isChatActive,
     staleTime: 5 * 60_000,
   });
+  const paddedMonth = paddedBudgetLimitRange(month.start, month.end);
   const budgetsQ = useQuery({
     queryKey: ["budgets-list"],
     queryFn: () => api.budgets(month.start, month.end),
@@ -214,8 +216,8 @@ export function MagicChatPanel({
     staleTime: 5 * 60_000,
   });
   const budgetLimitsQ = useQuery({
-    queryKey: ["budget-limits", month.start, month.end],
-    queryFn: () => api.budgetLimits(month.start, month.end),
+    queryKey: ["budget-limits", paddedMonth.start, paddedMonth.end],
+    queryFn: () => api.budgetLimits(paddedMonth.start, paddedMonth.end),
     enabled: isChatActive,
     staleTime: 60_000,
   });
@@ -323,8 +325,15 @@ export function MagicChatPanel({
     mutationFn: async (payload: { promptText: string; files: AttachmentPayload[] }) => {
       const budgetsList = budgetsQ.data ?? [];
       const limitsList = budgetLimitsQ.data ?? [];
+      const inCurrentMonth = (l: { attributes: { start?: string; end?: string } }) => {
+        const s = (l.attributes.start || month.start).slice(0, 10);
+        const e = (l.attributes.end || month.end).slice(0, 10);
+        return e >= month.start && s <= month.end;
+      };
       const budgetDetails = budgetsList.map((b) => {
-        const matching = limitsList.filter((l) => l.attributes.budget_id === b.id);
+        const matching = limitsList.filter(
+          (l) => l.attributes.budget_id === b.id && inCurrentMonth(l),
+        );
         const limitVal =
           matching.length > 0
             ? sumDecimal(matching.map((l) => new Decimal(l.attributes.amount || 0)))
@@ -1421,6 +1430,7 @@ export function MagicChatbar({
   const aiConfigQ = useAiAssistantConfig();
   const [minimized, setMinimized] = useState(false);
   const [mobileSheetOpen, setMobileSheetOpen] = useState(false);
+  const [fabOpen, setFabOpen] = useState(false);
   const [barWidth, setBarWidth] = useState<number>(CHATBAR_DEFAULT_WIDTH);
   const [isResizing, setIsResizing] = useState(false);
   const [activeHandle, setActiveHandle] = useState<"left" | "right" | null>(null);
@@ -1443,8 +1453,16 @@ export function MagicChatbar({
         setMinimized(false);
       }
     }
+    function onSpeedDialChange(e: Event) {
+      const detail = (e as CustomEvent<{ open?: boolean }>).detail;
+      setFabOpen(Boolean(detail?.open));
+    }
     window.addEventListener("ff:open-magic-chat", onOpen);
-    return () => window.removeEventListener("ff:open-magic-chat", onOpen);
+    window.addEventListener("ff:speed-dial-change", onSpeedDialChange);
+    return () => {
+      window.removeEventListener("ff:open-magic-chat", onOpen);
+      window.removeEventListener("ff:speed-dial-change", onSpeedDialChange);
+    };
   }, []);
 
   if (pathname === "/new") return null;
@@ -1591,8 +1609,9 @@ export function MagicChatbar({
 
       <div
         className={cn(
-          "fixed left-4 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-35 md:bottom-6 md:left-72",
+          "fixed right-4 bottom-[calc(8.625rem+env(safe-area-inset-bottom))] z-35 transition-all duration-150 md:right-8 md:bottom-[6.125rem]",
           !minimized && "md:pointer-events-none md:opacity-0 md:scale-95",
+          fabOpen && "pointer-events-none opacity-0 scale-95",
           mobileSheetOpen && "hidden",
         )}
       >

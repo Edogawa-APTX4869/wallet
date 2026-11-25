@@ -69,6 +69,13 @@ export function SpeedDialFab({
 
   useEscapeDismiss(open, () => setOpen(false), "speed-dial-fab", { hidesChrome: true });
 
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent("ff:speed-dial-change", { detail: { open } }));
+    return () => {
+      window.dispatchEvent(new CustomEvent("ff:speed-dial-change", { detail: { open: false } }));
+    };
+  }, [open]);
+
   if (pathname === "/new") return null;
 
   const isClosing = !open && rendered;

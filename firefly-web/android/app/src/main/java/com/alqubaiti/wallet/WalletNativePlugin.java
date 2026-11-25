@@ -25,12 +25,12 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.URI;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.KeyStore;
-import java.security.SecureRandom;
-import java.security.cert.X509Certificate;
+import java.util.Locale;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -39,12 +39,6 @@ import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
-import javax.net.ssl.HttpsURLConnection;
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLException;
-import javax.net.ssl.SSLSocketFactory;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
 
 /**
  * Native Android plugin making the Wallet APK 100% standalone & independent:
@@ -133,11 +127,37 @@ public class WalletNativePlugin extends Plugin {
         String s = raw.trim().replaceAll("/+$", "");
         if (s.isEmpty()) return "";
         s = s.replaceFirst("(?i)^(https?):/?([^/])", "$1://$2");
-        if (!s.matches("(?i)^https?://.*")) {
+        if (!s.matches("(?i)^[a-z][a-z0-9+.-]*:.*")) {
             s = "https://" + s;
         }
         s = s.replaceFirst("(?i)/(profile(/oauth)?|api(/v1)?|login)/?$", "");
         return s.replaceAll("/+$", "");
+    }
+
+    private static boolean isAllowedPublicHttpsUrl(String rawUrl) {
+        if (rawUrl == null || rawUrl.trim().isEmpty()) return false;
+        try {
+            URI uri = URI.create(rawUrl.trim());
+            if (!"https".equalsIgnoreCase(uri.getScheme())) return false;
+            if (uri.getUserInfo() != null && !uri.getUserInfo().isEmpty()) return false;
+            String host = uri.getHost();
+            if (host == null) return false;
+            String h = host.trim().replaceAll("^\\[|]$", "").replaceAll("\\.+$", "").toLowerCase(Locale.ROOT);
+            if (h.isEmpty() || "localhost".equals(h) || h.startsWith("localhost.")) return false;
+            String[] blockedSuffixes = {".localhost", ".local", ".internal", ".lan", ".home", ".home.arpa", ".localdomain", ".ts.net"};
+            for (String suffix : blockedSuffixes) {
+                if (h.endsWith(suffix)) return false;
+            }
+            if (h.matches("^\\d{1,3}(\\.\\d{1,3}){3}$") || h.contains(":")) return false;
+            String[] labels = h.split("\\.");
+            if (labels.length < 2) return false;
+            for (String label : labels) {
+                if (label.isEmpty() || label.length() > 63) return false;
+            }
+            return labels[labels.length - 1].matches("^[a-z]{2,}$");
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private static String normalizeToken(String raw) {
@@ -209,7 +229,7 @@ public class WalletNativePlugin extends Plugin {
 
     private void emitLockStateChanged() {
         String savedUrl = readDecrypted(KEY_ENC_URL);
-        boolean connected = savedUrl != null && !savedUrl.isEmpty() && readDecrypted(KEY_ENC_TOKEN) != null;
+        boolean connected = isAllowedPublicHttpsUrl(savedUrl) && readDecrypted(KEY_ENC_TOKEN) != null;
         boolean bioEnabled = isBiometricEnabledInternal();
         BiometricSupportInfo info = inspectBiometricSupport();
         boolean locked = connected && bioEnabled && info.available && !sessionUnlocked;
@@ -262,7 +282,13 @@ public class WalletNativePlugin extends Plugin {
     public void getSessionStatus(PluginCall call) {
         String url = readDecrypted(KEY_ENC_URL);
         String token = readDecrypted(KEY_ENC_TOKEN);
-        boolean connected = url != null && !url.isEmpty() && token != null && !token.isEmpty();
+        if (url != null && !url.isEmpty() && !isAllowedPublicHttpsUrl(url)) {
+            prefs().edit().remove(KEY_ENC_URL).remove(KEY_ENC_TOKEN).apply();
+            url = null;
+            token = null;
+            sessionUnlocked = false;
+        }
+        boolean connected = isAllowedPublicHttpsUrl(url) && token != null && !token.isEmpty();
         boolean bioEnabled = isBiometricEnabledInternal();
         BiometricSupportInfo bioInfo = inspectBiometricSupport();
         boolean locked = connected && bioEnabled && bioInfo.available && !sessionUnlocked;
@@ -284,7 +310,11 @@ public class WalletNativePlugin extends Plugin {
         String url = normalizeBaseUrl(call.getString("url"));
         String token = normalizeToken(call.getString("token"));
 
-        if (url.isEmpty() || token.isEmpty()) {
+        if (!isAllowedPublicHttpsUrl(url)) {
+            call.reject("Enter a valid public HTTPS domain (internal hostnames, private IPs, and plain HTTP links are not permitted).");
+            return;
+        }
+        if (token.isEmpty()) {
             call.reject("Firefly III URL and Personal Access Token are required.");
             return;
         }
@@ -505,11 +535,11 @@ public class WalletNativePlugin extends Plugin {
                 ? overrideToken
                 : normalizeToken(readDecrypted(KEY_ENC_TOKEN));
 
-        if (baseUrl.isEmpty() || token.isEmpty()) {
+        if (!isAllowedPublicHttpsUrl(baseUrl) || token.isEmpty()) {
             JSObject err = new JSObject();
             err.put("status", 401);
             err.put("ok", false);
-            err.put("body", "{\"message\":\"Not connected to Firefly III.\"}");
+            err.put("body", "{\"message\":\"A valid public HTTPS Firefly III URL and token are required.\"}");
             err.put("contentType", "application/json");
             err.put("networkError", false);
             call.resolve(err);
@@ -526,23 +556,7 @@ public class WalletNativePlugin extends Plugin {
 
         httpExecutor.submit(() -> {
             try {
-                JSObject ret;
-                try {
-                    ret = executeHttpWithRedirects(targetUrl, method, token, bodyJson, bodyBase64, customContentType, false);
-                } catch (SSLException sslErr) {
-                    // Fallback 1: Self-signed / private / Tailscale TLS certificate (e.g. https://firefly:8080)
-                    try {
-                        ret = executeHttpWithRedirects(targetUrl, method, token, bodyJson, bodyBase64, customContentType, true);
-                    } catch (SSLException sslErr2) {
-                        // Fallback 2: User entered https://host:8080 on a plain HTTP port
-                        if (targetUrl.regionMatches(true, 0, "https://", 0, 8)) {
-                            String httpFallbackUrl = "http://" + targetUrl.substring(8);
-                            ret = executeHttpWithRedirects(httpFallbackUrl, method, token, bodyJson, bodyBase64, customContentType, false);
-                        } else {
-                            throw sslErr2;
-                        }
-                    }
-                }
+                JSObject ret = executeHttpWithRedirects(targetUrl, method, token, bodyJson, bodyBase64, customContentType);
                 call.resolve(ret);
             } catch (Exception e) {
                 JSObject ret = new JSObject();
@@ -557,34 +571,13 @@ public class WalletNativePlugin extends Plugin {
         });
     }
 
-    private static SSLSocketFactory createTrustAllSslSocketFactory() throws GeneralSecurityException {
-        TrustManager[] trustAllCerts = new TrustManager[]{
-                new X509TrustManager() {
-                    @Override
-                    public void checkClientTrusted(X509Certificate[] chain, String authType) {}
-
-                    @Override
-                    public void checkServerTrusted(X509Certificate[] chain, String authType) {}
-
-                    @Override
-                    public X509Certificate[] getAcceptedIssuers() {
-                        return new X509Certificate[0];
-                    }
-                }
-        };
-        SSLContext sc = SSLContext.getInstance("TLS");
-        sc.init(null, trustAllCerts, new SecureRandom());
-        return sc.getSocketFactory();
-    }
-
     private JSObject executeHttpWithRedirects(
             String initialUrl,
             String method,
             String token,
             String bodyJson,
             String bodyBase64,
-            String customContentType,
-            boolean trustSelfSigned
+            String customContentType
     ) throws Exception {
         String currentUrl = initialUrl;
         String currentMethod = method;
@@ -593,13 +586,11 @@ public class WalletNativePlugin extends Plugin {
         for (int hop = 0; hop <= maxRedirects; hop++) {
             HttpURLConnection conn = null;
             try {
+                if (!isAllowedPublicHttpsUrl(currentUrl)) {
+                    throw new IOException("Blocked redirect or request to disallowed non-public URL.");
+                }
                 URL urlObj = new URL(currentUrl);
                 conn = (HttpURLConnection) urlObj.openConnection();
-                if (trustSelfSigned && conn instanceof HttpsURLConnection) {
-                    HttpsURLConnection https = (HttpsURLConnection) conn;
-                    https.setSSLSocketFactory(createTrustAllSslSocketFactory());
-                    https.setHostnameVerifier((hostname, session) -> true);
-                }
                 conn.setRequestMethod(currentMethod);
                 conn.setConnectTimeout(15000);
                 conn.setReadTimeout(30000);

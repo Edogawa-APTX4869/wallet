@@ -1,6 +1,10 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  PUBLIC_URL_ERROR,
+  validatePublicFireflyUrl,
+} from "@/lib/firefly/url-validation";
 import { api } from "@/lib/firefly/api";
 import {
   clearLocalCompanionData,
@@ -132,12 +136,12 @@ describe("Standalone Android APK Mode & Biometric Verification", () => {
     _setNativeWalletForTests({ standalone: true, plugin: mockPlugin });
 
     const res = await connectWalletSession({
-      url: "https://firefly.nas.local///",
+      url: "https://firefly.example.com///",
       token: "pat-valid-123",
       enableBiometric: true,
     });
-    expect(res).toEqual({ connected: true, url: "https://firefly.nas.local" });
-    expect(savedCreds).toEqual({ url: "https://firefly.nas.local", token: "pat-valid-123" });
+    expect(res).toEqual({ connected: true, url: "https://firefly.example.com" });
+    expect(savedCreds).toEqual({ url: "https://firefly.example.com", token: "pat-valid-123" });
 
     const status = await getWalletSessionStatus();
     expect(status.authMode).toBe("standalone");
@@ -285,10 +289,11 @@ describe("Standalone Android APK Mode & Biometric Verification", () => {
   });
 
   it("normalizes mobile URL typos, OAuth profile suffixes, and 1,100+ char JWT tokens with clipboard paste", async () => {
-    expect(normalizeServerUrl("budget.alqubaiti.com")).toBe("https://budget.alqubaiti.com");
-    expect(normalizeServerUrl("https:budget.alqubaiti.com/")).toBe("https://budget.alqubaiti.com");
-    expect(normalizeServerUrl("https://budget.alqubaiti.com/profile/oauth")).toBe("https://budget.alqubaiti.com");
-    expect(normalizeServerUrl("https://budget.alqubaiti.com/api/v1/")).toBe("https://budget.alqubaiti.com");
+    expect(normalizeServerUrl("firefly.example.com")).toBe("https://firefly.example.com");
+    expect(normalizeServerUrl("https:firefly.example.com/")).toBe("https://firefly.example.com");
+    expect(normalizeServerUrl("https://firefly.example.com/profile/oauth")).toBe("https://firefly.example.com");
+    expect(normalizeServerUrl("https://firefly.example.com/api/v1/")).toBe("https://firefly.example.com");
+    expect(validatePublicFireflyUrl("https://firefly.example.com/profile/oauth")).toBe("https://firefly.example.com");
 
     const longJwt = `Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.\n${"a".repeat(600)} \r\n.${"b".repeat(500)}  `;
     const cleaned = normalizePersonalAccessToken(longJwt);
@@ -304,5 +309,39 @@ describe("Standalone Android APK Mode & Biometric Verification", () => {
     });
     const clipText = await readNativeClipboardText();
     expect(normalizePersonalAccessToken(clipText)).toBe(cleaned);
+  });
+
+  it("enforces public HTTPS domains and rejects internal hosts, private IPs, and hardcoded personal URLs", async () => {
+    const disallowed = [
+      "https://firefly:8080",
+      "http://firefly.example.com",
+      "https://localhost:8080",
+      "https://192.168.8.122:6976",
+      "https://100.100.100.100:8080",
+      "https://firefly.local",
+      "https://firefly-app:8080",
+    ];
+    for (const candidate of disallowed) {
+      expect(() => validatePublicFireflyUrl(candidate)).toThrow(PUBLIC_URL_ERROR);
+      await expect(
+        connectWalletSession({ url: candidate, token: "pat-secret", enableBiometric: false }),
+      ).rejects.toThrow(PUBLIC_URL_ERROR);
+    }
+
+    const loginSrc = readFileSync(path.resolve(__dirname, "../app/login/login-form.tsx"), "utf8");
+    const capShellSrc = readFileSync(path.resolve(__dirname, "../../capacitor-shell/index.html"), "utf8");
+    const pluginJava = readFileSync(
+      path.resolve(__dirname, "../../android/app/src/main/java/com/alqubaiti/wallet/WalletNativePlugin.java"),
+      "utf8",
+    );
+    const sessionSrc = readFileSync(path.resolve(__dirname, "../lib/server/session.ts"), "utf8");
+
+    for (const src of [loginSrc, capShellSrc, pluginJava, sessionSrc]) {
+      expect(src).not.toContain("alqubaiti.com");
+      expect(src).not.toContain("192.168.8.122");
+      expect(src).not.toContain("firefly:8080");
+      expect(src).not.toContain("createTrustAllSslSocketFactory");
+      expect(src).not.toContain("FIREFLY_URL");
+    }
   });
 });

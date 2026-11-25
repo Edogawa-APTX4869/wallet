@@ -86,7 +86,7 @@ export function BudgetAdjustModal({
 
   return (
     <BudgetAdjustModalContent
-      key={`${row.id}:${row.limitId ?? ""}`}
+      key={`${row.id}:${row.limitId ?? ""}:${row.limitStart}`}
       open={open}
       onClose={onClose}
       row={row}
@@ -116,9 +116,19 @@ function BudgetAdjustModalContent({
   const toast = useToast();
 
   const slices = row.periodLimits ?? [];
-  const [selectedSliceId, setSelectedSliceId] = useState<string>(() => row.limitId ?? slices[0]?.id ?? "");
+  const [selectedSliceId, setSelectedSliceId] = useState<string>(
+    () =>
+      slices.find(
+        (s) =>
+          s.id === row.limitId ||
+          (row.limitId === null && s.start === row.limitStart && s.end === row.limitEnd),
+      )?.id ??
+      slices[0]?.id ??
+      "",
+  );
   const activeSlice = slices.find((s) => s.id === selectedSliceId) ?? slices[0] ?? null;
-  const activeLimitId = activeSlice ? activeSlice.id : row.limitId;
+  const selectedSliceKey = activeSlice?.id ?? "";
+  const activeLimitId = activeSlice ? activeSlice.limitId : row.limitId;
   const activeStart = activeSlice ? activeSlice.start : row.limitStart || start;
   const activeEnd = activeSlice ? activeSlice.end : row.limitEnd || end;
   const activeCurrentLimit = activeSlice ? activeSlice.amount : row.limit;
@@ -225,12 +235,17 @@ function BudgetAdjustModalContent({
             {(id) => (
               <Select
                 id={id}
-                value={activeLimitId ?? ""}
+                value={selectedSliceKey}
                 onChange={(e) => {
                   const nextId = e.target.value;
                   setSelectedSliceId(nextId);
                   const nextSlice = slices.find((s) => s.id === nextId);
-                  if (nextSlice) setNotes(nextSlice.notes ?? "");
+                  if (nextSlice) {
+                    setNotes(nextSlice.notes ?? "");
+                    if (nextSlice.amount.eq(0) && mode === "subtract") {
+                      setMode("set");
+                    }
+                  }
                 }}
               >
                 {slices.map((s) => (

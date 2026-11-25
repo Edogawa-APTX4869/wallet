@@ -357,6 +357,8 @@ export const api = {
 
   transactions: (page = 1, params: Params = {}) =>
     ff.get<ListResponse<TransactionGroup>>("transactions", { page, limit: 50, ...params }),
+  transactionsInRange: (start: string, end: string, type?: string) =>
+    getAll<TransactionGroup>("transactions", { start, end, ...(type ? { type } : {}) }, 5),
   searchTransactions: (query: string, page = 1) =>
     ff.get<ListResponse<TransactionGroup>>("search/transactions", { query, page, limit: 50 }),
   createTransaction: (splits: NewSplit[], groupTitle?: string) =>

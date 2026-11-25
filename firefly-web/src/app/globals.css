@@ -57,6 +57,10 @@
   --font-mono: var(--font-geist-mono);
 }
 
+html {
+  scroll-padding-bottom: calc(9rem + env(safe-area-inset-bottom, 0px));
+}
+
 html,
 body {
   max-width: 100%;

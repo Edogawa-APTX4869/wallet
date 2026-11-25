@@ -30,10 +30,8 @@ import {
   Skeleton,
 } from "@/components/ui";
 import { useToast } from "@/components/providers";
-import { DesktopStickyFilterBar } from "@/components/filter-bar-desktop";
-import { MobileFilterDock } from "@/components/filter-dock-mobile";
 import { useUniversalFilter, type AccountFilterMode } from "@/lib/filter-context";
-import { type PeriodPreset } from "@/lib/filter-presets";
+import { PERIOD_PRESETS, type PeriodPreset } from "@/lib/filter-presets";
 import { useEscapeDismiss } from "@/lib/use-escape-dismiss";
 
 export interface Filters {
@@ -342,12 +340,6 @@ export function TransactionsClient() {
 
   return (
     <div className="flex flex-col gap-5">
-      {/* Desktop Sticky Universal Filter Bar */}
-      <DesktopStickyFilterBar />
-
-      {/* Mobile Floating Universal Filter Dock */}
-      <MobileFilterDock />
-
       <PageHeader
         title="Transactions"
         subtitle={
@@ -640,12 +632,12 @@ export function TransactionsClient() {
       </Card>
 
       {/* BudgetBakers Wallet-Style Bottom Period Navigator Bar (◀ [ This month / This year ▼ ] ▶) */}
-      <div className="sticky bottom-[calc(4.25rem+env(safe-area-inset-bottom))] md:bottom-4 z-20 flex items-center justify-between gap-2 rounded-2xl border border-border bg-surface/95 px-3 py-2 shadow-lg backdrop-blur">
+      <div className="sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom))] md:bottom-8 z-20 mr-16 sm:mr-18 md:mr-20 flex items-center justify-between gap-2 rounded-2xl border border-border bg-surface/95 px-3 py-2 shadow-lg backdrop-blur">
         <button
           type="button"
           onClick={() => universalFilter.stepPeriod(-1)}
           aria-label="Previous period"
-          className="inline-flex size-9 items-center justify-center rounded-xl border border-border bg-surface-2 text-fg hover:bg-surface-3 transition active:scale-95 cursor-pointer"
+          className="inline-flex size-10 sm:size-9 items-center justify-center rounded-xl border border-border bg-surface-2 text-fg hover:bg-surface-3 transition active:scale-95 cursor-pointer"
         >
           <ChevronLeft className="size-4" aria-hidden="true" />
         </button>
@@ -654,26 +646,31 @@ export function TransactionsClient() {
           <Select
             aria-label="Select period preset"
             value={universalFilter.preset}
-            onChange={(e) => universalFilter.setPreset(e.target.value as PeriodPreset)}
-            className="h-9 min-w-[155px] rounded-xl border-border bg-surface-2 px-3 text-center text-xs sm:text-sm font-semibold"
+            onChange={(e) => {
+              const nextPreset = e.target.value as PeriodPreset;
+              universalFilter.setPreset(nextPreset);
+              if (nextPreset === "custom") {
+                setShowFilters(true);
+              }
+            }}
+            className="h-10 sm:h-9 min-w-[140px] sm:min-w-[155px] rounded-xl border-border bg-surface-2 px-3 text-center text-xs sm:text-sm font-semibold"
           >
-            <option value="this_month">This month</option>
-            <option value="last_month">Last month</option>
-            <option value="30D">Last 30 days</option>
-            <option value="6M">Last 6 months</option>
-            <option value="this_year">This year</option>
-            <option value="1Y">Last 12 months</option>
-            {universalFilter.preset === "custom" && (
-              <option value="custom">{universalFilter.displayLabel}</option>
-            )}
+            {PERIOD_PRESETS.map((p) => (
+              <option key={p.key} value={p.key}>
+                {p.key === "custom" ? `Custom (${universalFilter.startDate} – ${universalFilter.endDate})` : p.label}
+              </option>
+            ))}
           </Select>
+          <span className="hidden font-mono text-xs text-muted sm:inline">
+            {universalFilter.startDate} – {universalFilter.endDate}
+          </span>
         </div>
 
         <button
           type="button"
           onClick={() => universalFilter.stepPeriod(1)}
           aria-label="Next period"
-          className="inline-flex size-9 items-center justify-center rounded-xl border border-border bg-surface-2 text-fg hover:bg-surface-3 transition active:scale-95 cursor-pointer"
+          className="inline-flex size-10 sm:size-9 items-center justify-center rounded-xl border border-border bg-surface-2 text-fg hover:bg-surface-3 transition active:scale-95 cursor-pointer"
         >
           <ChevronRight className="size-4" aria-hidden="true" />
         </button>

@@ -12,12 +12,12 @@ import {
   type AttachmentPayload,
   type SmartParseContext,
 } from "@/lib/ai-ramble-parser";
+import { validatePublicFireflyUrl } from "@/lib/firefly/url-validation";
 import type { TransactionTemplateRow } from "@/lib/server/db";
 
 export interface WalletSessionStatus {
   connected: boolean;
   url: string | null;
-  defaultUrl?: string;
   authMode: "standalone" | "server";
   biometricEnabled: boolean;
   biometricAvailable: boolean;
@@ -144,7 +144,7 @@ export function normalizeServerUrl(raw: string): string {
   let trimmed = raw.trim().replace(/\/+$/, "");
   if (!trimmed) return "";
   trimmed = trimmed.replace(/^(https?):\/?([^/])/i, "$1://$2");
-  if (!/^https?:\/\//i.test(trimmed)) {
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) {
     trimmed = `https://${trimmed}`;
   }
   trimmed = trimmed.replace(/\/(profile(\/oauth)?|api(\/v1)?|login)\/?$/i, "");
@@ -276,18 +276,13 @@ export async function nativeTestFireflyConnection(
   rawUrl: string,
   rawToken: string,
 ): Promise<{ url: string; about: unknown; user: unknown }> {
-  let url = normalizeServerUrl(rawUrl);
   const token = normalizePersonalAccessToken(rawToken);
-  if (!url || !token) {
+  if (!rawUrl.trim() || !token) {
     throw new Error("Server URL and token are required.");
   }
-  try {
-    new URL(url);
-  } catch {
-    throw new Error("That server URL does not look valid.");
-  }
+  const url = validatePublicFireflyUrl(rawUrl);
 
-  let [aboutRes, userRes] = await Promise.all([
+  const [aboutRes, userRes] = await Promise.all([
     nativeFireflyRequest({
       method: "GET",
       path: "about",
@@ -301,30 +296,6 @@ export async function nativeTestFireflyConnection(
       overrideToken: token,
     }),
   ]);
-
-  // If https://host:port failed at the network/TLS layer, automatically probe http://host:port
-  if ((aboutRes.networkError || aboutRes.status === 0) && /^https:\/\//i.test(url)) {
-    const httpCandidate = url.replace(/^https:\/\//i, "http://");
-    const [httpAbout, httpUser] = await Promise.all([
-      nativeFireflyRequest({
-        method: "GET",
-        path: "about",
-        overrideUrl: httpCandidate,
-        overrideToken: token,
-      }),
-      nativeFireflyRequest({
-        method: "GET",
-        path: "about/user",
-        overrideUrl: httpCandidate,
-        overrideToken: token,
-      }),
-    ]);
-    if (!httpAbout.networkError && httpAbout.status > 0) {
-      url = httpCandidate;
-      aboutRes = httpAbout;
-      userRes = httpUser;
-    }
-  }
 
   if (aboutRes.networkError || aboutRes.status === 0) {
     throw new Error(`Could not reach ${url}: ${aboutRes.message || "Network error"}`);
@@ -385,12 +356,10 @@ export async function getWalletSessionStatus(): Promise<WalletSessionStatus> {
   const json = (await res.json()) as {
     connected?: boolean;
     url?: string | null;
-    defaultUrl?: string;
   };
   return {
     connected: Boolean(json.connected),
     url: json.url ?? null,
-    defaultUrl: json.defaultUrl ?? "",
     authMode: "server",
     biometricEnabled: false,
     biometricAvailable: false,
@@ -471,7 +440,7 @@ export async function connectWalletSession(options: {
   token: string;
   enableBiometric?: boolean;
 }): Promise<{ connected: boolean; url: string }> {
-  const cleanUrl = normalizeServerUrl(options.url);
+  const cleanUrl = validatePublicFireflyUrl(options.url);
   const cleanToken = normalizePersonalAccessToken(options.token);
   if (isNativeStandalone()) {
     const verifiedConn = await nativeTestFireflyConnection(cleanUrl, cleanToken);
@@ -515,7 +484,7 @@ export async function reauthenticateWalletSession(options: {
   url: string;
   token: string;
 }): Promise<{ connected: boolean; url: string }> {
-  const cleanUrl = normalizeServerUrl(options.url);
+  const cleanUrl = validatePublicFireflyUrl(options.url);
   const cleanToken = normalizePersonalAccessToken(options.token);
   if (isNativeStandalone()) {
     const verifiedConn = await nativeTestFireflyConnection(cleanUrl, cleanToken);

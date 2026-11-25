@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSession } from "@/lib/server/session";
+import { assertSafeServerFireflyUrl, getSession, SESSION_COOKIE } from "@/lib/server/session";
 
 export const dynamic = "force-dynamic";
 
@@ -14,11 +14,22 @@ async function forward(req: NextRequest, { params }: Ctx) {
   if (!session) {
     return NextResponse.json({ message: "Not connected to Firefly III." }, { status: 401 });
   }
+  let safeBaseUrl: string;
+  try {
+    safeBaseUrl = await assertSafeServerFireflyUrl(session.url);
+  } catch (e) {
+    const res = NextResponse.json(
+      { message: (e as Error).message || "Session server URL is not permitted." },
+      { status: 401 },
+    );
+    res.cookies.delete(SESSION_COOKIE);
+    return res;
+  }
   const { path } = await params;
   if (path.some((p) => p === ".." || p.includes("/"))) {
     return NextResponse.json({ message: "Invalid path." }, { status: 400 });
   }
-  const target = `${session.url}/api/v1/${path.map(encodeURIComponent).join("/")}${req.nextUrl.search}`;
+  const target = `${safeBaseUrl}/api/v1/${path.map(encodeURIComponent).join("/")}${req.nextUrl.search}`;
 
   const contentType = req.headers.get("content-type") || "";
   const isBinaryUpload = contentType.includes("application/octet-stream");

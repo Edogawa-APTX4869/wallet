@@ -1,6 +1,8 @@
 import "server-only";
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import { lookup } from "node:dns/promises";
 import { cookies } from "next/headers";
+import { isDisallowedIpAddress, validatePublicFireflyUrl } from "@/lib/firefly/url-validation";
 
 export const SESSION_COOKIE = "ff_session";
 
@@ -41,6 +43,7 @@ export function unsealSession(value: string | undefined): Session | null {
     const json = Buffer.concat([decipher.update(data), decipher.final()]).toString("utf8");
     const parsed = JSON.parse(json) as Session;
     if (typeof parsed.url !== "string" || typeof parsed.token !== "string") return null;
+    parsed.url = validatePublicFireflyUrl(parsed.url);
     return parsed;
   } catch {
     return null;
@@ -49,23 +52,28 @@ export function unsealSession(value: string | undefined): Session | null {
 
 export async function getSession(): Promise<Session | null> {
   const store = await cookies();
-  const cookieSession = unsealSession(store.get(SESSION_COOKIE)?.value);
-  if (cookieSession) return cookieSession;
-  if (process.env.FIREFLY_URL && process.env.FIREFLY_TOKEN) {
-    return {
-      url: normaliseBaseUrl(process.env.FIREFLY_URL),
-      token: process.env.FIREFLY_TOKEN.trim(),
-    };
-  }
-  return null;
+  return unsealSession(store.get(SESSION_COOKIE)?.value);
 }
 
-/** Normalises user input like "https://ff.example.com/api/v1/" to "https://ff.example.com". */
+/** Validates public HTTPS URL syntax and verifies DNS resolution does not point to private/internal IPs. */
+export async function assertSafeServerFireflyUrl(rawUrl: string): Promise<string> {
+  const url = validatePublicFireflyUrl(rawUrl);
+  if (process.env.NODE_ENV !== "test") {
+    const hostname = new URL(url).hostname;
+    let records: Array<{ address: string }>;
+    try {
+      records = await lookup(hostname, { all: true });
+    } catch {
+      throw new Error(`Could not resolve public DNS for ${hostname}.`);
+    }
+    if (!records || records.length === 0 || records.some((r) => isDisallowedIpAddress(r.address))) {
+      throw new Error("Server URL resolves to a private or internal network address, which is not permitted.");
+    }
+  }
+  return url;
+}
+
+/** Normalises and validates user input like "https://ff.example.com/api/v1/" to "https://ff.example.com". */
 export function normaliseBaseUrl(input: string): string {
-  let url = input.trim().replace(/\/+$/, "");
-  if (!url) return "";
-  url = url.replace(/^(https?):\/?([^/])/i, "$1://$2");
-  if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
-  url = url.replace(/\/(profile(\/oauth)?|api(\/v1)?|login)\/?$/i, "");
-  return url.replace(/\/+$/, "");
+  return validatePublicFireflyUrl(input);
 }

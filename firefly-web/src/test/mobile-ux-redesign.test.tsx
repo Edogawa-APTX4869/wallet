@@ -543,10 +543,11 @@ describe("Mobile UX Redesign E2E & Production Suite (M1-M4)", () => {
         expect(html).toContain('aria-label="Ask AI Assistant"');
       });
 
-      it("T1.9.2: pins trigger pill to bottom-left (fixed left-4), opposite the FAB", () => {
+      it("T1.9.2: pins trigger pill directly above the FAB (fixed right-4 above + button)", () => {
         const html = renderWithProviders(<MagicChatbar />);
-        expect(html).toContain("fixed left-4");
-        expect(html).toContain("bottom-[calc(4.5rem+env(safe-area-inset-bottom))]");
+        expect(html).toContain("fixed right-4");
+        expect(html).toContain("bottom-[calc(8.625rem+env(safe-area-inset-bottom))]");
+        expect(html).toContain("md:right-8 md:bottom-[6.125rem]");
       });
 
       it("T1.9.3: operates at z-35, remaining subordinate to FAB (z-40) and Drawer (z-[60])", () => {
@@ -961,19 +962,14 @@ describe("Mobile UX Redesign E2E & Production Suite (M1-M4)", () => {
     // F9 Boundaries
     // ------------------------------------------------------------------------
     describe("F9 Boundaries: Chatbar Trigger & Separation Extremes", () => {
-      it("T2.9.1: trigger pill width and FAB clearance ensures zero collision on 360px viewport", () => {
-        const screenWidth = 360;
-        const fabRight = 16;
-        const fabWidth = 56;
-        const fabLeftBoundary = screenWidth - (fabRight + fabWidth); // 360 - 72 = 288px
+      it("T2.9.1: trigger pill sits cleanly above FAB with positive vertical clearance", () => {
+        const fabBottomRem = 4.5;
+        const fabHeightRem = 3.5; // size-14 = 56px
+        const pillBottomRem = 8.625;
+        const verticalGapPx = (pillBottomRem - (fabBottomRem + fabHeightRem)) * 16;
 
-        const pillLeft = 16;
-        const pillEstimatedWidth = 135;
-        const pillRightBoundary = pillLeft + pillEstimatedWidth; // 151px
-
-        const horizontalClearance = fabLeftBoundary - pillRightBoundary;
-        expect(horizontalClearance).toBe(137);
-        expect(horizontalClearance).toBeGreaterThan(100);
+        expect(verticalGapPx).toBe(10);
+        expect(verticalGapPx).toBeGreaterThan(0);
       });
 
       it("T2.9.2: trigger pill is hidden on /new route", () => {
@@ -1104,12 +1100,14 @@ describe("Mobile UX Redesign E2E & Production Suite (M1-M4)", () => {
       expect(mainClass).toContain("pb-[calc(8rem+env(safe-area-inset-bottom))]");
     });
 
-    it("T3.7: FAB (F8) + Chatbar (F9): left-4 vs right-4 pinning guarantees zero collision across screen widths", () => {
+    it("T3.7: FAB (F8) + Chatbar (F9): aligned on right-4 with stacked vertical separation", () => {
       const fabHtml = renderWithProviders(<SpeedDialFab isOpen={false} onToggle={() => {}} />);
       const chatHtml = renderWithProviders(<MagicChatbar />);
 
       expect(fabHtml).toContain("right-4");
-      expect(chatHtml).toContain("left-4");
+      expect(fabHtml).toContain("bottom-[calc(4.5rem+env(safe-area-inset-bottom))]");
+      expect(chatHtml).toContain("right-4");
+      expect(chatHtml).toContain("bottom-[calc(8.625rem+env(safe-area-inset-bottom))]");
     });
 
     it("T3.8: Tabs (F3) + Filter Chips (F7): filter chips offer direct routes relevant to both Accounts & Budgets", () => {
@@ -1278,9 +1276,9 @@ describe("Mobile UX Redesign E2E & Production Suite (M1-M4)", () => {
         </div>,
       );
 
-      // Verify FAB on right-4 and Chatbar on left-4
+      // Verify FAB on right-4 and Chatbar pill stacked directly above it
       expect(html).toContain("right-4");
-      expect(html).toContain("left-4");
+      expect(html).toContain("bottom-[calc(8.625rem+env(safe-area-inset-bottom))]");
 
       // Open FAB
       toggleFab();

@@ -1,19 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSession, normaliseBaseUrl, sealSession, SESSION_COOKIE } from "@/lib/server/session";
+import {
+  assertSafeServerFireflyUrl,
+  getSession,
+  sealSession,
+  SESSION_COOKIE,
+} from "@/lib/server/session";
 
 export const dynamic = "force-dynamic";
 
-/** Current connection status (never exposes the token). */
+/** Current connection status (never exposes the token or any pre-configured URL). */
 export async function GET() {
   const session = await getSession();
   return NextResponse.json({
     connected: !!session,
     url: session?.url ?? null,
-    defaultUrl: process.env.FIREFLY_URL || "",
   });
 }
 
-/** Connect: validates the URL + Personal Access Token against Firefly III and stores them. */
+/** Connect: validates the public HTTPS URL + Personal Access Token against Firefly III and stores them. */
 export async function POST(req: NextRequest) {
   let body: { url?: string; token?: string };
   try {
@@ -25,17 +29,16 @@ export async function POST(req: NextRequest) {
     ?.trim()
     .replace(/^Bearer\s+/i, "")
     .replace(/[\r\n\t\s]+/g, "");
-  const rawUrl = body.url?.trim() || process.env.FIREFLY_URL?.trim();
+  const rawUrl = body.url?.trim();
   if (!rawUrl || !token) {
     return NextResponse.json({ message: "Server URL and token are required." }, { status: 422 });
   }
 
   let url: string;
   try {
-    url = normaliseBaseUrl(rawUrl);
-    new URL(url);
-  } catch {
-    return NextResponse.json({ message: "That server URL does not look valid." }, { status: 422 });
+    url = await assertSafeServerFireflyUrl(rawUrl);
+  } catch (e) {
+    return NextResponse.json({ message: (e as Error).message }, { status: 422 });
   }
 
   let about: unknown;
@@ -79,5 +82,6 @@ export async function POST(req: NextRequest) {
 export async function DELETE() {
   const res = NextResponse.json({ connected: false });
   res.cookies.delete(SESSION_COOKIE);
+  res.headers.set("Clear-Site-Data", '"cookies", "storage", "cache"');
   return res;
 }

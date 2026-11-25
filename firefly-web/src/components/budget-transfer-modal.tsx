@@ -167,9 +167,14 @@ function BudgetTransferModalContent({
 
   const getSlice = (row: BudgetPeriodRow | undefined) => {
     if (!row) return null;
-    const match = row.periodLimits?.find((s) => s.id === row.limitId) ?? row.periodLimits?.[0];
+    const match =
+      row.periodLimits?.find(
+        (s) =>
+          s.id === row.limitId ||
+          (row.limitId === null && s.start === row.limitStart && s.end === row.limitEnd),
+      ) ?? row.periodLimits?.[0];
     return {
-      limitId: match?.id ?? row.limitId,
+      limitId: match ? match.limitId : row.limitId,
       start: match?.start ?? (row.limitStart || start),
       end: match?.end ?? (row.limitEnd || end),
       amount: match?.amount ?? row.limit,
