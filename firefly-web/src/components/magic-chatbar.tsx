@@ -1206,14 +1206,14 @@ export function MagicChatPanel({
                                   )}
 
                                   {d.type === "withdrawal" && (budgetsQ.data?.length ?? 0) > 0 && (
-                                    <select
+                                    <Select
                                       disabled={d.saved}
                                       value={d.budget_name || ""}
                                       onChange={(e) =>
                                         updateDraftField(m.id, d.id, { budget_name: e.target.value })
                                       }
                                       aria-label="Budget"
-                                      className="col-span-2 h-7 rounded-lg border border-border bg-surface px-2 text-xs text-fg outline-none disabled:opacity-60"
+                                      className="col-span-2 h-7 rounded-lg px-2 text-xs font-normal"
                                     >
                                       <option value="">No budget</option>
                                       {budgetsQ.data
@@ -1223,7 +1223,7 @@ export function MagicChatPanel({
                                             {b.attributes.name}
                                           </option>
                                         ))}
-                                    </select>
+                                    </Select>
                                   )}
                                 </div>
                               )}

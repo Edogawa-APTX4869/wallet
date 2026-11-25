@@ -1994,7 +1994,7 @@ function WalletCalculatorForm({
           </div>
 
           {/* Mobile-only LinkedAmountFields (Desktop uses Left Column financial core) */}
-          <div className="lg:hidden">
+          <div className="flex flex-col gap-4 lg:hidden">
             {type !== "transfer" && (
               <Field label="Payment currency (optional foreign currency)">
                 {(id) => (

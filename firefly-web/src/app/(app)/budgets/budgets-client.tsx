@@ -703,111 +703,151 @@ export function BudgetsClient() {
                   </div>
                 )}
 
-                {(slices.length > 1 || r.isSubPeriod) && slices.length > 0 && (
-                  <div className="flex flex-col gap-1 rounded-lg border border-border/70 bg-surface-2/40 px-2 py-1.5 text-[11px]">
-                    {slices.map((slice) => {
-                      const sliceCode = slice.currencyCode || r.code;
-                      const sliceDec = slice.decimals ?? r.decimals ?? 2;
-                      const showSliceCode = sliceCode !== r.code;
-                      const isSelectedSlice =
-                        (r.limitId !== null && slice.id === r.limitId) ||
-                        (slice.start === r.limitStart && slice.end === r.limitEnd);
-                      const isStraddling = slice.start < range.start || slice.end > range.end;
-                      const showInMonthNote =
-                        isStraddling &&
-                        slice.inMonthSpent !== undefined &&
-                        !slice.inMonthSpent.eq(slice.spent);
-                      const isUpcomingSynthesized =
-                        Boolean(slice.isSynthesized) && slice.start > todayIso && slice.spent.eq(0);
-
-                      return (
-                        <button
-                          key={slice.id}
-                          type="button"
-                          onClick={() => openInlineLimitEditor(r, slice.id)}
-                          className={cn(
-                            "flex items-center justify-between gap-2 rounded-md px-1.5 py-1 text-left transition hover:bg-surface-2",
-                            isSelectedSlice && "bg-primary-soft/25 font-medium",
+                {(slices.length > 1 || r.isSubPeriod) && slices.length > 0 && (() => {
+                  const periodNoun =
+                    r.autoBudgetPeriod === "daily"
+                      ? "days"
+                      : r.autoBudgetPeriod === "weekly"
+                        ? "weeks"
+                        : "periods";
+                  return (
+                    <details className="budget-slices-details rounded-lg border border-border/70 bg-surface-2/40 text-[11px]">
+                      <summary className="flex min-h-9 cursor-pointer select-none items-center justify-between gap-2 px-2 py-1.5 transition hover:bg-surface-2/70">
+                        <span className="flex min-w-0 items-center gap-1.5 font-medium text-fg">
+                          <ChevronRight
+                            className="budget-slices-chevron size-3.5 shrink-0 text-muted"
+                            aria-hidden
+                          />
+                          <span className="truncate">
+                            {slices.length} {periodNoun}
+                          </span>
+                          {r.unattributedSpent && r.unattributedSpent.gt(0) && (
+                            <span className="rounded bg-warning/15 px-1 py-0.25 text-[9px] font-semibold text-warning">
+                              Unallocated
+                            </span>
                           )}
-                          title={`${slice.isSynthesized ? "Set limit" : "Edit limit"} for ${slice.start} → ${slice.end}`}
-                        >
-                          <span className="flex min-w-0 flex-wrap items-center gap-1 whitespace-nowrap font-mono text-muted">
-                            <span>
-                              {slice.start.slice(5)} → {slice.end.slice(5)}
+                        </span>
+                        {r.monthLimit && r.monthSpent && r.monthLeft ? (
+                          <span className="shrink-0 whitespace-nowrap tabular-nums text-muted">
+                            <span className={cn(r.monthLeft.lt(0) && "font-semibold text-danger")}>
+                              <Money amount={r.monthSpent.toString()} code={r.code} decimals={r.decimals} />
                             </span>
-                            {slice.isActive && (
-                              <span className="rounded bg-primary/15 px-1 py-0.25 font-sans text-[9px] font-semibold text-primary">
-                                Active
-                              </span>
-                            )}
-                            {slice.isSynthesized && (
-                              <span
-                                className={cn(
-                                  "rounded px-1 py-0.25 font-sans text-[9px] font-semibold",
-                                  isUpcomingSynthesized
-                                    ? "bg-surface-2 text-muted font-medium"
-                                    : "bg-warning/15 text-warning",
-                                )}
-                              >
-                                {isUpcomingSynthesized ? "Upcoming" : "No limit"}
-                              </span>
-                            )}
-                            {showInMonthNote && (
-                              <span className="font-sans text-[9px] text-muted/90">
-                                ({monthShort}: {slice.inMonthSpent!.toFixed(sliceDec)})
-                              </span>
-                            )}
+                            {" / "}
+                            <Money amount={r.monthLimit.toString()} code={r.code} decimals={r.decimals} />
                           </span>
-                          <span className="shrink-0 whitespace-nowrap tabular-nums text-fg">
-                            <span
+                        ) : (
+                          <span className="shrink-0 text-[10px] font-medium text-muted">
+                            Tap to view
+                          </span>
+                        )}
+                      </summary>
+
+                      <div className="flex flex-col gap-1 border-t border-border/60 px-2 py-1.5">
+                        {slices.map((slice) => {
+                          const sliceCode = slice.currencyCode || r.code;
+                          const sliceDec = slice.decimals ?? r.decimals ?? 2;
+                          const showSliceCode = sliceCode !== r.code;
+                          const isSelectedSlice =
+                            (r.limitId !== null && slice.id === r.limitId) ||
+                            (slice.start === r.limitStart && slice.end === r.limitEnd);
+                          const isStraddling = slice.start < range.start || slice.end > range.end;
+                          const showInMonthNote =
+                            isStraddling &&
+                            slice.inMonthSpent !== undefined &&
+                            !slice.inMonthSpent.eq(slice.spent);
+                          const isUpcomingSynthesized =
+                            Boolean(slice.isSynthesized) && slice.start > todayIso && slice.spent.eq(0);
+
+                          return (
+                            <button
+                              key={slice.id}
+                              type="button"
+                              onClick={() => openInlineLimitEditor(r, slice.id)}
                               className={cn(
-                                slice.isSynthesized
-                                  ? slice.spent.gt(0)
-                                    ? "text-danger font-semibold"
-                                    : "text-muted"
-                                  : slice.left.lt(0)
-                                    ? "text-danger font-semibold"
-                                    : "text-muted",
+                                "!min-h-0 !min-w-0 flex items-center justify-between gap-2 rounded-md px-1.5 py-1.5 text-left transition hover:bg-surface-2",
+                                isSelectedSlice && "bg-primary-soft/25 font-medium",
                               )}
+                              title={`${slice.isSynthesized ? "Set limit" : "Edit limit"} for ${slice.start} → ${slice.end}`}
                             >
-                              {showSliceCode ? `${sliceCode} ` : ""}
-                              {slice.spent.toFixed(sliceDec)}
-                            </span>
-                            <span className="text-muted"> / </span>
-                            {slice.isSynthesized ? (
-                              <span className="font-normal text-muted">No limit</span>
-                            ) : (
-                              <span className="font-semibold">
-                                {showSliceCode ? `${sliceCode} ` : ""}
-                                {slice.amount.toFixed(sliceDec)}
+                              <span className="flex min-w-0 flex-wrap items-center gap-1 whitespace-nowrap font-mono text-muted">
+                                <span>
+                                  {slice.start.slice(5)} → {slice.end.slice(5)}
+                                </span>
+                                {slice.isActive && (
+                                  <span className="rounded bg-primary/15 px-1 py-0.25 font-sans text-[9px] font-semibold text-primary">
+                                    Active
+                                  </span>
+                                )}
+                                {slice.isSynthesized && (
+                                  <span
+                                    className={cn(
+                                      "rounded px-1 py-0.25 font-sans text-[9px] font-semibold",
+                                      isUpcomingSynthesized
+                                        ? "bg-surface-2 text-muted font-medium"
+                                        : "bg-warning/15 text-warning",
+                                    )}
+                                  >
+                                    {isUpcomingSynthesized ? "Upcoming" : "No limit"}
+                                  </span>
+                                )}
+                                {showInMonthNote && (
+                                  <span className="font-sans text-[9px] text-muted/90">
+                                    ({monthShort}: {slice.inMonthSpent!.toFixed(sliceDec)})
+                                  </span>
+                                )}
                               </span>
-                            )}
-                          </span>
-                        </button>
-                      );
-                    })}
-                    {r.unattributedSpent && r.unattributedSpent.gt(0) && (
-                      <div className="flex items-center justify-between gap-2 px-1.5 py-0.5 text-[11px] text-warning">
-                        <span className="truncate">Unallocated dates</span>
-                        <span className="shrink-0 whitespace-nowrap font-semibold tabular-nums">
-                          <Money amount={r.unattributedSpent.toString()} code={r.code} decimals={r.decimals} />
-                        </span>
+                              <span className="shrink-0 whitespace-nowrap tabular-nums text-fg">
+                                <span
+                                  className={cn(
+                                    slice.isSynthesized
+                                      ? slice.spent.gt(0)
+                                        ? "text-danger font-semibold"
+                                        : "text-muted"
+                                      : slice.left.lt(0)
+                                        ? "text-danger font-semibold"
+                                        : "text-muted",
+                                  )}
+                                >
+                                  {showSliceCode ? `${sliceCode} ` : ""}
+                                  {slice.spent.toFixed(sliceDec)}
+                                </span>
+                                <span className="text-muted"> / </span>
+                                {slice.isSynthesized ? (
+                                  <span className="font-normal text-muted">No limit</span>
+                                ) : (
+                                  <span className="font-semibold">
+                                    {showSliceCode ? `${sliceCode} ` : ""}
+                                    {slice.amount.toFixed(sliceDec)}
+                                  </span>
+                                )}
+                              </span>
+                            </button>
+                          );
+                        })}
+                        {r.unattributedSpent && r.unattributedSpent.gt(0) && (
+                          <div className="flex items-center justify-between gap-2 px-1.5 py-0.5 text-[11px] text-warning">
+                            <span className="truncate">Unallocated dates</span>
+                            <span className="shrink-0 whitespace-nowrap font-semibold tabular-nums">
+                              <Money amount={r.unattributedSpent.toString()} code={r.code} decimals={r.decimals} />
+                            </span>
+                          </div>
+                        )}
+                        {r.monthLimit && r.monthSpent && r.monthLeft && (
+                          <div className="mt-0.5 flex items-center justify-between gap-2 border-t border-border/60 px-1 pt-1.5 text-[11px] text-muted">
+                            <span className="truncate">Month total ({range.label})</span>
+                            <span className="shrink-0 whitespace-nowrap tabular-nums">
+                              <span className={cn(r.monthLeft.lt(0) && "font-semibold text-danger")}>
+                                <Money amount={r.monthSpent.toString()} code={r.code} decimals={r.decimals} />
+                              </span>
+                              {" / "}
+                              <Money amount={r.monthLimit.toString()} code={r.code} decimals={r.decimals} />
+                            </span>
+                          </div>
+                        )}
                       </div>
-                    )}
-                    {r.monthLimit && r.monthSpent && r.monthLeft && (
-                      <div className="mt-0.5 flex items-center justify-between gap-2 border-t border-border/60 px-1 pt-1.5 text-[11px] text-muted">
-                        <span className="truncate">Month total ({range.label})</span>
-                        <span className="shrink-0 whitespace-nowrap tabular-nums">
-                          <span className={cn(r.monthLeft.lt(0) && "font-semibold text-danger")}>
-                            <Money amount={r.monthSpent.toString()} code={r.code} decimals={r.decimals} />
-                          </span>
-                          {" / "}
-                          <Money amount={r.monthLimit.toString()} code={r.code} decimals={r.decimals} />
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                )}
+                    </details>
+                  );
+                })()}
 
                 {r.limitNotes && (
                   <p className="truncate text-[11px] italic text-muted" title={r.limitNotes}>

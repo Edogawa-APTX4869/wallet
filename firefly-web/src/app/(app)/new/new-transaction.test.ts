@@ -678,6 +678,15 @@ describe("FullScreenAccountSelectView & FullScreenCategorySelectView", () => {
     expect(pickerHtml).toContain('inputMode="numeric"');
     expect(pickerHtml).toContain('aria-label="Open 24-hour time picker"');
     expect(pickerHtml).not.toContain('type="time"');
+
+    // Mobile / coarse-pointer mode delegates to native type="time" so Android/iOS open the system clock dialog
+    const timePickerSrc = readFileSync(
+      path.resolve(__dirname, "../../../components/time-input-24h.tsx"),
+      "utf8",
+    );
+    expect(timePickerSrc).toContain("shouldUseNativeMobileTimePicker");
+    expect(timePickerSrc).toContain('(pointer: coarse)');
+    expect(timePickerSrc).toContain('type="time"');
   });
 
   it("builds prefilled fast-access liability repayment/loan URLs with Settings category mapping", () => {

@@ -988,3 +988,11 @@ describe("api.upsertBudgetLimit Firefly III payloads", () => {
     });
   });
 });
+
+describe("BudgetsClient collapsible sub-period slice list", () => {
+  it("renders weekly/sub-period slices collapsed by default in a native details disclosure", () => {
+    expect(BUDGETS_CLIENT_SRC).toContain('<details className="budget-slices-details');
+    expect(BUDGETS_CLIENT_SRC).toContain("<summary");
+    expect(BUDGETS_CLIENT_SRC).not.toContain("<details open");
+  });
+});

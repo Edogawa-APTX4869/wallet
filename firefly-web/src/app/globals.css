@@ -143,6 +143,32 @@ dialog.sheet::backdrop {
   grid-template-rows: 1fr;
 }
 
+/* Native <details> disclosure list smooth expand/collapse (progressive enhancement) */
+.budget-slices-details summary {
+  list-style: none;
+}
+.budget-slices-details summary::-webkit-details-marker {
+  display: none;
+}
+.budget-slices-details[open] .budget-slices-chevron {
+  transform: rotate(90deg);
+}
+.budget-slices-details::details-content {
+  overflow: clip;
+  contain: layout;
+}
+.budget-slices-details:not([open])::details-content {
+  block-size: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .budget-slices-details .budget-slices-chevron {
+    transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .budget-slices-details::details-content {
+    transition: block-size 240ms cubic-bezier(0.16, 1, 0.3, 1), content-visibility 240ms allow-discrete;
+  }
+}
+
 /* Card interactive physics (Smooth hover lift and tactile press) */
 .card-hover-spring {
   cursor: pointer;

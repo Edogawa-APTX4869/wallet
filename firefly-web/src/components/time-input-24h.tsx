@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { Clock } from "lucide-react";
+import { isNativeStandalone } from "@/lib/native-wallet";
 import { cn, isoTime } from "@/lib/utils";
 import { useEscapeDismiss } from "@/lib/use-escape-dismiss";
 
@@ -108,6 +109,23 @@ function computePopoverCoords(el: HTMLElement): PopoverCoords {
   return { top, left };
 }
 
+/** Use the OS native time dialog on touch/coarse-pointer devices or inside the Capacitor APK shell. */
+export function shouldUseNativeMobileTimePicker(): boolean {
+  if (typeof window === "undefined") return false;
+  if (isNativeStandalone()) return true;
+  return Boolean(window.matchMedia?.("(pointer: coarse)")?.matches);
+}
+
+function subscribeCoarsePointer(onStoreChange: () => void): () => void {
+  if (typeof window === "undefined" || !window.matchMedia) return () => {};
+  const mq = window.matchMedia("(pointer: coarse)");
+  if (typeof mq.addEventListener === "function") {
+    mq.addEventListener("change", onStoreChange);
+    return () => mq.removeEventListener("change", onStoreChange);
+  }
+  return () => {};
+}
+
 export function TimeInput24h({
   id,
   name,
@@ -119,6 +137,11 @@ export function TimeInput24h({
   className,
   "aria-label": ariaLabel,
 }: TimeInput24hProps) {
+  const useNativeMobilePicker = useSyncExternalStore(
+    subscribeCoarsePointer,
+    shouldUseNativeMobileTimePicker,
+    () => false,
+  );
   const popoverId = useId();
   const wrapperRef = useRef<HTMLDivElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -131,7 +154,7 @@ export function TimeInput24h({
   const [open, setOpen] = useState(false);
   const [coords, setCoords] = useState<PopoverCoords>({ top: 0, left: 0 });
 
-  useEscapeDismiss(open, () => setOpen(false), `time-picker-24h-${popoverId}`);
+  useEscapeDismiss(open && !useNativeMobilePicker, () => setOpen(false), `time-picker-24h-${popoverId}`);
 
   const displayValue = editingDraft !== null ? editingDraft : value;
   const normalizedCurrent = parseTime24h(displayValue) ?? parseTime24h(value) ?? "00:00";
@@ -140,7 +163,7 @@ export function TimeInput24h({
 
   // Keep popover anchored on scroll/resize and dismiss on outside click
   useEffect(() => {
-    if (!open) return;
+    if (!open || useNativeMobilePicker) return;
 
     const updatePos = () => {
       if (wrapperRef.current) {
@@ -174,7 +197,30 @@ export function TimeInput24h({
       window.removeEventListener("scroll", updatePos, true);
       document.removeEventListener("pointerdown", handlePointerDown);
     };
-  }, [open]);
+  }, [open, useNativeMobilePicker]);
+
+  if (useNativeMobilePicker) {
+    const nativeValue = parseTime24h(value) ?? "";
+    return (
+      <input
+        id={id}
+        name={name}
+        type="time"
+        required={required}
+        disabled={disabled}
+        aria-label={ariaLabel}
+        value={nativeValue}
+        onChange={(e) => onChange(e.target.value)}
+        className={cn(
+          "border border-border bg-surface font-medium tabular-nums text-fg outline-none transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+          compact
+            ? "rounded-lg px-2 py-1 text-xs focus:border-primary"
+            : "h-11 w-full rounded-xl px-3 text-base md:text-sm focus:border-primary focus:ring-2 focus:ring-primary/25",
+          className,
+        )}
+      />
+    );
+  }
 
   function togglePicker() {
     if (disabled) return;

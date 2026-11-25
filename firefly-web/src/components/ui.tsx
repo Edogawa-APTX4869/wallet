@@ -1,8 +1,8 @@
 "use client";
 
-import { forwardRef, useEffect, useId, useState } from "react";
+import { forwardRef, useEffect, useId, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
-import { Loader2, X } from "lucide-react";
+import { ChevronDown, Loader2, X } from "lucide-react";
 import { cn, formatMoney } from "@/lib/utils";
 import { useEscapeDismiss } from "@/lib/use-escape-dismiss";
 
@@ -80,20 +80,79 @@ export const Input = forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTML
   );
 });
 
+const SELECT_WRAPPER_CLASS_RE =
+  /^(?:(?:max-|min-)?[a-z0-9-]+:)*(?:w-|min-w-|max-w-|flex-|shrink|grow|basis-|col-span-|row-span-|self-|justify-self-|order-|m[trblxy]?-)/;
+
+function splitSelectClassNames(className?: string) {
+  if (!className) {
+    return {
+      wrapperClasses: "",
+      controlClasses: "",
+      hasSizingOrFlex: false,
+      hasExplicitRightPad: false,
+      isCompact: false,
+    };
+  }
+  const wrapperTokens: string[] = [];
+  const controlTokens: string[] = [];
+  let hasSizingOrFlex = false;
+  let hasExplicitRightPad = false;
+  let isCompact = false;
+
+  for (const token of className.split(/\s+/).filter(Boolean)) {
+    if (SELECT_WRAPPER_CLASS_RE.test(token)) {
+      wrapperTokens.push(token);
+      if (/^(?:[a-z0-9-]+:)*(?:w-|flex-)/.test(token)) {
+        hasSizingOrFlex = true;
+      }
+    } else {
+      controlTokens.push(token);
+      if (/^(?:[a-z0-9-]+:)*(?:pr|pe)-/.test(token)) {
+        hasExplicitRightPad = true;
+      }
+      if (/^(?:[a-z0-9-]+:)*(?:h-(?:6|7|8|9)|px-(?:1|1\.5|2))$/.test(token)) {
+        isCompact = true;
+      }
+    }
+  }
+
+  return {
+    wrapperClasses: wrapperTokens.join(" "),
+    controlClasses: controlTokens.join(" "),
+    hasSizingOrFlex,
+    hasExplicitRightPad,
+    isCompact,
+  };
+}
+
 export const Select = forwardRef<HTMLSelectElement, React.SelectHTMLAttributes<HTMLSelectElement>>(function Select(
   { className, ...props },
   ref,
 ) {
+  const { wrapperClasses, controlClasses, hasSizingOrFlex, hasExplicitRightPad, isCompact } =
+    splitSelectClassNames(className);
+
   return (
-    <select
-      ref={ref}
-      className={cn(
-        "h-11 w-full rounded-xl border border-border bg-surface px-3 text-base outline-none md:text-sm",
-        "focus:border-primary focus:ring-2 focus:ring-primary/25",
-        className,
-      )}
-      {...props}
-    />
+    <div className={cn("relative min-w-0", !hasSizingOrFlex && "w-full", wrapperClasses)}>
+      <select
+        ref={ref}
+        className={cn(
+          "h-11 w-full appearance-none truncate rounded-xl border border-border bg-surface bg-none ps-3 pe-9 text-base font-medium text-fg outline-none transition-colors md:text-sm",
+          "hover:bg-surface-2/40 focus:border-primary focus:ring-2 focus:ring-primary/25",
+          "disabled:cursor-not-allowed disabled:opacity-50",
+          controlClasses,
+          !hasExplicitRightPad && (isCompact ? "pe-7" : "pe-9"),
+        )}
+        {...props}
+      />
+      <ChevronDown
+        aria-hidden="true"
+        className={cn(
+          "pointer-events-none absolute top-1/2 -translate-y-1/2 text-muted",
+          isCompact ? "end-2 size-3.5" : "end-3 size-4",
+        )}
+      />
+    </div>
   );
 });
 
@@ -292,12 +351,12 @@ export function ModalSheet({
 }) {
   useEscapeDismiss(open, onClose, undefined, { hidesChrome: true });
 
-  const [mounted, setMounted] = useState(false);
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
   const [rendered, setRendered] = useState(open);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   if (open && !rendered) {
     setRendered(true);
